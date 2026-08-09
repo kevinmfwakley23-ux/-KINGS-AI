@@ -1,4 +1,5 @@
 import type {
+  Evidence,
   ID,
   KnowledgeRecord,
   KnowledgeSource,
@@ -7,10 +8,23 @@ import type {
 export class KnowledgeRegistry {
   private readonly sources = new Map<ID, KnowledgeSource>();
   private readonly records = new Map<ID, KnowledgeRecord>();
+  private readonly evidence = new Map<ID, Evidence>();
 
   registerSource(source: KnowledgeSource): void {
     this.assertUnique(this.sources, source.id, "knowledge source");
     this.sources.set(source.id, source);
+  }
+
+  registerEvidence(item: Evidence): void {
+    if (!this.sources.has(item.sourceId)) {
+      throw new Error(
+        `K.I.N.G.S. Knowledge Registry: source "${item.sourceId}" ` +
+        `must be registered before evidence "${item.id}"`,
+      );
+    }
+
+    this.assertUnique(this.evidence, item.id, "evidence");
+    this.evidence.set(item.id, item);
   }
 
   registerRecord(record: KnowledgeRecord): void {
@@ -19,6 +33,24 @@ export class KnowledgeRegistry {
         `K.I.N.G.S. Knowledge Registry: source "${record.sourceId}" ` +
         `must be registered before knowledge record "${record.id}"`,
       );
+    }
+
+    for (const evidenceId of record.evidenceIds) {
+      const evidence = this.evidence.get(evidenceId);
+
+      if (!evidence) {
+        throw new Error(
+          `K.I.N.G.S. Knowledge Registry: evidence "${evidenceId}" ` +
+          `must be registered before knowledge record "${record.id}"`,
+        );
+      }
+
+      if (evidence.sourceId !== record.sourceId) {
+        throw new Error(
+          `K.I.N.G.S. Knowledge Registry: evidence "${evidenceId}" ` +
+          `does not belong to source "${record.sourceId}"`,
+        );
+      }
     }
 
     this.assertUnique(
@@ -34,12 +66,20 @@ export class KnowledgeRegistry {
     return this.sources.get(id);
   }
 
+  getEvidence(id: ID): Evidence | undefined {
+    return this.evidence.get(id);
+  }
+
   getRecord(id: ID): KnowledgeRecord | undefined {
     return this.records.get(id);
   }
 
   listSources(): KnowledgeSource[] {
     return [...this.sources.values()];
+  }
+
+  listEvidence(): Evidence[] {
+    return [...this.evidence.values()];
   }
 
   listRecords(): KnowledgeRecord[] {
@@ -49,6 +89,7 @@ export class KnowledgeRegistry {
   clear(): void {
     this.sources.clear();
     this.records.clear();
+    this.evidence.clear();
   }
 
   private assertUnique<T>(

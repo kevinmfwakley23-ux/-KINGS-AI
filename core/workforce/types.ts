@@ -261,6 +261,11 @@ export interface KnowledgeRecord {
   sourceId: ID;
 
   /**
+   * Memory classification used by retrieval filters.
+   */
+  memoryType: MemoryType;
+
+  /**
    * Short retrievable statement of project knowledge.
    */
   summary: string;
