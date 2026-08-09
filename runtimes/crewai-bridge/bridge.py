@@ -39,7 +39,21 @@ def main() -> None:
     )
 
     response = {
-        "status": "bridge-ready",
+        "status": "success",
+        "summary": (
+            "CrewAI execution objects were constructed "
+            "successfully. Model execution remains disabled."
+        ),
+        "reasoning": (
+            "The K.I.N.G.S. bridge verified construction of "
+            "the CrewAI agent, task, and sequential crew."
+        ),
+        "artifactIds": [],
+        "verificationReferences": [
+            "crewai-agent-constructed",
+            "crewai-task-constructed",
+            "crewai-crew-constructed",
+        ],
         "agentId": agent_data["id"],
         "taskId": task_data["id"],
         "crewProcess": Process.sequential.value,
@@ -47,11 +61,6 @@ def main() -> None:
         "taskCreated": task is not None,
         "crewCreated": crew is not None,
         "executionStarted": False,
-        "reason": (
-            "CrewAI objects were constructed successfully. "
-            "Actual model execution is intentionally disabled "
-            "during bridge verification."
-        ),
     }
 
     print(json.dumps(response))
@@ -64,7 +73,11 @@ if __name__ == "__main__":
         print(
             json.dumps(
                 {
-                    "status": "bridge-error",
+                    "status": "failure",
+                    "summary": "CrewAI bridge construction failed.",
+                    "reasoning": str(exc),
+                    "artifactIds": [],
+                    "verificationReferences": [],
                     "errorType": type(exc).__name__,
                     "error": str(exc),
                 }
