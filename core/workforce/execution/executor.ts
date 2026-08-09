@@ -25,6 +25,13 @@ export class WorkforceExecutor {
       );
     }
 
+    if (task.status !== "ready") {
+      throw new Error(
+        `K.I.N.G.S. Workforce Executor: task "${taskId}" ` +
+        `is not executable because its status is "${task.status}"`,
+      );
+    }
+
     if (!task.assignedAgentId) {
       throw new Error(
         `K.I.N.G.S. Workforce Executor: task "${taskId}" has no assigned agent`,
