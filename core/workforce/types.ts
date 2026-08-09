@@ -219,6 +219,147 @@ export interface WorkforceResult {
   createdAt: string;
 }
 
+export type KnowledgeSourceType =
+  | "construction-document"
+  | "blueprint"
+  | "project-ledger"
+  | "implementation-matrix"
+  | "repository"
+  | "decision"
+  | "other";
+
+export interface KnowledgeSource {
+  id: ID;
+  type: KnowledgeSourceType;
+
+  name: string;
+  description: string;
+
+  /**
+   * Physical or logical location of the authoritative source.
+   */
+  location: string;
+
+  /**
+   * Indicates whether this source is authoritative for project decisions.
+   */
+  authoritative: boolean;
+
+  version?: string;
+  contentHash?: string;
+
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeRecord {
+  id: ID;
+
+  /**
+   * Source from which this knowledge was derived.
+   */
+  sourceId: ID;
+
+  /**
+   * Short retrievable statement of project knowledge.
+   */
+  summary: string;
+
+  /**
+   * Optional structured content retained for retrieval or inspection.
+   */
+  content?: string;
+
+  /**
+   * Evidence references supporting this record.
+   */
+  evidenceIds: ID[];
+
+  /**
+   * Indicates whether this record has been explicitly
+   * promoted as authoritative project knowledge.
+   */
+  authoritative: boolean;
+
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Evidence {
+  id: ID;
+
+  /**
+   * Knowledge source supporting this evidence.
+   */
+  sourceId: ID;
+
+  /**
+   * Human-readable description of what the evidence establishes.
+   */
+  description: string;
+
+  /**
+   * Location within the source, such as a file path,
+   * section, page, heading, or line range.
+   */
+  location?: string;
+
+  /**
+   * Optional excerpt retained for verification.
+   */
+  excerpt?: string;
+
+  createdAt: string;
+}
+
+export interface MemoryQuery {
+  /**
+   * Human-readable retrieval request.
+   */
+  query: string;
+
+  /**
+   * Optional filters limiting retrieval to specific sources.
+   */
+  sourceIds?: ID[];
+
+  /**
+   * Optional filters limiting retrieval to specific memory types.
+   */
+  memoryTypes?: MemoryType[];
+
+  /**
+   * Whether authoritative knowledge should be preferred.
+   */
+  authoritativeOnly?: boolean;
+
+  /**
+   * Maximum number of records requested.
+   */
+  limit?: number;
+}
+
+export interface MemoryResult {
+  query: string;
+
+  /**
+   * Knowledge records returned by retrieval.
+   */
+  records: KnowledgeRecord[];
+
+  /**
+   * Evidence supporting the returned knowledge.
+   */
+  evidence: Evidence[];
+
+  /**
+   * References to the original sources consulted.
+   */
+  sourceIds: ID[];
+
+  createdAt: string;
+}
+
 export interface MemoryReference {
   id: ID;
   type: MemoryType;
