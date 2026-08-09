@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "outDir": "./build"
+  },
+  "include": [
+    "./adapter.ts",
+    "./adapter-test.ts",
+    "../../core/workforce/types.ts",
+    "../../core/workforce/knowledge-runtime-adapter.ts"
+  ]
+}

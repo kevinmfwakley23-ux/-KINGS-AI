@@ -9,11 +9,15 @@ import type {
 import type {
   WorkforceRegistry,
 } from "../registry";
+import type {
+KnowledgeRuntimeAdapter,
+} from "../knowledge-runtime-adapter";
 
 export class WorkforceExecutor {
   constructor(
     private readonly registry: WorkforceRegistry,
     private readonly adapters: AgentExecutionAdapter[] = [],
+private readonly knowledgeRuntime?: KnowledgeRuntimeAdapter,
   ) {}
 
   async execute(taskId: ID): Promise<WorkforceResult> {
@@ -92,6 +96,22 @@ export class WorkforceExecutor {
       );
     }
 
+let knowledge;
+
+if (task.knowledgeQuery) {
+if (!this.knowledgeRuntime) {
+throw new Error(
+`K.I.N.G.S. Workforce Executor: task "${task.id}" ` +
+"requires knowledge retrieval but no knowledge runtime is configured",
+);
+}
+
+knowledge =
+await this.knowledgeRuntime.retrieve(
+task.knowledgeQuery,
+);
+}
+
     const adapter = this.adapters.find(
       (candidate) => candidate.canExecute(agent),
     );
@@ -105,6 +125,7 @@ export class WorkforceExecutor {
     return adapter.execute({
       agent,
       task,
+  knowledge,
     });
   }
 }

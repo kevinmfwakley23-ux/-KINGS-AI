@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "outDir": "./build"
+  },
+  "include": [
+    "./repository-adapter.ts",
+    "./repository-adapter-test.ts",
+    "./repository-integration-test.ts",
+    "../../core/workforce/types.ts",
+    "../../core/workforce/source-inspection.ts",
+    "../../core/workforce/source-inspection-service.ts",
+    "../../core/workforce/source-inspection-adapter.ts"
+  ]
+}

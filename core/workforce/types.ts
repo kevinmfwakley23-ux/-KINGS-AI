@@ -131,6 +131,11 @@ export interface Task {
   inputReferences: string[];
 
   /**
+   * Optional authoritative knowledge request required before execution.
+   */
+  knowledgeQuery?: MemoryQuery;
+
+  /**
    * Expected deliverables.
    */
   expectedOutputs: string[];
@@ -222,6 +227,7 @@ export interface WorkforceResult {
 export type KnowledgeSourceType =
   | "construction-document"
   | "blueprint"
+  | "build-directive"
   | "project-ledger"
   | "implementation-matrix"
   | "repository"
