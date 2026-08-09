@@ -39,6 +39,19 @@ export class WorkforceExecutor {
       );
     }
 
+    const missingCapabilities =
+      task.requiredCapabilities.filter(
+        (capability) =>
+          !agent.capabilities.includes(capability),
+      );
+
+    if (missingCapabilities.length > 0) {
+      throw new Error(
+        `K.I.N.G.S. Workforce Executor: agent "${agent.id}" ` +
+        `lacks required capabilities: ${missingCapabilities.join(", ")}`,
+      );
+    }
+
     const adapter = this.adapters.find(
       (candidate) => candidate.canExecute(agent),
     );

@@ -105,6 +105,12 @@ export interface Task {
 
   assignedAgentId?: ID;
 
+  /**
+   * Capabilities the assigned agent must possess
+   * before this task may execute.
+   */
+  requiredCapabilities: string[];
+
   status: TaskStatus;
 
   /**

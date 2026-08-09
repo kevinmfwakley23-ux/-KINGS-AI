@@ -13,32 +13,32 @@ import {
 } from "./executor";
 
 import {
-  CrewAIExecutionAdapter,
-} from "./crewai-adapter";
+  TestExecutionAdapter,
+} from "./test-adapter";
 
 async function main(): Promise<void> {
   const registry = new WorkforceRegistry();
 
   const agent: AgentDefinition = {
-    id: "agent-crewai-test",
-    name: "K.I.N.G.S. CrewAI Test Agent",
-    role: "CrewAI execution worker",
+    id: "agent-authorization-test",
+    name: "K.I.N.G.S. Authorization Test Agent",
+    role: "Controlled test worker",
     description:
-      "A controlled agent used to verify CrewAI adapter selection.",
-    capabilities: ["crewai"],
+      "An agent intentionally missing the capability required by the test task.",
+    capabilities: ["test"],
     toolIds: [],
     status: "available",
   };
 
   const mission: Mission = {
-    id: "mission-crewai-selection-test",
-    name: "CrewAI Adapter Selection Test",
+    id: "mission-authorization-test",
+    name: "Workforce Authorization Test",
     description:
-      "Verify that K.I.N.G.S. selects the CrewAI adapter for a CrewAI-capable agent.",
+      "Verify that K.I.N.G.S. rejects unauthorized task execution.",
     status: "active",
     objectives: [
-      "Verify CrewAI capability matching.",
-      "Verify CrewAI adapter selection.",
+      "Verify capability enforcement.",
+      "Verify unauthorized execution is rejected.",
     ],
     sourceReferences: [],
     createdAt: new Date().toISOString(),
@@ -46,18 +46,18 @@ async function main(): Promise<void> {
   };
 
   const task: Task = {
-    id: "task-crewai-selection-test",
+    id: "task-authorization-test",
     missionId: mission.id,
-    name: "Select CrewAI adapter",
+    name: "Attempt unauthorized execution",
     description:
-      "Verify that the executor selects the CrewAI adapter.",
+      "This task intentionally requires a capability the assigned agent does not possess.",
     assignedAgentId: agent.id,
-    requiredCapabilities: ["crewai"],
+    requiredCapabilities: ["deploy"],
     status: "ready",
     dependencyIds: [],
     inputReferences: [],
     expectedOutputs: [
-      "CrewAI adapter selected",
+      "Execution rejected",
     ],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -69,14 +69,14 @@ async function main(): Promise<void> {
 
   const executor = new WorkforceExecutor(
     registry,
-    [new CrewAIExecutionAdapter()],
+    [new TestExecutionAdapter()],
   );
 
   try {
     await executor.execute(task.id);
 
     throw new Error(
-      "CrewAI adapter unexpectedly executed successfully during selection test.",
+      "Authorization test failed: unauthorized execution was allowed.",
     );
   } catch (error: unknown) {
     const message =
@@ -86,26 +86,29 @@ async function main(): Promise<void> {
 
     if (
       !message.includes(
-        "CrewAI adapter execution bridge is not implemented yet",
+        'lacks required capabilities: deploy',
       )
     ) {
-      throw error;
+      throw new Error(
+        `Authorization test failed with unexpected error: ${message}`,
+      );
     }
 
     console.log(
-      "=== K.I.N.G.S. CREWAI ADAPTER SELECTION ===",
+      "=== K.I.N.G.S. AUTHORIZATION TEST ===",
     );
-    console.log("Agent capability: crewai");
-    console.log("Adapter selected: crewai");
-    console.log("Execution bridge: intentionally not connected");
-    console.log("Selection test: SUCCESS");
+    console.log(
+      "Unauthorized execution rejected: SUCCESS",
+    );
+    console.log(
+      `Reason: ${message}`,
+    );
   }
 }
 
 main().catch((error: unknown) => {
   console.error(
-    "=== K.I.N.G.S. CREWAI SELECTION TEST FAILED ===",
+    "=== K.I.N.G.S. AUTHORIZATION TEST FAILED ===",
   );
   console.error(error);
-  throw error;
 });
