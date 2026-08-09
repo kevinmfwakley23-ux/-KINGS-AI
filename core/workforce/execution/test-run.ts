@@ -54,6 +54,7 @@ async function main(): Promise<void> {
       "Verify the K.I.N.G.S. executor can route a task to an execution adapter.",
     assignedAgentId: agent.id,
     requiredCapabilities: ["test"],
+    requiredToolIds: [],
     status: "ready",
     dependencyIds: [],
     inputReferences: [],

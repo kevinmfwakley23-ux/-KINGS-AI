@@ -2,6 +2,7 @@ import type {
   AgentDefinition,
   Mission,
   Task,
+  ToolDefinition,
 } from "../types";
 
 import {
@@ -19,26 +20,35 @@ import {
 async function main(): Promise<void> {
   const registry = new WorkforceRegistry();
 
-  const agent: AgentDefinition = {
-    id: "agent-authorization-test",
-    name: "K.I.N.G.S. Authorization Test Agent",
-    role: "Controlled test worker",
+  const tool: ToolDefinition = {
+    id: "tool-disabled-test",
+    name: "Disabled Test Tool",
     description:
-      "An agent intentionally missing the capability required by the test task.",
+      "A disabled tool used to verify central tool availability enforcement.",
+    capabilities: ["test-tool"],
+    enabled: false,
+  };
+
+  const agent: AgentDefinition = {
+    id: "agent-tool-disabled-test",
+    name: "K.I.N.G.S. Disabled Tool Test Agent",
+    role: "Controlled disabled-tool worker",
+    description:
+      "An agent authorized for a tool that has been centrally disabled.",
     capabilities: ["test"],
-    toolIds: [],
+    toolIds: [tool.id],
     status: "available",
   };
 
   const mission: Mission = {
-    id: "mission-authorization-test",
-    name: "Workforce Authorization Test",
+    id: "mission-tool-disabled-test",
+    name: "Disabled Tool Authorization Test",
     description:
-      "Verify that K.I.N.G.S. rejects unauthorized task execution.",
+      "Verify that K.I.N.G.S. rejects access to a disabled tool.",
     status: "active",
     objectives: [
-      "Verify capability enforcement.",
-      "Verify unauthorized execution is rejected.",
+      "Verify disabled tool enforcement.",
+      "Verify centrally disabled tools cannot execute.",
     ],
     sourceReferences: [],
     createdAt: new Date().toISOString(),
@@ -46,24 +56,25 @@ async function main(): Promise<void> {
   };
 
   const task: Task = {
-    id: "task-authorization-test",
+    id: "task-tool-disabled-test",
     missionId: mission.id,
-    name: "Attempt unauthorized execution",
+    name: "Attempt disabled tool access",
     description:
-      "This task intentionally requires a capability the assigned agent does not possess.",
+      "This task intentionally requires a tool that is registered and authorized but disabled.",
     assignedAgentId: agent.id,
-    requiredCapabilities: ["deploy"],
-    requiredToolIds: [],
+    requiredCapabilities: ["test"],
+    requiredToolIds: [tool.id],
     status: "ready",
     dependencyIds: [],
     inputReferences: [],
     expectedOutputs: [
-      "Execution rejected",
+      "Execution rejected because required tool is disabled",
     ],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
 
+  registry.registerTool(tool);
   registry.registerAgent(agent);
   registry.registerMission(mission);
   registry.registerTask(task);
@@ -77,7 +88,7 @@ async function main(): Promise<void> {
     await executor.execute(task.id);
 
     throw new Error(
-      "Authorization test failed: unauthorized execution was allowed.",
+      "Disabled tool test failed: access to a disabled tool was allowed.",
     );
   } catch (error: unknown) {
     const message =
@@ -87,19 +98,19 @@ async function main(): Promise<void> {
 
     if (
       !message.includes(
-        'lacks required capabilities: deploy',
+        "tool-disabled-test (tool disabled)",
       )
     ) {
       throw new Error(
-        `Authorization test failed with unexpected error: ${message}`,
+        `Disabled tool test failed with unexpected error: ${message}`,
       );
     }
 
     console.log(
-      "=== K.I.N.G.S. AUTHORIZATION TEST ===",
+      "=== K.I.N.G.S. DISABLED TOOL TEST ===",
     );
     console.log(
-      "Unauthorized execution rejected: SUCCESS",
+      "Disabled tool access rejected: SUCCESS",
     );
     console.log(
       `Reason: ${message}`,
@@ -109,7 +120,7 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   console.error(
-    "=== K.I.N.G.S. AUTHORIZATION TEST FAILED ===",
+    "=== K.I.N.G.S. DISABLED TOOL TEST FAILED ===",
   );
   console.error(error);
 });

@@ -52,6 +52,39 @@ export class WorkforceExecutor {
       );
     }
 
+    const unauthorizedTools: string[] = [];
+
+    for (const toolId of task.requiredToolIds) {
+      const tool = this.registry.getTool(toolId);
+
+      if (!tool) {
+        unauthorizedTools.push(
+          `${toolId} (not registered)`,
+        );
+        continue;
+      }
+
+      if (!agent.toolIds.includes(toolId)) {
+        unauthorizedTools.push(
+          `${toolId} (agent not authorized)`,
+        );
+        continue;
+      }
+
+      if (!tool.enabled) {
+        unauthorizedTools.push(
+          `${toolId} (tool disabled)`,
+        );
+      }
+    }
+
+    if (unauthorizedTools.length > 0) {
+      throw new Error(
+        `K.I.N.G.S. Workforce Executor: agent "${agent.id}" ` +
+        `cannot access required tools: ${unauthorizedTools.join(", ")}`,
+      );
+    }
+
     const adapter = this.adapters.find(
       (candidate) => candidate.canExecute(agent),
     );

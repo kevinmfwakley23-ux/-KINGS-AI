@@ -53,6 +53,7 @@ async function main(): Promise<void> {
       "Verify that the executor selects the CrewAI adapter.",
     assignedAgentId: agent.id,
     requiredCapabilities: ["crewai"],
+    requiredToolIds: [],
     status: "ready",
     dependencyIds: [],
     inputReferences: [],

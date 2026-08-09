@@ -111,6 +111,12 @@ export interface Task {
    */
   requiredCapabilities: string[];
 
+  /**
+   * Specific tools the assigned agent must be authorized
+   * to use before this task may execute.
+   */
+  requiredToolIds: ID[];
+
   status: TaskStatus;
 
   /**
