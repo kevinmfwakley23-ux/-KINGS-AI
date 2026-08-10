@@ -23,6 +23,7 @@ function main(): void {
   };
 
   const record: KnowledgeRecord = {
+    memoryType: "semantic",
     id: "knowledge-kings-test",
     sourceId: source.id,
     summary:

@@ -29,6 +29,7 @@ function main(): void {
   };
 
   const record: KnowledgeRecord = {
+    memoryType: "semantic",
     id: "knowledge-auth-before-collector-profile",
     sourceId: source.id,
     summary:
