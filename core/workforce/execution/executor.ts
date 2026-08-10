@@ -3,6 +3,7 @@ import type {
   Task,
   WorkforceResult,
 } from "../types";
+
 import type {
   AgentExecutionAdapter,
 } from "./adapter";
@@ -10,23 +11,41 @@ import type {
 import type {
   WorkforceExecutionPort,
 } from "./execution-port";
+
 import type {
   WorkforceRegistry,
 } from "../registry";
+
 import type {
-KnowledgeRuntimeAdapter,
+  KnowledgeRuntimeAdapter,
 } from "../knowledge-runtime-adapter";
 
+import {
+  ExecutionContextBuilder,
+} from "./context-builder";
+
 export class WorkforceExecutor
-  implements WorkforceExecutionPort {
+  implements WorkforceExecutionPort
+{
+  private readonly contextBuilder:
+    ExecutionContextBuilder;
+
   constructor(
     private readonly registry: WorkforceRegistry,
     private readonly adapters: AgentExecutionAdapter[] = [],
-private readonly knowledgeRuntime?: KnowledgeRuntimeAdapter,
-  ) {}
+    knowledgeRuntime?: KnowledgeRuntimeAdapter,
+  ) {
+    this.contextBuilder =
+      new ExecutionContextBuilder(
+        knowledgeRuntime,
+      );
+  }
 
-  async execute(taskId: ID): Promise<WorkforceResult> {
-    const task = this.registry.getTask(taskId);
+  async execute(
+    taskId: ID,
+  ): Promise<WorkforceResult> {
+    const task =
+      this.registry.getTask(taskId);
 
     if (!task) {
       throw new Error(
@@ -47,7 +66,10 @@ private readonly knowledgeRuntime?: KnowledgeRuntimeAdapter,
       );
     }
 
-    const agent = this.registry.getAgent(task.assignedAgentId);
+    const agent =
+      this.registry.getAgent(
+        task.assignedAgentId,
+      );
 
     if (!agent) {
       throw new Error(
@@ -58,7 +80,9 @@ private readonly knowledgeRuntime?: KnowledgeRuntimeAdapter,
     const missingCapabilities =
       task.requiredCapabilities.filter(
         (capability) =>
-          !agent.capabilities.includes(capability),
+          !agent.capabilities.includes(
+            capability,
+          ),
       );
 
     if (missingCapabilities.length > 0) {
@@ -71,7 +95,8 @@ private readonly knowledgeRuntime?: KnowledgeRuntimeAdapter,
     const unauthorizedTools: string[] = [];
 
     for (const toolId of task.requiredToolIds) {
-      const tool = this.registry.getTool(toolId);
+      const tool =
+        this.registry.getTool(toolId);
 
       if (!tool) {
         unauthorizedTools.push(
@@ -101,25 +126,11 @@ private readonly knowledgeRuntime?: KnowledgeRuntimeAdapter,
       );
     }
 
-let knowledge;
-
-if (task.knowledgeQuery) {
-if (!this.knowledgeRuntime) {
-throw new Error(
-`K.I.N.G.S. Workforce Executor: task "${task.id}" ` +
-"requires knowledge retrieval but no knowledge runtime is configured",
-);
-}
-
-knowledge =
-await this.knowledgeRuntime.retrieve(
-task.knowledgeQuery,
-);
-}
-
-    const adapter = this.adapters.find(
-      (candidate) => candidate.canExecute(agent),
-    );
+    const adapter =
+      this.adapters.find(
+        (candidate) =>
+          candidate.canExecute(agent),
+      );
 
     if (!adapter) {
       throw new Error(
@@ -127,10 +138,14 @@ task.knowledgeQuery,
       );
     }
 
-    return adapter.execute({
-      agent,
-      task,
-  knowledge,
-    });
+    const context =
+      await this.contextBuilder.build(
+        agent,
+        task,
+      );
+
+    return adapter.execute(
+      context,
+    );
   }
 }
