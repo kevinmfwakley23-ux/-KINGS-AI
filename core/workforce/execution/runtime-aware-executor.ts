@@ -23,6 +23,10 @@ import type {
   WorkforceRuntimeBindingRegistry,
 } from "../runtime-binding-registry";
 
+import type {
+  MissionMemoryBridge,
+} from "../mission-memory-bridge";
+
 import {
   ExecutionContextBuilder,
 } from "./context-builder";
@@ -39,10 +43,13 @@ export class RuntimeAwareWorkforceExecutor
       AgentExecutionAdapter[],
     private readonly runtimeBindings:
       WorkforceRuntimeBindingRegistry,
+    private readonly missionMemory?:
+      MissionMemoryBridge,
   ) {
     this.contextBuilder =
       new ExecutionContextBuilder(
         this.resolveKnowledgeRuntime(),
+        this.missionMemory,
       );
   }
 

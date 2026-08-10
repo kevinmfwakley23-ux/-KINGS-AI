@@ -8,50 +8,134 @@ import type {
   KnowledgeRuntimeAdapter,
 } from "../knowledge-runtime-adapter";
 
+import {
+  MissionContextRetriever,
+} from "./mission-context-retriever";
+
 import type {
-  AgentExecutionContext,
-} from "./adapter";
+  MissionMemoryBridge,
+} from "../mission-memory-bridge";
 
 import {
   ExecutionContextOptimizer,
 } from "./context-optimizer";
 
+import type {
+  AgentExecutionContext,
+} from "./adapter";
+
+import {
+  createMissionExecutionContext,
+} from "./mission-execution-context";
+
 export class ExecutionContextBuilder {
+  private readonly retriever?:
+    MissionContextRetriever;
+
+  private readonly knowledgeRuntime?:
+    KnowledgeRuntimeAdapter;
+
   private readonly optimizer:
     ExecutionContextOptimizer;
 
   constructor(
-    private readonly knowledgeRuntime?: KnowledgeRuntimeAdapter,
-    optimizer?: ExecutionContextOptimizer,
+    knowledgeRuntime?:
+      KnowledgeRuntimeAdapter,
+    missionMemory?:
+      MissionMemoryBridge,
+    optimizer:
+      ExecutionContextOptimizer =
+        new ExecutionContextOptimizer(),
   ) {
     this.optimizer =
-      optimizer ?? new ExecutionContextOptimizer();
+      optimizer;
+
+    this.knowledgeRuntime =
+      knowledgeRuntime;
+
+    if (
+      missionMemory
+    ) {
+      this.retriever =
+        new MissionContextRetriever(
+          missionMemory,
+          knowledgeRuntime,
+        );
+    }
   }
 
   async build(
     agent: AgentDefinition,
     task: Task,
   ): Promise<AgentExecutionContext> {
-    let knowledge: MemoryResult | undefined;
+    /*
+     * Legacy task-scoped knowledge path.
+     *
+     * Preserve INTELLIGENCE-004 behavior when a
+     * mission memory bridge has not been configured.
+     */
+    if (!this.retriever) {
+      if (
+        !task.knowledgeQuery
+      ) {
+        return {
+          agent,
+          task,
+        };
+      }
 
-    if (task.knowledgeQuery) {
-      if (!this.knowledgeRuntime) {
+      if (
+        !this.knowledgeRuntime
+      ) {
         throw new Error(
-          `K.I.N.G.S. Context Builder: task "${task.id}" ` +
-          "requires knowledge retrieval but no knowledge runtime is configured",
+          `K.I.N.G.S. Execution Context Builder: task "${task.id}" requires knowledge retrieval but no knowledge runtime is configured`,
         );
       }
 
-      knowledge =
+      const knowledge:
+        MemoryResult =
         await this.knowledgeRuntime.retrieve(
           task.knowledgeQuery,
         );
+
+      return this.optimizer.optimize({
+        agent,
+        task,
+        knowledge,
+      });
     }
+
+    /*
+     * Unified mission context path.
+     *
+     * Mission memory and Project Brain knowledge are
+     * retrieved together before optimization.
+     */
+    const contextPackage =
+      await this.retriever.retrieve(
+        task,
+      );
+
+    const missionContext =
+      createMissionExecutionContext({
+        missionId:
+          contextPackage.missionId,
+        taskId:
+          contextPackage.taskId,
+        agent,
+        task,
+        memories:
+          contextPackage.memories,
+        knowledge:
+          contextPackage.knowledge,
+      });
 
     return this.optimizer.optimize({
       agent,
       task,
-      knowledge,
+      missionContext,
+      knowledge:
+        missionContext.knowledge,
     });
   }
 }

@@ -1,21 +1,32 @@
 import type {
   AgentDefinition,
-  MemoryResult,
   Task,
   WorkforceResult,
 } from "../types";
+
+import type {
+  MissionExecutionContext,
+} from "./mission-execution-context";
 
 export interface AgentExecutionContext {
   agent: AgentDefinition;
   task: Task;
 
   /**
+   * Unified mission-scoped execution context.
+   *
+   * This contains only read-only context.
+   * It does not grant repository, tool, mutation,
+   * or governance authority.
+   */
+  missionContext?: MissionExecutionContext;
+
+  /**
    * Authoritative project knowledge retrieved for this task.
    *
-   * This is read-only execution context. It does not grant
-   * repository, tool, or mutation authority.
+   * Retained as a compatibility field for existing adapters.
    */
-  knowledge?: MemoryResult;
+  knowledge?: MissionExecutionContext["knowledge"];
 }
 
 export interface AgentExecutionAdapter {
