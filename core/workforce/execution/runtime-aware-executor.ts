@@ -1,6 +1,5 @@
 import type {
   ID,
-  Task,
   WorkforceResult,
 } from "../types";
 
@@ -24,20 +23,36 @@ import type {
   WorkforceRuntimeBindingRegistry,
 } from "../runtime-binding-registry";
 
+import {
+  ExecutionContextBuilder,
+} from "./context-builder";
+
 export class RuntimeAwareWorkforceExecutor
   implements WorkforceExecutionPort {
+  private readonly contextBuilder:
+    ExecutionContextBuilder;
+
   constructor(
-    private readonly registry: WorkforceRegistry,
-    private readonly adapters: AgentExecutionAdapter[],
+    private readonly registry:
+      WorkforceRegistry,
+    private readonly adapters:
+      AgentExecutionAdapter[],
     private readonly runtimeBindings:
       WorkforceRuntimeBindingRegistry,
-  ) {}
+  ) {
+    this.contextBuilder =
+      new ExecutionContextBuilder(
+        this.resolveKnowledgeRuntime(),
+      );
+  }
 
   async execute(
     taskId: ID,
   ): Promise<WorkforceResult> {
     const task =
-      this.registry.getTask(taskId);
+      this.registry.getTask(
+        taskId,
+      );
 
     if (!task) {
       throw new Error(
@@ -90,11 +105,12 @@ export class RuntimeAwareWorkforceExecutor
       );
     }
 
-    const unauthorizedTools: string[] =
-      [];
+    const unauthorizedTools:
+      string[] = [];
 
     for (
-      const toolId of task.requiredToolIds
+      const toolId of
+      task.requiredToolIds
     ) {
       const tool =
         this.registry.getTool(
@@ -135,40 +151,6 @@ export class RuntimeAwareWorkforceExecutor
       );
     }
 
-    let knowledge;
-
-    if (
-      task.knowledgeQuery
-    ) {
-      const binding =
-        this.runtimeBindings.get(
-          "knowledge-runtime",
-        );
-
-      if (!binding) {
-        throw new Error(
-          "K.I.N.G.S. Runtime-Aware Executor: knowledge runtime is not bound",
-        );
-      }
-
-      if (
-        !binding.definition.enabled
-      ) {
-        throw new Error(
-          "K.I.N.G.S. Runtime-Aware Executor: knowledge runtime is disabled",
-        );
-      }
-
-      const implementation =
-        binding.implementation as
-          KnowledgeRuntimeAdapter;
-
-      knowledge =
-        await implementation.retrieve(
-          task.knowledgeQuery,
-        );
-    }
-
     const adapter =
       this.adapters.find(
         (candidate) =>
@@ -183,10 +165,37 @@ export class RuntimeAwareWorkforceExecutor
       );
     }
 
-    return adapter.execute({
-      agent,
-      task,
-      knowledge,
-    });
+    const context =
+      await this.contextBuilder.build(
+        agent,
+        task,
+      );
+
+    return adapter.execute(
+      context,
+    );
+  }
+
+  private resolveKnowledgeRuntime():
+    KnowledgeRuntimeAdapter | undefined {
+    const binding =
+      this.runtimeBindings.get(
+        "knowledge-runtime",
+      );
+
+    if (!binding) {
+      return undefined;
+    }
+
+    if (
+      !binding.definition.enabled
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Runtime-Aware Executor: knowledge runtime is disabled",
+      );
+    }
+
+    return binding.implementation as
+      KnowledgeRuntimeAdapter;
   }
 }
