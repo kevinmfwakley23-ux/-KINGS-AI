@@ -12,10 +12,21 @@ import type {
   AgentExecutionContext,
 } from "./adapter";
 
+import {
+  ExecutionContextOptimizer,
+} from "./context-optimizer";
+
 export class ExecutionContextBuilder {
+  private readonly optimizer:
+    ExecutionContextOptimizer;
+
   constructor(
     private readonly knowledgeRuntime?: KnowledgeRuntimeAdapter,
-  ) {}
+    optimizer?: ExecutionContextOptimizer,
+  ) {
+    this.optimizer =
+      optimizer ?? new ExecutionContextOptimizer();
+  }
 
   async build(
     agent: AgentDefinition,
@@ -37,10 +48,10 @@ export class ExecutionContextBuilder {
         );
     }
 
-    return {
+    return this.optimizer.optimize({
       agent,
       task,
       knowledge,
-    };
+    });
   }
 }
