@@ -9,6 +9,14 @@ import type {
 } from "./registry";
 
 import {
+  TaskControl,
+} from "./task-control";
+
+import {
+  TaskExecutionController,
+} from "./execution/task-execution";
+
+import {
   WorkforceExecutor,
 } from "./execution/executor";
 
@@ -38,8 +46,11 @@ export class WorkflowExecutor {
   private readonly readinessEvaluator:
     WorkflowReadinessEvaluator;
 
-  private readonly workforceExecutor:
-    WorkforceExecutor;
+  private readonly taskControl:
+    TaskControl;
+
+  private readonly taskExecutionController:
+    TaskExecutionController;
 
   constructor(
     private readonly registry: WorkforceRegistry,
@@ -50,8 +61,17 @@ export class WorkflowExecutor {
         registry,
       );
 
-    this.workforceExecutor =
-      workforceExecutor;
+    this.taskControl =
+      new TaskControl(
+        registry,
+      );
+
+    this.taskExecutionController =
+      new TaskExecutionController(
+        registry,
+        this.taskControl,
+        workforceExecutor,
+      );
   }
 
   async execute(
@@ -213,18 +233,9 @@ export class WorkflowExecutor {
         }
 
         const result =
-          await this.workforceExecutor.execute(
+          await this.taskExecutionController.execute(
             taskId,
           );
-
-        task.status =
-          result.status ===
-          "success"
-            ? "completed"
-            : "failed";
-
-        task.updatedAt =
-          new Date().toISOString();
 
         evaluations.push({
           taskId,

@@ -383,6 +383,6 @@ main().catch(
       "=== WORKFLOW-004 FAILED ===",
     );
     console.error(error);
-    process.exitCode = 1;
+    throw error;
   },
 );
