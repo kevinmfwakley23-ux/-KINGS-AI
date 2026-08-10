@@ -14,6 +14,10 @@ import type {
   KnowledgeRuntimeAdapter,
 } from "../knowledge-runtime-adapter";
 
+import {
+  MemoryRelevanceRanker,
+} from "./memory-relevance-ranker";
+
 export interface MissionContextRetrievalLimits {
   maxMemories: number;
   maxKnowledgeRecords: number;
@@ -39,6 +43,9 @@ export class MissionContextRetriever {
         maxKnowledgeRecords: 20,
         maxEvidence: 40,
       },
+    private readonly relevanceRanker:
+      MemoryRelevanceRanker =
+        new MemoryRelevanceRanker(),
   ) {
     if (
       limits.maxMemories < 1 ||
@@ -82,32 +89,24 @@ export class MissionContextRetriever {
         task.missionId,
       );
 
-    const authoritative =
+    const taskRelevant =
       memories.filter(
-        (memory) =>
-          memory.authoritative,
-      );
-
-    const ordinary =
-      memories.filter(
-        (memory) =>
-          !memory.authoritative,
-      );
-
-    return [
-      ...authoritative,
-      ...ordinary,
-    ]
-      .filter(
         (memory) =>
           this.matchesTask(
             memory,
             task,
           ),
-      )
-      .slice(
-        0,
+      );
+
+    return this.relevanceRanker
+      .rank(
+        task,
+        taskRelevant,
         this.limits.maxMemories,
+      )
+      .map(
+        (item) =>
+          item.memory,
       );
   }
 
