@@ -11,15 +11,15 @@ import {
   TaskControl,
 } from "../task-control";
 
-import {
-  WorkforceExecutor,
-} from "./executor";
+import type {
+  WorkforceExecutionPort,
+} from "./execution-port";
 
 export class TaskExecutionController {
   constructor(
     private readonly registry: WorkforceRegistry,
     private readonly taskControl: TaskControl,
-    private readonly workforceExecutor: WorkforceExecutor,
+    private readonly executionPort: WorkforceExecutionPort,
   ) {}
 
   async execute(
@@ -42,7 +42,7 @@ export class TaskExecutionController {
     }
 
     const execution =
-      await this.workforceExecutor.execute(
+      await this.executionPort.execute(
         taskId,
       );
 

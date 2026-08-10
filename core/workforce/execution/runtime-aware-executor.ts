@@ -9,6 +9,10 @@ import type {
 } from "./adapter";
 
 import type {
+  WorkforceExecutionPort,
+} from "./execution-port";
+
+import type {
   WorkforceRegistry,
 } from "../registry";
 
@@ -20,7 +24,8 @@ import type {
   WorkforceRuntimeBindingRegistry,
 } from "../runtime-binding-registry";
 
-export class RuntimeAwareWorkforceExecutor {
+export class RuntimeAwareWorkforceExecutor
+  implements WorkforceExecutionPort {
   constructor(
     private readonly registry: WorkforceRegistry,
     private readonly adapters: AgentExecutionAdapter[],

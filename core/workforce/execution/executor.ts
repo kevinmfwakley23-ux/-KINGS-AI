@@ -6,6 +6,10 @@ import type {
 import type {
   AgentExecutionAdapter,
 } from "./adapter";
+
+import type {
+  WorkforceExecutionPort,
+} from "./execution-port";
 import type {
   WorkforceRegistry,
 } from "../registry";
@@ -13,7 +17,8 @@ import type {
 KnowledgeRuntimeAdapter,
 } from "../knowledge-runtime-adapter";
 
-export class WorkforceExecutor {
+export class WorkforceExecutor
+  implements WorkforceExecutionPort {
   constructor(
     private readonly registry: WorkforceRegistry,
     private readonly adapters: AgentExecutionAdapter[] = [],
