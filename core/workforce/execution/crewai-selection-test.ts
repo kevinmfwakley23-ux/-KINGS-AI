@@ -17,40 +17,50 @@ import {
 } from "./crewai-adapter";
 
 async function main(): Promise<void> {
-  const registry = new WorkforceRegistry();
+  const registry =
+    new WorkforceRegistry();
 
   const agent: AgentDefinition = {
-    id: "agent-crewai-test",
-    name: "K.I.N.G.S. CrewAI Test Agent",
-    role: "CrewAI execution worker",
+    id: "agent-crewai-selection-test",
+    name:
+      "K.I.N.G.S. CrewAI Test Agent",
+    role:
+      "CrewAI execution worker",
     description:
-      "A controlled agent used to verify CrewAI adapter selection.",
+      "A controlled agent used to verify CrewAI adapter selection and execution.",
     capabilities: ["crewai"],
     toolIds: [],
     status: "available",
   };
 
   const mission: Mission = {
-    id: "mission-crewai-selection-test",
-    name: "CrewAI Adapter Selection Test",
+    id:
+      "mission-crewai-selection-test",
+    name:
+      "CrewAI Adapter Integration Test",
     description:
-      "Verify that K.I.N.G.S. selects the CrewAI adapter for a CrewAI-capable agent.",
+      "Verify that K.I.N.G.S. selects and invokes the CrewAI adapter.",
     status: "active",
     objectives: [
       "Verify CrewAI capability matching.",
       "Verify CrewAI adapter selection.",
+      "Verify the CrewAI bridge round trip.",
     ],
     sourceReferences: [],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt:
+      new Date().toISOString(),
+    updatedAt:
+      new Date().toISOString(),
   };
 
   const task: Task = {
-    id: "task-crewai-selection-test",
+    id:
+      "task-crewai-selection-test",
     missionId: mission.id,
-    name: "Select CrewAI adapter",
+    name:
+      "Execute CrewAI adapter",
     description:
-      "Verify that the executor selects the CrewAI adapter.",
+      "Verify that the executor selects the CrewAI adapter and receives a standardized result.",
     assignedAgentId: agent.id,
     requiredCapabilities: ["crewai"],
     requiredToolIds: [],
@@ -59,54 +69,104 @@ async function main(): Promise<void> {
     inputReferences: [],
     expectedOutputs: [
       "CrewAI adapter selected",
+      "CrewAI bridge executed",
+      "Standardized workforce result returned",
     ],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt:
+      new Date().toISOString(),
+    updatedAt:
+      new Date().toISOString(),
   };
 
-  registry.registerAgent(agent);
-  registry.registerMission(mission);
-  registry.registerTask(task);
-
-  const executor = new WorkforceExecutor(
-    registry,
-    [new CrewAIExecutionAdapter()],
+  registry.registerAgent(
+    agent,
   );
 
-  try {
-    await executor.execute(task.id);
+  registry.registerMission(
+    mission,
+  );
 
+  registry.registerTask(
+    task,
+  );
+
+  const executor =
+    new WorkforceExecutor(
+      registry,
+      [
+        new CrewAIExecutionAdapter(),
+      ],
+    );
+
+  const result =
+    await executor.execute(
+      task.id,
+    );
+
+  if (
+    result.status !== "success"
+  ) {
     throw new Error(
-      "CrewAI adapter unexpectedly executed successfully during selection test.",
+      `Expected successful CrewAI execution, received "${result.status}".`,
     );
-  } catch (error: unknown) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : String(error);
-
-    if (
-      !message.includes(
-        "CrewAI adapter execution bridge is not implemented yet",
-      )
-    ) {
-      throw error;
-    }
-
-    console.log(
-      "=== K.I.N.G.S. CREWAI ADAPTER SELECTION ===",
-    );
-    console.log("Agent capability: crewai");
-    console.log("Adapter selected: crewai");
-    console.log("Execution bridge: intentionally not connected");
-    console.log("Selection test: SUCCESS");
   }
+
+  if (
+    result.taskId !== task.id
+  ) {
+    throw new Error(
+      "CrewAI result task ID mismatch.",
+    );
+  }
+
+  if (
+    result.agentId !== agent.id
+  ) {
+    throw new Error(
+      "CrewAI result agent ID mismatch.",
+    );
+  }
+
+  if (
+    result.verificationReferences
+      .length !== 3
+  ) {
+    throw new Error(
+      "CrewAI verification references mismatch.",
+    );
+  }
+
+  console.log(
+    "=== K.I.N.G.S. CREWAI ADAPTER INTEGRATION ===",
+  );
+
+  console.log(
+    "Agent capability: crewai",
+  );
+
+  console.log(
+    "Adapter selected: crewai",
+  );
+
+  console.log(
+    "CrewAI bridge round trip: SUCCESS",
+  );
+
+  console.log(
+    "Standardized WorkforceResult: SUCCESS",
+  );
+
+  console.log(
+    "WORKFORCE-006 CrewAI adapter integration: SUCCESS",
+  );
 }
 
-main().catch((error: unknown) => {
-  console.error(
-    "=== K.I.N.G.S. CREWAI SELECTION TEST FAILED ===",
-  );
-  console.error(error);
-  throw error;
-});
+main().catch(
+  (error: unknown) => {
+    console.error(
+      "=== K.I.N.G.S. CREWAI ADAPTER INTEGRATION FAILED ===",
+    );
+    console.error(error);
+    throw error;
+  },
+);
