@@ -89,6 +89,26 @@ assert(
 
 control.transition(
   validTask.id,
+  "ready",
+);
+
+assert(
+  validTask.status === "ready",
+  "Running task should be releasable back to ready.",
+);
+
+control.transition(
+  validTask.id,
+  "running",
+);
+
+assert(
+  validTask.status === "running",
+  "Ready task should be claimable again.",
+);
+
+control.transition(
+  validTask.id,
   "completed",
 );
 

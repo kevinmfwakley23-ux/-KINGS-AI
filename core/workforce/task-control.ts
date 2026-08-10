@@ -34,6 +34,7 @@ const ALLOWED_TRANSITIONS: Record<
     "cancelled",
   ],
   running: [
+    "ready",
     "completed",
     "failed",
     "cancelled",
