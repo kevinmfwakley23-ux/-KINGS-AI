@@ -1,15 +1,10 @@
 import type {
   ID,
-  TaskStatus,
 } from "./types";
 
 import type {
   WorkforceRegistry,
 } from "./registry";
-
-import {
-  TaskControl,
-} from "./task-control";
 
 export interface TaskLease {
   leaseId: ID;
@@ -25,7 +20,6 @@ export class TaskLeaseManager {
 
   constructor(
     private readonly registry: WorkforceRegistry,
-    private readonly taskControl: TaskControl,
   ) {}
 
   claim(
@@ -69,7 +63,7 @@ export class TaskLeaseManager {
         );
       }
 
-      this.expireLease(taskId);
+      this.leases.delete(taskId);
     }
 
     if (task.status !== "ready") {
@@ -99,11 +93,6 @@ export class TaskLeaseManager {
         expiresAt.toISOString(),
     };
 
-    this.taskControl.transition(
-      taskId,
-      "running",
-    );
-
     this.leases.set(
       taskId,
       lease,
@@ -123,7 +112,7 @@ export class TaskLeaseManager {
     }
 
     if (this.isExpired(lease)) {
-      this.expireLease(taskId);
+      this.leases.delete(taskId);
       return undefined;
     }
 
@@ -159,30 +148,6 @@ export class TaskLeaseManager {
       );
     }
 
-    const task =
-      this.registry.getTask(taskId);
-
-    if (!task) {
-      this.leases.delete(taskId);
-
-      throw new Error(
-        `K.I.N.G.S. Task Lease: task "${taskId}" not found`,
-      );
-    }
-
-    if (task.status !== "running") {
-      this.leases.delete(taskId);
-
-      throw new Error(
-        `K.I.N.G.S. Task Lease: task "${taskId}" is not running`,
-      );
-    }
-
-    this.taskControl.transition(
-      taskId,
-      "ready",
-    );
-
     this.leases.delete(taskId);
   }
 
@@ -195,29 +160,5 @@ export class TaskLeaseManager {
         lease.expiresAt,
       ).getTime()
     );
-  }
-
-  private expireLease(
-    taskId: ID,
-  ): void {
-    const task =
-      this.registry.getTask(taskId);
-
-    if (!task) {
-      this.leases.delete(taskId);
-
-      throw new Error(
-        `K.I.N.G.S. Task Lease: task "${taskId}" not found while expiring lease`,
-      );
-    }
-
-    if (task.status === "running") {
-      this.taskControl.transition(
-        taskId,
-        "ready",
-      );
-    }
-
-    this.leases.delete(taskId);
   }
 }

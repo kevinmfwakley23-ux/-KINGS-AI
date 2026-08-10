@@ -8,10 +8,6 @@ import {
 } from "./registry";
 
 import {
-  TaskControl,
-} from "./task-control";
-
-import {
   TaskLeaseManager,
 } from "./task-lease";
 
@@ -87,15 +83,9 @@ async function main(): Promise<void> {
     task,
   );
 
-  const taskControl =
-    new TaskControl(
-      registry,
-    );
-
   const leaseManager =
     new TaskLeaseManager(
       registry,
-      taskControl,
     );
 
   const lease =
@@ -106,8 +96,8 @@ async function main(): Promise<void> {
     );
 
   assert(
-    task.status === "running",
-    "Claiming a task should move it to running.",
+    task.status === "ready",
+    "Claiming a task should not change its task execution state.",
   );
 
   assert(
@@ -170,7 +160,7 @@ async function main(): Promise<void> {
 
   assert(
     task.status === "ready",
-    "Releasing a valid lease should return the task to ready.",
+    "Releasing a lease should leave the task ready.",
   );
 
   assert(
@@ -187,8 +177,8 @@ async function main(): Promise<void> {
     );
 
   assert(
-    task.status === "running",
-    "Reclaiming a ready task should move it to running.",
+    task.status === "ready",
+    "A newly claimed task should remain ready.",
   );
 
   await wait(10);
@@ -203,7 +193,7 @@ async function main(): Promise<void> {
 
   assert(
     task.status === "ready",
-    "Expired lease should return task to ready.",
+    "Expired lease should leave task ready.",
   );
 
   const reclaimedLease =
@@ -225,6 +215,11 @@ async function main(): Promise<void> {
     "A reclaimed task should accept a new owner.",
   );
 
+  assert(
+    task.status === "ready",
+    "Reclaimed task should remain ready.",
+  );
+
   leaseManager.release(
     task.id,
     "worker-004",
@@ -236,6 +231,10 @@ async function main(): Promise<void> {
 
   console.log(
     "Lease ownership: SUCCESS",
+  );
+
+  console.log(
+    "Task state remains ready: SUCCESS",
   );
 
   console.log(
@@ -259,14 +258,14 @@ async function main(): Promise<void> {
   );
 
   console.log(
-    "CONTROL-002 task lease ownership: SUCCESS",
+    "CONTROL-002 lease/state separation: SUCCESS",
   );
 }
 
 main().catch(
   (error: unknown) => {
     console.error(
-      "CONTROL-002 task lease ownership: FAILED",
+      "CONTROL-002 lease/state separation: FAILED",
     );
     console.error(error);
     throw error;
