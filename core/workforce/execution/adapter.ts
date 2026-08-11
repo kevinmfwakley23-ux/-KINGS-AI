@@ -8,9 +8,29 @@ import type {
   MissionExecutionContext,
 } from "./mission-execution-context";
 
+import type {
+  WorkUnitContract,
+} from "../work-unit-contract";
+
+import type {
+  BudgetUsage,
+} from "../budget-authority";
+
 export interface AgentExecutionContext {
   agent: AgentDefinition;
   task: Task;
+
+  /**
+   * Authoritative Work Unit governing this execution.
+   *
+   * WorkforceExecutor always supplies this value before
+   * an adapter is invoked.
+   *
+   * Optional here only to preserve compatibility with
+   * context-construction and optimization tests that
+   * operate below the execution-authority boundary.
+   */
+  workUnit?: WorkUnitContract;
 
   /**
    * Unified mission-scoped execution context.
@@ -29,6 +49,11 @@ export interface AgentExecutionContext {
   knowledge?: MissionExecutionContext["knowledge"];
 }
 
+export interface AgentExecutionResult
+  extends WorkforceResult {
+  usage?: BudgetUsage;
+}
+
 export interface AgentExecutionAdapter {
   readonly id: string;
   readonly name: string;
@@ -39,5 +64,5 @@ export interface AgentExecutionAdapter {
 
   execute(
     context: AgentExecutionContext,
-  ): Promise<WorkforceResult>;
+  ): Promise<AgentExecutionResult>;
 }

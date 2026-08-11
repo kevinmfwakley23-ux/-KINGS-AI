@@ -25,6 +25,14 @@ import {
   TestExecutionAdapter,
 } from "./test-adapter";
 
+import {
+  WorkUnitRegistry,
+} from "../work-unit-registry";
+
+import {
+  registerTestWorkUnit,
+} from "./test-work-unit";
+
 function assert(
   condition: boolean,
   message: string,
@@ -109,10 +117,20 @@ async function main(): Promise<void> {
       registry,
     );
 
+  const workUnitRegistry =
+    new WorkUnitRegistry();
+
+  registerTestWorkUnit(
+    workUnitRegistry,
+    task.id,
+  );
+
   const workforceExecutor =
     new WorkforceExecutor(
       registry,
       [new TestExecutionAdapter()],
+      undefined,
+      workUnitRegistry,
     );
 
   const leasedExecutor =

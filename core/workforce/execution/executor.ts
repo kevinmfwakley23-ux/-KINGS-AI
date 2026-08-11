@@ -1,11 +1,10 @@
 import type {
   ID,
-  Task,
-  WorkforceResult,
 } from "../types";
 
 import type {
   AgentExecutionAdapter,
+  AgentExecutionResult,
 } from "./adapter";
 
 import type {
@@ -24,28 +23,54 @@ import {
   ExecutionContextBuilder,
 } from "./context-builder";
 
+import {
+  BudgetAuthority,
+} from "../budget-authority";
+
+import type {
+  WorkUnitRegistry,
+} from "../work-unit-registry";
+
 export class WorkforceExecutor
   implements WorkforceExecutionPort
 {
   private readonly contextBuilder:
     ExecutionContextBuilder;
 
+  private readonly budgetAuthority:
+    BudgetAuthority;
+
   constructor(
     private readonly registry: WorkforceRegistry,
-    private readonly adapters: AgentExecutionAdapter[] = [],
-    knowledgeRuntime?: KnowledgeRuntimeAdapter,
+    private readonly adapters:
+      AgentExecutionAdapter[] = [],
+    knowledgeRuntime?:
+      KnowledgeRuntimeAdapter,
+    private readonly workUnitRegistry?:
+      WorkUnitRegistry,
+    budgetAuthority:
+      BudgetAuthority =
+        new BudgetAuthority(),
   ) {
     this.contextBuilder =
       new ExecutionContextBuilder(
         knowledgeRuntime,
       );
+
+    this.budgetAuthority =
+      budgetAuthority;
   }
 
   async execute(
     taskId: ID,
-  ): Promise<WorkforceResult> {
+  ): Promise<AgentExecutionResult> {
+    const startedAt =
+      Date.now();
+
     const task =
-      this.registry.getTask(taskId);
+      this.registry.getTask(
+        taskId,
+      );
 
     if (!task) {
       throw new Error(
@@ -53,14 +78,18 @@ export class WorkforceExecutor
       );
     }
 
-    if (task.status !== "ready") {
+    if (
+      task.status !== "ready"
+    ) {
       throw new Error(
         `K.I.N.G.S. Workforce Executor: task "${taskId}" ` +
         `is not executable because its status is "${task.status}"`,
       );
     }
 
-    if (!task.assignedAgentId) {
+    if (
+      !task.assignedAgentId
+    ) {
       throw new Error(
         `K.I.N.G.S. Workforce Executor: task "${taskId}" has no assigned agent`,
       );
@@ -85,18 +114,26 @@ export class WorkforceExecutor
           ),
       );
 
-    if (missingCapabilities.length > 0) {
+    if (
+      missingCapabilities.length > 0
+    ) {
       throw new Error(
         `K.I.N.G.S. Workforce Executor: agent "${agent.id}" ` +
         `lacks required capabilities: ${missingCapabilities.join(", ")}`,
       );
     }
 
-    const unauthorizedTools: string[] = [];
+    const unauthorizedTools:
+      string[] = [];
 
-    for (const toolId of task.requiredToolIds) {
+    for (
+      const toolId of
+      task.requiredToolIds
+    ) {
       const tool =
-        this.registry.getTool(toolId);
+        this.registry.getTool(
+          toolId,
+        );
 
       if (!tool) {
         unauthorizedTools.push(
@@ -105,7 +142,11 @@ export class WorkforceExecutor
         continue;
       }
 
-      if (!agent.toolIds.includes(toolId)) {
+      if (
+        !agent.toolIds.includes(
+          toolId,
+        )
+      ) {
         unauthorizedTools.push(
           `${toolId} (agent not authorized)`,
         );
@@ -119,7 +160,9 @@ export class WorkforceExecutor
       }
     }
 
-    if (unauthorizedTools.length > 0) {
+    if (
+      unauthorizedTools.length > 0
+    ) {
       throw new Error(
         `K.I.N.G.S. Workforce Executor: agent "${agent.id}" ` +
         `cannot access required tools: ${unauthorizedTools.join(", ")}`,
@@ -129,7 +172,9 @@ export class WorkforceExecutor
     const adapter =
       this.adapters.find(
         (candidate) =>
-          candidate.canExecute(agent),
+          candidate.canExecute(
+            agent,
+          ),
       );
 
     if (!adapter) {
@@ -138,14 +183,82 @@ export class WorkforceExecutor
       );
     }
 
+    if (!this.workUnitRegistry) {
+      throw new Error(
+        `K.I.N.G.S. Workforce Executor: no Work Unit Registry is configured for task "${taskId}"`,
+      );
+    }
+
+    const workUnit =
+      this.workUnitRegistry.require(
+        taskId,
+      );
+
+    const budgetValidation =
+      this.budgetAuthority.validateBudget(
+        workUnit.budget,
+      );
+
+    if (
+      !budgetValidation.allowed
+    ) {
+      throw new Error(
+        `K.I.N.G.S. Workforce Executor: invalid Work Unit budget: ` +
+        budgetValidation.reasons.join(
+          " ",
+        ),
+      );
+    }
+
     const context =
       await this.contextBuilder.build(
         agent,
         task,
+        workUnit,
       );
 
-    return adapter.execute(
-      context,
+    const result =
+      await adapter.execute(
+        context,
+      );
+
+    const measuredElapsedMs =
+      Date.now() -
+      startedAt;
+
+    const usage =
+      result.usage ?? {
+        elapsedMs:
+          measuredElapsedMs,
+        tokensUsed:
+          0,
+        iterationsUsed:
+          1,
+      };
+
+    const effectiveUsage = {
+      elapsedMs:
+        Math.max(
+          measuredElapsedMs,
+          usage.elapsedMs,
+        ),
+      tokensUsed:
+        usage.tokensUsed,
+      iterationsUsed:
+        usage.iterationsUsed,
+      estimatedCost:
+        usage.estimatedCost,
+    };
+
+    this.budgetAuthority.assertAllowed(
+      workUnit.budget,
+      effectiveUsage,
     );
+
+    return {
+      ...result,
+      usage:
+        effectiveUsage,
+    };
   }
 }

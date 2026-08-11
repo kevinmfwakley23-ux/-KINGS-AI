@@ -22,6 +22,14 @@ import {
   WorkflowExecutor,
 } from "./workflow-executor";
 
+import {
+  WorkUnitRegistry,
+} from "./work-unit-registry";
+
+import {
+  registerTestWorkUnit,
+} from "./execution/test-work-unit";
+
 function assert(
   condition: boolean,
   message: string,
@@ -181,12 +189,32 @@ async function main(): Promise<void> {
     workflow,
   );
 
+  const workUnitRegistry =
+    new WorkUnitRegistry();
+
+  registerTestWorkUnit(
+    workUnitRegistry,
+    taskA.id,
+  );
+
+  registerTestWorkUnit(
+    workUnitRegistry,
+    taskB.id,
+  );
+
+  registerTestWorkUnit(
+    workUnitRegistry,
+    taskC.id,
+  );
+
   const workforceExecutor =
     new WorkforceExecutor(
       registry,
       [
         new TestExecutionAdapter(),
       ],
+      undefined,
+      workUnitRegistry,
     );
 
   const workflowExecutor =

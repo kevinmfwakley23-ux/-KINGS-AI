@@ -22,6 +22,14 @@ import {
 } from "./test-adapter";
 
 import {
+  WorkUnitRegistry,
+} from "../work-unit-registry";
+
+import {
+  registerTestWorkUnit,
+} from "./test-work-unit";
+
+import {
   TaskExecutionController,
 } from "./task-execution";
 
@@ -108,10 +116,20 @@ async function main(): Promise<void> {
       registry,
     );
 
+  const workUnitRegistry =
+    new WorkUnitRegistry();
+
+  registerTestWorkUnit(
+    workUnitRegistry,
+    task.id,
+  );
+
   const workforceExecutor =
     new WorkforceExecutor(
       registry,
       [new TestExecutionAdapter()],
+      undefined,
+      workUnitRegistry,
     );
 
   const executionController =

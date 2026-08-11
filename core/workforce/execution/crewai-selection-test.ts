@@ -16,6 +16,14 @@ import {
   CrewAIExecutionAdapter,
 } from "./crewai-adapter";
 
+import {
+  WorkUnitRegistry,
+} from "../work-unit-registry";
+
+import {
+  registerTestWorkUnit,
+} from "./test-work-unit";
+
 async function main(): Promise<void> {
   const registry =
     new WorkforceRegistry();
@@ -90,12 +98,22 @@ async function main(): Promise<void> {
     task,
   );
 
+  const workUnitRegistry =
+    new WorkUnitRegistry();
+
+  registerTestWorkUnit(
+    workUnitRegistry,
+    task.id,
+  );
+
   const executor =
     new WorkforceExecutor(
       registry,
       [
         new CrewAIExecutionAdapter(),
       ],
+      undefined,
+      workUnitRegistry,
     );
 
   const result =

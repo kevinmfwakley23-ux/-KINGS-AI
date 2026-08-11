@@ -1,10 +1,13 @@
 import type {
   ID,
-  WorkforceResult,
 } from "../types";
+
+import type {
+  AgentExecutionResult,
+} from "./adapter";
 
 export interface WorkforceExecutionPort {
   execute(
     taskId: ID,
-  ): Promise<WorkforceResult>;
+  ): Promise<AgentExecutionResult>;
 }

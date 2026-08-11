@@ -169,11 +169,19 @@ implements WorkforceExecutionPort {
     );
 
     return {
-      status:
-        "completed",
+      id:
+        `result-${taskId}`,
       taskId,
+      agentId:
+        "builder-v1-test-agent",
+      status:
+        "success",
       summary:
         `Executed ${taskId}`,
+      artifactIds: [],
+      verificationReferences: [],
+      createdAt:
+        new Date().toISOString(),
     };
   }
 }

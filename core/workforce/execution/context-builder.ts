@@ -28,6 +28,10 @@ import {
   createMissionExecutionContext,
 } from "./mission-execution-context";
 
+import type {
+  WorkUnitContract,
+} from "../work-unit-contract";
+
 export class ExecutionContextBuilder {
   private readonly retriever?:
     MissionContextRetriever;
@@ -67,6 +71,7 @@ export class ExecutionContextBuilder {
   async build(
     agent: AgentDefinition,
     task: Task,
+    workUnit?: WorkUnitContract,
   ): Promise<AgentExecutionContext> {
     /*
      * Legacy task-scoped knowledge path.
@@ -81,6 +86,7 @@ export class ExecutionContextBuilder {
         return {
           agent,
           task,
+          workUnit,
         };
       }
 
@@ -101,6 +107,7 @@ export class ExecutionContextBuilder {
       return this.optimizer.optimize({
         agent,
         task,
+        workUnit,
         knowledge,
       });
     }
@@ -133,6 +140,7 @@ export class ExecutionContextBuilder {
     return this.optimizer.optimize({
       agent,
       task,
+      workUnit,
       missionContext,
       knowledge:
         missionContext.knowledge,

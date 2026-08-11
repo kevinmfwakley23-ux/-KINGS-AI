@@ -23,6 +23,14 @@ import {
   WorkforceExecutor,
 } from "./executor";
 
+import {
+  WorkUnitRegistry,
+} from "../work-unit-registry";
+
+import {
+  registerTestWorkUnit,
+} from "./test-work-unit";
+
 class FakeKnowledgeRuntime
 implements KnowledgeRuntimeAdapter
 {
@@ -170,11 +178,20 @@ async function main(): Promise<void> {
   registry.registerMission(mission);
   registry.registerTask(task);
 
+  const workUnitRegistry =
+    new WorkUnitRegistry();
+
+  registerTestWorkUnit(
+    workUnitRegistry,
+    task.id,
+  );
+
   const executor =
     new WorkforceExecutor(
       registry,
       [executionAdapter],
       knowledgeRuntime,
+      workUnitRegistry,
     );
 
   const result =
