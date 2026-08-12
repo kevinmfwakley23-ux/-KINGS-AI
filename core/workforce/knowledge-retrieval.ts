@@ -64,11 +64,13 @@ export class KnowledgeRetrieval {
       .filter((candidate) => candidate.score > 0)
       .sort((a, b) => b.score - a.score);
 
-    const limit = Math.max(
-      1,
-      query.limit ?? candidates.length,
-    );
-
+    const limit =
+      query.limit === undefined
+        ? candidates.length
+        : Math.max(
+            0,
+            query.limit,
+          );
     const records = candidates
       .slice(0, limit)
       .map((candidate) => candidate.record);
