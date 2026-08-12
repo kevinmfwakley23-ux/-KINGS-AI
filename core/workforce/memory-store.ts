@@ -51,31 +51,74 @@ export class MemoryStore {
 
     this.memories.set(
       memory.id,
-      memory,
+      {
+        ...memory,
+        sourceReferences: [
+          ...memory.sourceReferences,
+        ],
+      },
     );
   }
 
   get(
     memoryId: ID,
   ): MemoryReference | undefined {
-    return this.memories.get(
-      memoryId,
-    );
+    const memory =
+      this.memories.get(
+        memoryId,
+      );
+
+    return memory
+      ? {
+          ...memory,
+          sourceReferences: [
+            ...memory.sourceReferences,
+          ],
+        }
+      : undefined;
   }
 
   list(): MemoryReference[] {
     return [
       ...this.memories.values(),
-    ];
+    ]
+      .sort(
+        (a, b) =>
+          a.id.localeCompare(
+            b.id,
+          ),
+      )
+      .map(
+        (memory) => ({
+          ...memory,
+          sourceReferences: [
+            ...memory.sourceReferences,
+          ],
+        }),
+      );
   }
 
   query(
     query: MemoryStoreQuery = {},
   ): MemoryReference[] {
-    const limit = Math.max(
-      1,
-      query.limit ?? Number.MAX_SAFE_INTEGER,
-    );
+    if (
+      query.limit !== undefined &&
+      (
+        !Number.isInteger(
+          query.limit,
+        ) ||
+        query.limit < 0
+      )
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Memory Store: limit must be a non-negative integer",
+      );
+    }
+
+    const limit =
+      query.limit === undefined
+        ? Number.MAX_SAFE_INTEGER
+        : query.limit;
 
     return this.list()
       .filter((memory) => {
@@ -119,7 +162,15 @@ export class MemoryStore {
 
         return true;
       })
-      .slice(0, limit);
+      .slice(0, limit)
+      .map(
+        (memory) => ({
+          ...memory,
+          sourceReferences: [
+            ...memory.sourceReferences,
+          ],
+        }),
+      );
   }
 
   promote(

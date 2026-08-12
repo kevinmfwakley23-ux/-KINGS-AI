@@ -48,12 +48,21 @@ export class MissionContextRetriever {
         new MemoryRelevanceRanker(),
   ) {
     if (
-      limits.maxMemories < 1 ||
-      limits.maxKnowledgeRecords < 1 ||
-      limits.maxEvidence < 1
+      !Number.isInteger(
+        limits.maxMemories,
+      ) ||
+      limits.maxMemories < 0 ||
+      !Number.isInteger(
+        limits.maxKnowledgeRecords,
+      ) ||
+      limits.maxKnowledgeRecords < 0 ||
+      !Number.isInteger(
+        limits.maxEvidence,
+      ) ||
+      limits.maxEvidence < 0
     ) {
       throw new Error(
-        "K.I.N.G.S. Mission Context Retriever: limits must be at least 1",
+        "K.I.N.G.S. Mission Context Retriever: limits must be non-negative integers",
       );
     }
   }
@@ -105,8 +114,12 @@ export class MissionContextRetriever {
         this.limits.maxMemories,
       )
       .map(
-        (item) =>
-          item.memory,
+        (item) => ({
+          ...item.memory,
+          sourceReferences: [
+            ...item.memory.sourceReferences,
+          ],
+        }),
       );
   }
 
@@ -140,29 +153,43 @@ export class MissionContextRetriever {
         },
       );
 
-    return {
-      ...result,
-      records:
-        result.records.slice(
+    const records =
+      result.records
+        .slice(
           0,
           this.limits.maxKnowledgeRecords,
-        ),
-      evidence:
-        result.evidence.slice(
+        )
+        .map(
+          (record) => ({
+            ...record,
+            evidenceIds: [
+              ...record.evidenceIds,
+            ],
+          }),
+        );
+
+    const evidence =
+      result.evidence
+        .slice(
           0,
           this.limits.maxEvidence,
-        ),
+        )
+        .map(
+          (item) => ({
+            ...item,
+          }),
+        );
+
+    return {
+      ...result,
+      records,
+      evidence,
       sourceIds: [
         ...new Set(
-          result.records
-            .slice(
-              0,
-              this.limits.maxKnowledgeRecords,
-            )
-            .map(
-              (record) =>
-                record.sourceId,
-            ),
+          records.map(
+            (record) =>
+              record.sourceId,
+          ),
         ),
       ],
     };

@@ -8,41 +8,15 @@ import type {
 
 export class MemoryConsolidationStore {
   private readonly candidates =
-    new Map<
-      ID,
-      MemoryConsolidationCandidate
-    >();
+    new Map<ID, MemoryConsolidationCandidate>();
 
   register(
     candidate: MemoryConsolidationCandidate,
   ): void {
-    if (!candidate.id) {
-      throw new Error(
-        "K.I.N.G.S. Consolidation Store: candidate id is required",
-      );
-    }
+    this.validateCandidate(candidate);
 
     if (
-      candidate.authoritative
-    ) {
-      throw new Error(
-        `K.I.N.G.S. Consolidation Store: candidate "${candidate.id}" cannot be authoritative`,
-      );
-    }
-
-    if (
-      candidate.sourceMemoryIds.length ===
-      0
-    ) {
-      throw new Error(
-        `K.I.N.G.S. Consolidation Store: candidate "${candidate.id}" requires source memories`,
-      );
-    }
-
-    if (
-      this.candidates.has(
-        candidate.id,
-      )
+      this.candidates.has(candidate.id)
     ) {
       throw new Error(
         `K.I.N.G.S. Consolidation Store: duplicate candidate id "${candidate.id}"`,
@@ -51,15 +25,7 @@ export class MemoryConsolidationStore {
 
     this.candidates.set(
       candidate.id,
-      {
-        ...candidate,
-        sourceMemoryIds: [
-          ...candidate.sourceMemoryIds,
-        ],
-        sourceReferences: [
-          ...candidate.sourceReferences,
-        ],
-      },
+      this.cloneCandidate(candidate),
     );
   }
 
@@ -69,37 +35,130 @@ export class MemoryConsolidationStore {
     | MemoryConsolidationCandidate
     | undefined {
     const candidate =
-      this.candidates.get(
-        candidateId,
-      );
+      this.candidates.get(candidateId);
 
     return candidate
-      ? {
-          ...candidate,
-          sourceMemoryIds: [
-            ...candidate.sourceMemoryIds,
-          ],
-          sourceReferences: [
-            ...candidate.sourceReferences,
-          ],
-        }
+      ? this.cloneCandidate(candidate)
       : undefined;
   }
 
-  list():
-    MemoryConsolidationCandidate[] {
-    return [
+  list(
+    limit?: number,
+  ): MemoryConsolidationCandidate[] {
+    if (
+      limit !== undefined &&
+      (
+        !Number.isInteger(limit) ||
+        limit < 0
+      )
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Consolidation Store: limit must be a non-negative integer",
+      );
+    }
+
+    const candidates = [
       ...this.candidates.values(),
-    ].map(
-      (candidate) => ({
-        ...candidate,
-        sourceMemoryIds: [
-          ...candidate.sourceMemoryIds,
-        ],
-        sourceReferences: [
-          ...candidate.sourceReferences,
-        ],
-      }),
+    ]
+      .sort(
+        (a, b) =>
+          a.id.localeCompare(b.id),
+      )
+      .map(
+        (candidate) =>
+          this.cloneCandidate(candidate),
+      );
+
+    if (limit === undefined) {
+      return candidates;
+    }
+
+    return candidates.slice(
+      0,
+      limit,
     );
+  }
+
+  clear(): void {
+    this.candidates.clear();
+  }
+
+  private validateCandidate(
+    candidate: MemoryConsolidationCandidate,
+  ): void {
+    if (!candidate.id.trim()) {
+      throw new Error(
+        "K.I.N.G.S. Consolidation Store: candidate id is required",
+      );
+    }
+
+    if (!candidate.summary.trim()) {
+      throw new Error(
+        `K.I.N.G.S. Consolidation Store: candidate "${candidate.id}" requires a summary`,
+      );
+    }
+
+    if (!candidate.consolidationReason.trim()) {
+      throw new Error(
+        `K.I.N.G.S. Consolidation Store: candidate "${candidate.id}" requires a consolidation reason`,
+      );
+    }
+
+    if (candidate.authoritative) {
+      throw new Error(
+        `K.I.N.G.S. Consolidation Store: candidate "${candidate.id}" cannot be authoritative`,
+      );
+    }
+
+    if (
+      candidate.sourceMemoryIds.length === 0
+    ) {
+      throw new Error(
+        `K.I.N.G.S. Consolidation Store: candidate "${candidate.id}" requires source memories`,
+      );
+    }
+
+    if (
+      new Set(
+        candidate.sourceMemoryIds,
+      ).size !==
+      candidate.sourceMemoryIds.length
+    ) {
+      throw new Error(
+        `K.I.N.G.S. Consolidation Store: candidate "${candidate.id}" contains duplicate source memories`,
+      );
+    }
+
+    if (
+      candidate.sourceReferences.length === 0
+    ) {
+      throw new Error(
+        `K.I.N.G.S. Consolidation Store: candidate "${candidate.id}" requires source provenance`,
+      );
+    }
+
+    if (
+      candidate.estimatedInputCharacters < 0 ||
+      candidate.estimatedOutputCharacters < 0 ||
+      candidate.estimatedCharacterSavings < 0
+    ) {
+      throw new Error(
+        `K.I.N.G.S. Consolidation Store: candidate "${candidate.id}" contains invalid size accounting`,
+      );
+    }
+  }
+
+  private cloneCandidate(
+    candidate: MemoryConsolidationCandidate,
+  ): MemoryConsolidationCandidate {
+    return {
+      ...candidate,
+      sourceMemoryIds: [
+        ...candidate.sourceMemoryIds,
+      ],
+      sourceReferences: [
+        ...candidate.sourceReferences,
+      ],
+    };
   }
 }

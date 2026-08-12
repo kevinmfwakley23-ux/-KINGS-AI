@@ -196,19 +196,45 @@ export class MissionMemoryBridge {
     missionId: ID,
     type?: MemoryType,
   ): MemoryReference[] {
-    return this.memoryStore.query({
+    this.assertMissionId(
       missionId,
-      type,
-    });
+    );
+
+    return this.memoryStore
+      .query({
+        missionId,
+        type,
+      })
+      .map(
+        (memory) => ({
+          ...memory,
+          sourceReferences: [
+            ...memory.sourceReferences,
+          ],
+        }),
+      );
   }
 
   getAuthoritativeMissionMemories(
     missionId: ID,
   ): MemoryReference[] {
-    return this.memoryStore.query({
+    this.assertMissionId(
       missionId,
-      authoritativeOnly: true,
-    });
+    );
+
+    return this.memoryStore
+      .query({
+        missionId,
+        authoritativeOnly: true,
+      })
+      .map(
+        (memory) => ({
+          ...memory,
+          sourceReferences: [
+            ...memory.sourceReferences,
+          ],
+        }),
+      );
   }
 
   private promoteIfAuthorized(
@@ -254,6 +280,27 @@ export class MissionMemoryBridge {
   private createMemory(
     memory: MemoryReference,
   ): MemoryReference {
+    if (!memory.id.trim()) {
+      throw new Error(
+        "K.I.N.G.S. Mission Memory Bridge: memory id is required",
+      );
+    }
+
+    if (
+      !memory.missionId ||
+      !memory.missionId.trim()
+    ) {
+      throw new Error(
+        `K.I.N.G.S. Mission Memory Bridge: memory "${memory.id}" requires mission id`,
+      );
+    }
+
+    if (!memory.summary.trim()) {
+      throw new Error(
+        `K.I.N.G.S. Mission Memory Bridge: memory "${memory.id}" requires a summary`,
+      );
+    }
+
     if (
       memory.sourceReferences.length === 0
     ) {
@@ -262,12 +309,35 @@ export class MissionMemoryBridge {
       );
     }
 
+    const sourceReferences = [
+      ...memory.sourceReferences,
+    ];
+
+    if (
+      sourceReferences.some(
+        (reference) =>
+          !reference.trim(),
+      )
+    ) {
+      throw new Error(
+        `K.I.N.G.S. Mission Memory Bridge: memory "${memory.id}" contains invalid provenance`,
+      );
+    }
+
     return {
       ...memory,
-      sourceReferences: [
-        ...memory.sourceReferences,
-      ],
+      sourceReferences,
     };
+  }
+
+  private assertMissionId(
+    missionId: ID,
+  ): void {
+    if (!missionId.trim()) {
+      throw new Error(
+        "K.I.N.G.S. Mission Memory Bridge: mission id is required",
+      );
+    }
   }
 
   private buildStateSummary(
