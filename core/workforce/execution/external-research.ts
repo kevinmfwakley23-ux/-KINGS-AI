@@ -20,6 +20,7 @@ export interface ResearchSourceRecord {
   status: number;
   statusText: string;
   contentType: string;
+  content: string;
   retrievedAt: string;
 }
 
@@ -127,6 +128,7 @@ export class ExternalResearchAdapter {
           status: number;
           statusText: string;
           contentType: string;
+          content: string;
           fetchedAt: string;
         };
 
@@ -143,6 +145,8 @@ export class ExternalResearchAdapter {
           result.statusText,
         contentType:
           result.contentType,
+        content:
+          result.content,
         retrievedAt:
           result.fetchedAt,
       });
