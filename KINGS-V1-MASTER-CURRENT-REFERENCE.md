@@ -114,28 +114,54 @@ These additions directly address the locked requirement for extensible programmi
 - Model identities are produced as internal-local model identities.
 - Provider unavailability degrades without creating phantom models.
 
-**Ollama execution transport — current local work after `1fbd021`**
-- Governed `/api/generate` request/response adaptation is implemented locally and tested.
+**Real Ollama execution and internal model integration — commits `f13cd97` and `2e337a2`**
+- Governed `/api/generate` request/response adaptation is implemented and tested.
 - Transport error and malformed response protection are tested.
-- This work is not yet committed until the real model integration checkpoint passes.
+- Real local model integration is connected through the existing provider → capability registry → router → worker execution path.
 
-**Real local model availability — local runtime proof**
+**Real local coding proof — commits `392f156`, `a19c2e2`, `3cc09a4`, `ee5f08d`, `001166c`**
+- Real `qwen2.5-coder:0.5b` local inference is routed through K.I.N.G.S.
+- The local model can produce a bounded coding result.
+- The result is converted into a governed coding proposal.
+- Workspace, task, project, language, and operation authorization are enforced.
+- The existing `ControlledFileEditor` and `EngineeringRepairEditor` perform the actual filesystem write.
+- Generated code can be built and tested.
+- Real compiler failure diagnostics are preserved.
+- Existing recovery authority selects retry/repair decisions.
+- Existing repair planning and repair editing can fix a real failed artifact.
+- Retest and verification complete the loop.
+
+**Real local model availability — verified working capability**
 - Ollama `0.32.6` is installed and running on the Chromebook.
 - `qwen2.5-coder:0.5b` was pulled successfully.
 - Model size is approximately 397 MB.
-- Real local inference returned `KINGS_LOCAL_INFERENCE_GREEN`.
+- Real local inference has been verified.
 - The model reports a 494.03M parameter Q4_K_M configuration with completion/tool/insert capabilities.
+- Real local coding generation has been routed through K.I.N.G.S., authorized through the workspace boundary, written through the controlled file editor, built, tested, repaired after a real failure, and verified.
 - The Chromebook has approximately 2.7 GiB RAM, no swap, and roughly 3.4–3.7 GiB free disk during this work. Treat this as a constrained local runtime.
+
+### Tree 08 — Durable runtime continuity
+
+**Durable mission interruption and resume proof — current committed checkpoint `001166c` plus continuity proof**
+- Mission checkpoints preserve state, evidence, and plan identity.
+- Execution continuity attaches mission checkpoints to active executions.
+- Runtime loss is detected through the existing `SessionRecoveryAuthority`.
+- Replacement runtimes are validated by owner identity and activity state.
+- Durable workflows persist interruption state and recovery identity.
+- Resume selects the next dependency-ready unfinished task.
+- Completed work and evidence remain preserved across interruption.
+- Dependency readiness advances after resumed-task completion.
+- Mission checkpoint restoration and mission continuity snapshot preservation are verified end-to-end.
 
 ## Important status interpretation
 
-The real local model proves **resource availability and genuine local inference**, but it does **not** yet prove professional software-engineering capability, autonomous mission completion, or full V1 readiness.
+The real local model and durable runtime work prove genuine integrated capability, but they do **not** by themselves prove full V1 readiness.
 
 The following are still incomplete unless independently demonstrated through integration and acceptance tests:
 
-- real coding quality and repository repair with internal intelligence
+- professional coding quality at repository scale with internal intelligence
 - complete multi-language/toolchain intelligence
-- full worker loop driven by an actual model through the complete governance stack
+- full worker loop driven by an actual model across a complete mission
 - memory → mission → execution integration
 - durable learned-knowledge retention and reuse
 - no-external-AI acceptance mission
@@ -146,7 +172,6 @@ The following are still incomplete unless independently demonstrated through int
 - final UI
 - generalized multi-device/runtime behavior
 - complete cost-aware provider strategy
-- end-to-end durable mission lifecycle
 
 ## Drift-prevention rules
 
@@ -161,9 +186,17 @@ The following are still incomplete unless independently demonstrated through int
 
 ## Current next-build direction
 
-The immediate Tree 04 objective is to replace synthetic internal intelligence test models with the real locally installed Ollama-backed model through the existing provider → capability registry → router → worker execution path, then demonstrate bounded real coding work with verification.
+The real local intelligence path and durable mission interruption/resume path are now proven through integration tests and real bounded proofs.
 
-After that, the next highest-value gaps must be selected from the master audit against the current repository, not invented sequentially.
+The next highest-value gaps must be selected from the master audit against the current repository, with priority on:
+
+1. durable learned-knowledge retention and reuse
+2. memory → mission → execution integration
+3. no-external-AI acceptance mission
+4. broader language/toolchain coverage
+5. real multi-mission proving-ground execution
+
+Do not invent a new subsystem until the existing repository has been audited for the correct integration owner.
 
 ## Final V1 proof
 
