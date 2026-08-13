@@ -32,6 +32,11 @@ import type {
   WorkUnitContract,
 } from "../work-unit-contract";
 
+import type {
+  GovernedMemoryExecutionPipeline,
+  GovernedMemoryExecutionPipelineOptions,
+} from "../memory-governed-execution-pipeline";
+
 export class ExecutionContextBuilder {
   private readonly retriever?:
     MissionContextRetriever;
@@ -45,11 +50,16 @@ export class ExecutionContextBuilder {
   constructor(
     knowledgeRuntime?:
       KnowledgeRuntimeAdapter,
+
     missionMemory?:
       MissionMemoryBridge,
+
     optimizer:
       ExecutionContextOptimizer =
         new ExecutionContextOptimizer(),
+
+    private readonly governedMemoryPipeline?:
+      GovernedMemoryExecutionPipeline,
   ) {
     this.optimizer =
       optimizer;
@@ -69,17 +79,58 @@ export class ExecutionContextBuilder {
   }
 
   async build(
-    agent: AgentDefinition,
-    task: Task,
-    workUnit?: WorkUnitContract,
-  ): Promise<AgentExecutionContext> {
+    agent:
+      AgentDefinition,
+
+    task:
+      Task,
+
+    workUnit?:
+      WorkUnitContract,
+
+    governedMemoryOptions?:
+      GovernedMemoryExecutionPipelineOptions,
+  ):
+    Promise<AgentExecutionContext> {
+    if (
+      this.governedMemoryPipeline
+    ) {
+      if (
+        !governedMemoryOptions
+      ) {
+        throw new Error(
+          `K.I.N.G.S. Execution Context Builder: governed memory is configured but no governed memory options were supplied for task "${task.id}"`,
+        );
+      }
+
+      const governed =
+        await this.governedMemoryPipeline.build(
+          task,
+          agent,
+          governedMemoryOptions,
+        );
+
+      return this.optimizer.optimize({
+        agent,
+        task,
+        workUnit,
+        missionContext:
+          governed.executionContext,
+        knowledge:
+          governed.executionContext
+            .knowledge,
+      });
+    }
+
     /*
      * Legacy task-scoped knowledge path.
      *
-     * Preserve INTELLIGENCE-004 behavior when a
-     * mission memory bridge has not been configured.
+     * Preserve existing behavior when governed memory
+     * is not configured.
      */
-    if (!this.retriever) {
+    if (
+      !this.retriever
+    ) {
       if (
         !task.knowledgeQuery
       ) {
@@ -113,10 +164,7 @@ export class ExecutionContextBuilder {
     }
 
     /*
-     * Unified mission context path.
-     *
-     * Mission memory and Project Brain knowledge are
-     * retrieved together before optimization.
+     * Existing unified mission-context path.
      */
     const contextPackage =
       await this.retriever.retrieve(
@@ -127,12 +175,17 @@ export class ExecutionContextBuilder {
       createMissionExecutionContext({
         missionId:
           contextPackage.missionId,
+
         taskId:
           contextPackage.taskId,
+
         agent,
+
         task,
+
         memories:
           contextPackage.memories,
+
         knowledge:
           contextPackage.knowledge,
       });
