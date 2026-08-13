@@ -344,24 +344,30 @@ export class MemoryRetrievalQualityAuthority {
           300,
       );
 
+    const creatorApprovedCurrentTruth =
+      memory.authoritative &&
+      !superseded;
+
     const quality =
-      clamp(
-        relevanceScore *
-          0.30 +
-        contextualMatch *
-          0.25 +
-        authorityScore *
-          0.15 +
-        freshnessScore *
-          0.10 +
-        provenanceScore *
-          0.10 +
-        (
-          1 -
-          supersessionRisk
-        ) *
-          0.10,
-      );
+      creatorApprovedCurrentTruth
+        ? 1
+        : clamp(
+            relevanceScore *
+              0.30 +
+            contextualMatch *
+              0.25 +
+            authorityScore *
+              0.15 +
+            freshnessScore *
+              0.10 +
+            provenanceScore *
+              0.10 +
+            (
+              1 -
+              supersessionRisk
+            ) *
+              0.10,
+          );
 
     const reasons:
       string[] =
@@ -405,6 +411,12 @@ export class MemoryRetrievalQualityAuthority {
     }
 
     if (
+      creatorApprovedCurrentTruth
+    ) {
+      reasons.push(
+        "creator-approved current truth",
+      );
+    } else if (
       quality >=
       options.minimumQuality
     ) {
@@ -466,11 +478,14 @@ export class MemoryRetrievalQualityAuthority {
         ),
 
       eligible:
-        quality >=
-        options.minimumQuality &&
         provenanceScore ===
           1 &&
-        !superseded,
+        !superseded &&
+        (
+          creatorApprovedCurrentTruth ||
+          quality >=
+            options.minimumQuality
+        ),
 
       reasons,
     };

@@ -311,6 +311,68 @@ console.log(
   "007.MEMORY freshness-sensitive retrieval quality: SUCCESS",
 );
 
+const creatorApprovedCurrent =
+  memory(
+    "memory-creator-current",
+    "Creator-approved final project architecture plan.",
+    {
+      authoritative:
+        true,
+      updatedAt:
+        "2026-08-13T02:00:00.000Z",
+    },
+  );
+
+const creatorTruthResult =
+  authority.evaluate(
+    task,
+    [
+      creatorApprovedCurrent,
+    ],
+    {
+      now:
+        "2026-08-13T03:00:00.000Z",
+      limit:
+        1,
+      minimumQuality:
+        0.99,
+    },
+  );
+
+assert(
+  creatorTruthResult.selectedMemoryIds.includes(
+    "memory-creator-current",
+  ),
+  "Creator-approved current truth must remain retrievable even above the ordinary quality threshold.",
+);
+
+const creatorTruthQuality =
+  creatorTruthResult.candidates.find(
+    (
+      candidate,
+    ) =>
+      candidate.memoryId ===
+      "memory-creator-current",
+  );
+
+assert(
+  creatorTruthQuality?.quality ===
+    1,
+  "Creator-approved current truth must receive maximum retrieval quality.",
+);
+
+assert(
+  creatorTruthQuality !== undefined &&
+  creatorTruthQuality.reasons.includes(
+    "creator-approved current truth",
+  ),
+  "Creator-approved current truth must be explicitly identified in retrieval reasoning.",
+);
+
+console.log(
+  "007.MEMORY creator-approved current truth priority: SUCCESS",
+);
+
 const deterministicA =
   authority.evaluate(
     task,
