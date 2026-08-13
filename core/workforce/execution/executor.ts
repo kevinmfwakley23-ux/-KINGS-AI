@@ -23,6 +23,14 @@ import {
   ExecutionContextBuilder,
 } from "./context-builder";
 
+import type {
+  GovernedMemoryExecutionPipelineOptions,
+} from "../memory-governed-execution-pipeline";
+
+import type {
+  GovernedMemoryExecutionPipeline,
+} from "../memory-governed-execution-pipeline";
+
 import {
   BudgetAuthority,
 } from "../budget-authority";
@@ -51,10 +59,27 @@ export class WorkforceExecutor
     budgetAuthority:
       BudgetAuthority =
         new BudgetAuthority(),
+
+    private readonly governedMemoryPipeline?:
+      GovernedMemoryExecutionPipeline,
+
+    private readonly governedMemoryOptionsProvider?:
+      (
+        taskId: ID,
+      ) =>
+        Promise<
+          GovernedMemoryExecutionPipelineOptions
+        >,
   ) {
     this.contextBuilder =
       new ExecutionContextBuilder(
         knowledgeRuntime,
+
+        undefined,
+
+        undefined,
+
+        this.governedMemoryPipeline,
       );
 
     this.budgetAuthority =
@@ -210,11 +235,33 @@ export class WorkforceExecutor
       );
     }
 
+    let governedMemoryOptions:
+      GovernedMemoryExecutionPipelineOptions |
+      undefined;
+
+    if (
+      this.governedMemoryPipeline
+    ) {
+      if (
+        !this.governedMemoryOptionsProvider
+      ) {
+        throw new Error(
+          `K.I.N.G.S. Workforce Executor: governed memory is configured but no governed memory options provider is configured for task "${taskId}"`,
+        );
+      }
+
+      governedMemoryOptions =
+        await this.governedMemoryOptionsProvider(
+          taskId,
+        );
+    }
+
     const context =
       await this.contextBuilder.build(
         agent,
         task,
         workUnit,
+        governedMemoryOptions,
       );
 
     const result =
