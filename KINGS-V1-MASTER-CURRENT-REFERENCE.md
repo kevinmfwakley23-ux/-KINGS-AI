@@ -140,6 +140,17 @@ These additions directly address the locked requirement for extensible programmi
 - Real local coding generation has been routed through K.I.N.G.S., authorized through the workspace boundary, written through the controlled file editor, built, tested, repaired after a real failure, and verified.
 - The Chromebook has approximately 2.7 GiB RAM, no swap, and roughly 3.4–3.7 GiB free disk during this work. Treat this as a constrained local runtime.
 
+### Tree 05 — Durable learned knowledge
+
+**Learned knowledge retention and reuse proof — current checkpoint**
+- Existing `ProjectBrain` and `KnowledgeRegistry` preserve source and evidence provenance for learned knowledge.
+- Existing `MemoryPromotionGate` requires verification evidence or explicit human acceptance before durable promotion.
+- Existing `MemoryStore` persists semantic learned memory and supports authoritative-only retrieval.
+- Existing `MissionMemoryBridge` records mission-scoped episodic memory independently from semantic learned knowledge.
+- Verified learned semantic knowledge is promoted to authoritative memory without creating a parallel memory subsystem.
+- Authoritative learned memory remains retrievable for later tasks with its original provenance intact.
+- Unverified learned claims are denied promotion.
+
 ### Tree 08 — Durable runtime continuity
 
 **Durable mission interruption and resume proof — current committed checkpoint `001166c` plus continuity proof**
@@ -155,7 +166,7 @@ These additions directly address the locked requirement for extensible programmi
 
 ## Important status interpretation
 
-The real local model and durable runtime work prove genuine integrated capability, but they do **not** by themselves prove full V1 readiness.
+The real local model, durable runtime work, and learned-knowledge retention proof establish genuine integrated capability, but they do **not** by themselves prove full V1 readiness.
 
 The following are still incomplete unless independently demonstrated through integration and acceptance tests:
 
@@ -163,7 +174,6 @@ The following are still incomplete unless independently demonstrated through int
 - complete multi-language/toolchain intelligence
 - full worker loop driven by an actual model across a complete mission
 - memory → mission → execution integration
-- durable learned-knowledge retention and reuse
 - no-external-AI acceptance mission
 - synthetic workforce acceptance mission
 - KINGS Collectibles proving-ground mission
@@ -186,15 +196,15 @@ The following are still incomplete unless independently demonstrated through int
 
 ## Current next-build direction
 
-The real local intelligence path and durable mission interruption/resume path are now proven through integration tests and real bounded proofs.
+The real local intelligence path, durable mission interruption/resume path, and learned-knowledge retention/reuse path are now proven through integration tests and real bounded proofs.
 
 The next highest-value gaps must be selected from the master audit against the current repository, with priority on:
 
-1. durable learned-knowledge retention and reuse
-2. memory → mission → execution integration
-3. no-external-AI acceptance mission
-4. broader language/toolchain coverage
-5. real multi-mission proving-ground execution
+1. memory → mission → execution integration
+2. no-external-AI acceptance mission
+3. broader language/toolchain coverage
+4. real multi-mission proving-ground execution
+5. professional repository-scale coding quality with internal intelligence
 
 Do not invent a new subsystem until the existing repository has been audited for the correct integration owner.
 
