@@ -661,20 +661,10 @@ export class LocalCodingWorker {
       }
     }
 
-    const instructionText =
-      request.instruction
-        .toLowerCase();
-
-    const modificationIntent =
-      /\b(modify|change|update|fix|repair|refactor|edit|replace)\b/
-        .test(
-          instructionText,
-        );
-
-    const existingWork =
-      existingTargets.length >
-        0 ||
-      modificationIntent;
+    const filesystemOperation =
+      existingTargets.length > 0
+        ? "replace"
+        : "create";
 
     let prompt =
       buildPrompt(
@@ -683,9 +673,7 @@ export class LocalCodingWorker {
       );
 
     if (
-      existingWork &&
-      existingTargets.length >
-        0
+      existingTargets.length > 0
     ) {
       const relevantSource =
         await inspectRelevantSource({
@@ -698,13 +686,13 @@ export class LocalCodingWorker {
           maxFileBytes:
             Math.min(
               request.maxFileBytes,
-              32 * 1024,
+              24 * 1024,
             ),
 
           maxFiles:
             Math.min(
               existingTargets.length,
-              3,
+              2,
             ),
         });
 
@@ -715,7 +703,7 @@ export class LocalCodingWorker {
               file,
             ) =>
               [
-                `===== ${file.path} =====`,
+                `===== TARGET FILE: ${file.path} =====`,
                 file.content,
               ].join("\n"),
           )
@@ -723,20 +711,15 @@ export class LocalCodingWorker {
 
       prompt =
         prompt +
-        "\n\nTarget source files:\n" +
+        "\n\nTARGET FILE CONTEXT:\n" +
         sourceContext;
     }
-
-    const filesystemOperation =
-      existingTargets.length > 0
-        ? "replace"
-        : "create";
 
     prompt =
       prompt +
       "\n\nAUTHORITATIVE FILE OPERATION:\n" +
-      `The filesystem requires OPERATION: ${filesystemOperation}.\n` +
-      "Do not change this operation.\n";
+      `OPERATION: ${filesystemOperation}\n` +
+      "The operation above is authoritative. Do not change it.\n";
 
     const modelRequest:
       ModelExecutionRequest = {
