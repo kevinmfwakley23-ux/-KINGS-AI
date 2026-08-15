@@ -4,6 +4,10 @@ import type {
   ModelIdentity,
 } from "./model-interface";
 
+import {
+  generateWithOllamaRetry,
+} from "./ollama-stability";
+
 export interface OllamaExecutionClient {
   execute(
     model:
@@ -46,27 +50,80 @@ export class HttpOllamaExecutionClient
       new Date();
 
     try {
-      const response =
-        await this.transport.post(
-          "/api/generate",
-          {
-            model:
-              model.modelId,
-            prompt:
-              request.messages
-                .map(
-                  (
-                    message,
-                  ) =>
-                    `${message.role}: ${message.content}`,
-                )
-                .join(
-                  "\n",
-                ),
-            stream:
-              false,
-          },
-        );
+      let response:
+        unknown;
+
+      if (
+        this.transport.post
+      ) {
+        try {
+          response =
+            await this.transport.post(
+              "/api/generate",
+              {
+                model:
+                  model.modelId,
+
+                prompt:
+                  request.messages
+                    .map(
+                      (
+                        message,
+                      ) =>
+                        `${message.role}: ${message.content}`,
+                    )
+                    .join(
+                      "\n",
+                    ),
+
+                stream:
+                  false,
+              },
+            );
+        } catch (
+          transportError
+        ) {
+          const retry =
+            await generateWithOllamaRetry({
+              model:
+                model.modelId,
+
+              body: {
+                prompt:
+                  request.messages
+                    .map(
+                      (
+                        message,
+                      ) =>
+                        `${message.role}: ${message.content}`,
+                    )
+                    .join(
+                      "\n",
+                    ),
+
+                stream:
+                  false,
+              },
+
+              maxAttempts:
+                2,
+
+              retryDelayMs:
+                500,
+
+              timeoutMs:
+                60000,
+            });
+
+          response = {
+            response:
+              retry.response,
+
+            done:
+              true,
+          };
+        }
+      }
 
       if (
         !response ||

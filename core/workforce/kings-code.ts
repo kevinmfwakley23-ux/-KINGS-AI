@@ -2,12 +2,16 @@ import {
   LocalCodingVerificationLoop,
 } from "./local-coding-verification-loop";
 
+import {
+  executeCodingToolLoop,
+} from "./local-coding-tool-loop";
+
 function printUsage(): void {
   console.log(
     [
       "K.I.N.G.S. Coding Machine V1",
       "",
-      'Usage:',
+      "Usage:",
       '  node kings-code.js "your coding request"',
       "",
       "Example:",
@@ -53,6 +57,79 @@ async function main(): Promise<void> {
     `REQUEST: ${instruction}`,
   );
 
+  console.log(
+    "PRE-FLIGHT: repository search + source inspection + baseline test",
+  );
+
+  const toolContext =
+    await executeCodingToolLoop({
+      workspacePath,
+
+      query:
+        instruction,
+
+      candidatePaths: [
+        targetPath,
+      ],
+
+      testCommand:
+        process.execPath,
+
+      testArgs: [
+        "-e",
+        "console.log('KINGS_BASELINE_TOOL_CHECK')",
+      ],
+
+      maxMatches:
+        12,
+
+      maxFiles:
+        5,
+
+      maxFileBytes:
+        128 * 1024,
+
+      timeoutMs:
+        5000,
+
+      maxOutputBytes:
+        16 * 1024,
+    });
+
+  console.log(
+    `PRE-FLIGHT SEARCH MATCHES: ${toolContext.searchResults.length}`,
+  );
+
+  console.log(
+    `PRE-FLIGHT SOURCE FILES: ${toolContext.inspectedFiles.length}`,
+  );
+
+  console.log(
+    `PRE-FLIGHT TEST: ${
+      toolContext.testResult.success
+        ? "PASS"
+        : "FAIL"
+    }`,
+  );
+
+  if (
+    !toolContext.testResult.success
+  ) {
+    console.log(
+      "PRE-FLIGHT WARNING: baseline test failed; continuing to coding worker for diagnosis.",
+    );
+  }
+
+  const enrichedInstruction =
+    [
+      instruction,
+      "",
+      "K.I.N.G.S. pre-flight repository evidence follows.",
+      toolContext.context,
+      "",
+      "Use this evidence to make the requested change.",
+    ].join("\n");
+
   const loop =
     new LocalCodingVerificationLoop();
 
@@ -64,7 +141,8 @@ async function main(): Promise<void> {
       missionId:
         `cli-mission-${Date.now()}`,
 
-      instruction,
+      instruction:
+        enrichedInstruction,
 
       workspacePath,
 
