@@ -626,74 +626,87 @@ export class LocalCodingWorker {
         request,
       );
 
-    const repositoryContext =
-      await new RepositoryContextBuilder().build(
-        request.workspacePath,
-      );
-
-    const relevantSource =
-      await inspectRelevantSource({
-        workspacePath:
+    const targetExists =
+      await editor.exists({
+        path:
+          request.allowedWritePaths[0] ??
           request.workspacePath,
-
-        candidatePaths:
-          repositoryContext.entries
-            .filter(
-              (
-                entry,
-              ) =>
-                entry.kind ===
-                "file",
-            )
-            .map(
-              (
-                entry,
-              ) =>
-                entry.path,
-            ),
-
-        maxFileBytes:
-          Math.min(
-            request.maxFileBytes,
-            128 * 1024,
-          ),
-
-        maxFiles:
-          5,
       });
 
-    const sourceContext =
-      relevantSource.files
-        .map(
-          (
-            file,
-          ) =>
-            [
-              `===== ${file.path} =====`,
-              file.content,
-            ].join("\n"),
-        )
-        .join("\n\n");
+    const instructionText =
+      request.instruction
+        .toLowerCase();
 
-    const prompt =
+    const existingWork =
+      targetExists ||
+      /\b(modify|change|update|fix|repair|refactor|edit|replace)\b/
+        .test(
+          instructionText,
+        );
+
+    let prompt =
       buildPrompt(
         request,
-        [
-          ...workspaceFiles,
-          ...repositoryContext.entries.map(
+        workspaceFiles,
+      );
+
+    if (
+      existingWork
+    ) {
+      const repositoryContext =
+        await new RepositoryContextBuilder().build(
+          request.workspacePath,
+        );
+
+      const relevantSource =
+        await inspectRelevantSource({
+          workspacePath:
+            request.workspacePath,
+
+          candidatePaths:
+            repositoryContext.entries
+              .filter(
+                (
+                  entry,
+                ) =>
+                  entry.kind ===
+                  "file",
+              )
+              .map(
+                (
+                  entry,
+                ) =>
+                  entry.path,
+              ),
+
+          maxFileBytes:
+            Math.min(
+              request.maxFileBytes,
+              48 * 1024,
+            ),
+
+          maxFiles:
+            3,
+        });
+
+      const sourceContext =
+        relevantSource.files
+          .map(
             (
-              entry,
+              file,
             ) =>
-              entry.path,
-          ),
-        ],
-      ) +
-      "\n\nRepository map:\n" +
-      formatRepositoryContext(
-        repositoryContext.entries,
-      ) +
-      "\n\nRelevant source files:\n" +
-      sourceContext;
+              [
+                `===== ${file.path} =====`,
+                file.content,
+              ].join("\n"),
+          )
+          .join("\n\n");
+
+      prompt =
+        prompt +
+        "\n\nRelevant source files:\n" +
+        sourceContext;
+    }
 
     const modelRequest:
       ModelExecutionRequest = {
