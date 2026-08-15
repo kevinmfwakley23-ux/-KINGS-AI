@@ -21,6 +21,11 @@ import type {
 } from "./local-coding-change-proposal";
 
 import {
+  validateMultiFileProposal,
+  type MultiFileCodingProposal,
+} from "./multi-file-proposal";
+
+import {
   ControlledFileEditor,
 } from "./file-editor";
 
@@ -480,9 +485,12 @@ function buildPrompt(
   workspaceFiles:
     string[],
 ): string {
-  return [
+  const multiFile =
+    input.allowedWritePaths.length >= 2;
+
+  const lines = [
     "You are the K.I.N.G.S. local software engineering worker.",
-    "Produce one complete source file for the requested task.",
+    "Produce complete compilable source files for the requested task.",
     "",
     "Mission:",
     input.instruction,
@@ -491,31 +499,69 @@ function buildPrompt(
     "",
     "Authorized paths:",
     ...workspaceFiles.map(
-      (path) => `- ${path}`,
+      (path) =>
+        `- ${path}`,
     ),
     "",
-    "Return EXACTLY this three-part text format:",
-    "SUMMARY:",
-    "one short sentence",
-    "",
-    "OPERATION:",
-    "create or replace",
-    "",
-    "PATH:",
-    "one authorized file path",
-    "",
-    "CONTENT:",
-    "the complete file contents starting on the next line",
-    "",
-    "Rules:",
-    "1. Do not use JSON.",
-    "2. Do not use markdown fences.",
-    "3. Do not add commentary before SUMMARY or after the file content.",
-    "4. PATH must be one of the authorized paths.",
-    "5. CONTENT must be the complete source file.",
-    "6. Write real compilable code, not pseudocode.",
-    "7. Do not use placeholder text.",
-  ].join("\n");
+  ];
+
+  if (
+    multiFile
+  ) {
+    lines.push(
+      "MULTI-FILE MODE",
+      "",
+      "Return EXACTLY:",
+      "SUMMARY:",
+      "one short sentence",
+      "",
+      "FILE:",
+      "OPERATION: create or replace",
+      "PATH: authorized file path",
+      "CONTENT:",
+      "complete file contents",
+      "",
+      "FILE:",
+      "OPERATION: create or replace",
+      "PATH: authorized file path",
+      "CONTENT:",
+      "complete file contents",
+      "",
+      "Rules:",
+      "1. Return at least two FILE sections.",
+      "2. Do not use JSON.",
+      "3. Do not use markdown fences.",
+      "4. Do not add commentary outside the protocol.",
+      "5. Use only authorized paths.",
+      "6. Return complete source files.",
+    );
+  } else {
+    lines.push(
+      "SINGLE-FILE MODE",
+      "",
+      "Return EXACTLY:",
+      "SUMMARY:",
+      "one short sentence",
+      "",
+      "OPERATION:",
+      "create or replace",
+      "",
+      "PATH:",
+      "one authorized file path",
+      "",
+      "CONTENT:",
+      "complete file contents",
+      "",
+      "Rules:",
+      "1. Do not use JSON.",
+      "2. Do not use markdown fences.",
+      "3. Do not add commentary outside the protocol.",
+      "4. Use only authorized paths.",
+      "5. Return one complete source file.",
+    );
+  }
+
+  return lines.join("\n");
 }
 
 function extractFileList(
@@ -854,14 +900,54 @@ export class LocalCodingWorker {
         [];
 
       if (
-        fileSections.length >= 2
+        request.allowedWritePaths.length >= 2
       ) {
-        proposal =
+        if (
+          fileSections.length <
+          2
+        ) {
+          throw new Error(
+            "K.I.N.G.S. Multi-File Proposal: model did not return at least two FILE sections.",
+          );
+        }
+
+        const parsed =
           normalizeMultiFileCodingProposal(
             rawModelOutput,
             request.taskId,
             request.missionId,
           );
+
+        const validated =
+          validateMultiFileProposal(
+            {
+              ...parsed,
+              changes:
+                parsed.changes.map(
+                  (
+                    change,
+                  ) => ({
+                    ...change,
+                  }),
+                ),
+            } as MultiFileCodingProposal,
+            request.taskId,
+            request.missionId,
+            request.allowedWritePaths,
+          );
+
+        proposal = {
+          id:
+            validated.id,
+          taskId:
+            validated.taskId,
+          missionId:
+            validated.missionId,
+          summary:
+            validated.summary,
+          changes:
+            validated.changes,
+        };
       } else {
         proposal =
           normalizeLocalCodingModelProposal(
@@ -1008,20 +1094,6 @@ export class LocalCodingWorker {
             ? "replace"
             : "create";
 
-        if (
-          change.operation !==
-          filesystemOperation
-        ) {
-          throw new Error(
-            [
-              "K.I.N.G.S. Local Coding Worker: proposal operation does not match filesystem state.",
-              `Proposed operation: ${change.operation}`,
-              `Filesystem operation: ${filesystemOperation}`,
-              `Path: ${change.path}`,
-            ].join("\n"),
-          );
-        }
-
         editor.authorizeWrite({
           path:
             change.path,
@@ -1039,6 +1111,20 @@ export class LocalCodingWorker {
         writtenPaths.push(
           change.path,
         );
+
+        if (
+          change.operation !==
+          filesystemOperation
+        ) {
+          console.log(
+            [
+              "K.I.N.G.S. file operation normalized from filesystem state.",
+              `Path: ${change.path}`,
+              `Model operation: ${change.operation}`,
+              `Filesystem operation: ${filesystemOperation}`,
+            ].join("\n"),
+          );
+        }
       }
     } catch (
       error
