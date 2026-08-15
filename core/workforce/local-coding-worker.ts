@@ -134,12 +134,24 @@ function normalizeLocalCodingModelProposal(
     );
   }
 
-  const modelPath =
+  const rawModelPath =
     cleaned
       .slice(
         pathStart +
           pathMarker.length,
         contentStart,
+      )
+      .trim();
+
+  const modelPath =
+    rawModelPath
+      .replace(
+        /^`+|`+$/g,
+        "",
+      )
+      .replace(
+        /^["']+|["']+$/g,
+        "",
       )
       .trim();
 
@@ -626,23 +638,43 @@ export class LocalCodingWorker {
         request,
       );
 
-    const targetExists =
-      await editor.exists({
-        path:
-          request.allowedWritePaths[0] ??
-          request.workspacePath,
-      });
+    const targetPaths =
+      request.allowedWritePaths.length > 0
+        ? request.allowedWritePaths
+        : request.allowedReadPaths;
+
+    const existingTargets: string[] = [];
+
+    for (
+      const targetPath of
+      targetPaths
+    ) {
+      if (
+        await editor.exists({
+          path:
+            targetPath,
+        })
+      ) {
+        existingTargets.push(
+          targetPath,
+        );
+      }
+    }
 
     const instructionText =
       request.instruction
         .toLowerCase();
 
-    const existingWork =
-      targetExists ||
+    const modificationIntent =
       /\b(modify|change|update|fix|repair|refactor|edit|replace)\b/
         .test(
           instructionText,
         );
+
+    const existingWork =
+      existingTargets.length >
+        0 ||
+      modificationIntent;
 
     let prompt =
       buildPrompt(
@@ -651,42 +683,29 @@ export class LocalCodingWorker {
       );
 
     if (
-      existingWork
+      existingWork &&
+      existingTargets.length >
+        0
     ) {
-      const repositoryContext =
-        await new RepositoryContextBuilder().build(
-          request.workspacePath,
-        );
-
       const relevantSource =
         await inspectRelevantSource({
           workspacePath:
             request.workspacePath,
 
           candidatePaths:
-            repositoryContext.entries
-              .filter(
-                (
-                  entry,
-                ) =>
-                  entry.kind ===
-                  "file",
-              )
-              .map(
-                (
-                  entry,
-                ) =>
-                  entry.path,
-              ),
+            existingTargets,
 
           maxFileBytes:
             Math.min(
               request.maxFileBytes,
-              48 * 1024,
+              32 * 1024,
             ),
 
           maxFiles:
-            3,
+            Math.min(
+              existingTargets.length,
+              3,
+            ),
         });
 
       const sourceContext =
@@ -704,9 +723,20 @@ export class LocalCodingWorker {
 
       prompt =
         prompt +
-        "\n\nRelevant source files:\n" +
+        "\n\nTarget source files:\n" +
         sourceContext;
     }
+
+    const filesystemOperation =
+      existingTargets.length > 0
+        ? "replace"
+        : "create";
+
+    prompt =
+      prompt +
+      "\n\nAUTHORITATIVE FILE OPERATION:\n" +
+      `The filesystem requires OPERATION: ${filesystemOperation}.\n` +
+      "Do not change this operation.\n";
 
     const modelRequest:
       ModelExecutionRequest = {
@@ -949,6 +979,37 @@ export class LocalCodingWorker {
       string[] = [];
 
     try {
+      if (
+        proposal.changes.length ===
+        1 &&
+        request.allowedWritePaths.length ===
+        1
+      ) {
+        const target =
+          request.allowedWritePaths[0];
+
+        const targetExists =
+          await editor.exists({
+            path:
+              target,
+          });
+
+        proposal = {
+          ...proposal,
+          changes: [
+            {
+              ...proposal.changes[0],
+              path:
+                target,
+              operation:
+                targetExists
+                  ? "replace"
+                  : "create",
+            },
+          ],
+        };
+      }
+
       for (
         const change of
         proposal.changes
