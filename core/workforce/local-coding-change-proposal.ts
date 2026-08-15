@@ -19,6 +19,98 @@ export interface LocalCodingFileChange {
     string;
 }
 
+interface SingleFileModelProposal {
+  taskId: ID;
+  missionId: ID;
+  summary: string;
+  path: string;
+  operation:
+    "create" |
+    "replace";
+  content: string;
+}
+
+function normalizeSingleFileProposal(
+  value: unknown,
+): LocalCodingChangeProposal {
+  if (
+    !value ||
+    typeof value !== "object"
+  ) {
+    throw new Error(
+      "K.I.N.G.S. Local Coding Proposal: model proposal must be an object.",
+    );
+  }
+
+  const candidate =
+    value as Record<string, unknown>;
+
+  if (
+    typeof candidate.taskId !== "string" ||
+    typeof candidate.missionId !== "string" ||
+    typeof candidate.summary !== "string" ||
+    typeof candidate.path !== "string" ||
+    typeof candidate.operation !== "string" ||
+    typeof candidate.content !== "string"
+  ) {
+    throw new Error(
+      "K.I.N.G.S. Local Coding Proposal: model proposal must contain taskId, missionId, summary, path, operation, and content strings.",
+    );
+  }
+
+  const operation =
+    candidate.operation
+      .trim()
+      .toLowerCase()
+      .match(
+        /\b(create|replace)\b/i,
+      )?.[1]
+      ?.toLowerCase();
+
+  if (
+    operation !== "create" &&
+    operation !== "replace"
+  ) {
+    throw new Error(
+      `K.I.N.G.S. Local Coding Proposal: invalid operation "${candidate.operation}".`,
+    );
+  }
+
+  if (
+    candidate.taskId.trim() === "" ||
+    candidate.missionId.trim() === "" ||
+    candidate.path.trim() === "" ||
+    candidate.content.trim() === ""
+  ) {
+    throw new Error(
+      "K.I.N.G.S. Local Coding Proposal: model proposal contains an empty required field.",
+    );
+  }
+
+  return {
+    id:
+      `proposal-${candidate.taskId}`,
+    taskId:
+      candidate.taskId,
+    missionId:
+      candidate.missionId,
+    summary:
+      candidate.summary,
+    changes: [
+      {
+        path:
+          candidate.path,
+        operation:
+          operation as
+            "create" |
+            "replace",
+        content:
+          candidate.content,
+      },
+    ],
+  };
+}
+
 export interface LocalCodingChangeProposal {
   id:
     ID;

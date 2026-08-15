@@ -1,121 +1,192 @@
-import type {
-  ID,
-  KnowledgeSource,
-  KnowledgeSourceType,
-} from "./types";
+import {
+  readFile,
+} from "node:fs/promises";
 
-export type InspectionOperation =
-  | "metadata"
-  | "content";
-
-export interface SourceInspectionPolicy {
-  projectRoot: string;
-  allowedSourceIds: ID[];
-  allowedSourceTypes: KnowledgeSourceType[];
-  allowedOperations: InspectionOperation[];
-  excludedPathSegments: string[];
-}
+import {
+  resolve,
+} from "node:path";
 
 export interface SourceInspectionRequest {
-  sourceId: ID;
-  operation: InspectionOperation;
-  relativePath?: string;
+  workspacePath: string;
+  candidatePaths: readonly string[];
+  maxFileBytes: number;
+  maxFiles: number;
+}
+
+export interface SourceInspectionFile {
+  path: string;
+  content: string;
+  bytes: number;
 }
 
 export interface SourceInspectionResult {
-  sourceId: ID;
-  operation: InspectionOperation;
-  path: string;
-  content?: string;
-  sizeBytes: number;
-  createdAt: string;
+  files: SourceInspectionFile[];
+  totalBytes: number;
 }
 
-export class SourceInspectionPolicyError extends Error {
-  constructor(message: string) {
-    super(
-      `K.I.N.G.S. Source Inspector: ${message}`,
-    );
-    this.name = "SourceInspectionPolicyError";
+function scorePath(
+  path: string,
+): number {
+  const value =
+    path.toLowerCase();
+
+  let score = 0;
+
+  if (
+    value.includes(
+      "worker",
+    )
+  ) {
+    score += 100;
   }
+
+  if (
+    value.includes(
+      "execution",
+    )
+  ) {
+    score += 80;
+  }
+
+  if (
+    value.includes(
+      "coding",
+    )
+  ) {
+    score += 80;
+  }
+
+  if (
+    value.includes(
+      "proposal",
+    )
+  )
+  {
+    score += 70;
+  }
+
+  if (
+    value.includes(
+      "file-editor",
+    )
+  ) {
+    score += 70;
+  }
+
+  if (
+    value.includes(
+      "model",
+    )
+  ) {
+    score += 60;
+  }
+
+  if (
+    value.includes(
+      "verification",
+    )
+  ) {
+    score += 50;
+  }
+
+  if (
+    value.endsWith(
+      ".ts",
+    )
+  ) {
+    score += 20;
+  }
+
+  return score;
 }
 
-export function validateInspectionPolicy(
-  source: KnowledgeSource,
-  policy: SourceInspectionPolicy,
-): void {
-  if (!policy.allowedSourceIds.includes(source.id)) {
-    throw new SourceInspectionPolicyError(
-      `source "${source.id}" is not authorized for inspection`,
-    );
-  }
-
-  if (!policy.allowedSourceTypes.includes(source.type)) {
-    throw new SourceInspectionPolicyError(
-      `source type "${source.type}" is not authorized for inspection`,
-    );
-  }
-
-  if (!policy.allowedOperations.includes("metadata")) {
-    throw new SourceInspectionPolicyError(
-      "metadata inspection is not authorized",
-    );
-  }
-
-  if (policy.projectRoot.trim().length === 0) {
-    throw new SourceInspectionPolicyError(
-      "project root cannot be empty",
-    );
-  }
-
-  if (policy.excludedPathSegments.length === 0) {
-    throw new SourceInspectionPolicyError(
-      "inspection policy must define excluded path segments",
-    );
-  }
-}
-
-export function validateInspectionRequest(
-  source: KnowledgeSource,
-  request: SourceInspectionRequest,
-  policy: SourceInspectionPolicy,
-): void {
-  validateInspectionPolicy(source, policy);
-
-  if (request.sourceId !== source.id) {
-    throw new SourceInspectionPolicyError(
-      `request source "${request.sourceId}" does not match source "${source.id}"`,
-    );
-  }
-
-  if (!policy.allowedOperations.includes(request.operation)) {
-    throw new SourceInspectionPolicyError(
-      `operation "${request.operation}" is not authorized`,
-    );
-  }
-
-  if (request.relativePath) {
-    const normalized = request.relativePath.replaceAll("\\", "/");
-
-    if (
-      normalized.startsWith("/") ||
-      normalized.split("/").includes("..")
-    ) {
-      throw new SourceInspectionPolicyError(
-        `path "${request.relativePath}" escapes the approved project root`,
+export async function inspectRelevantSource(
+  request:
+    SourceInspectionRequest,
+): Promise<SourceInspectionResult> {
+  const ranked =
+    [...request.candidatePaths]
+      .map(
+        (
+          path,
+        ) => ({
+          path,
+          score:
+            scorePath(
+              path,
+            ),
+        }),
+      )
+      .sort(
+        (
+          left,
+          right,
+        ) =>
+          right.score -
+          left.score ||
+          left.path.localeCompare(
+            right.path,
+          ),
       );
+
+  const files:
+    SourceInspectionFile[] = [];
+
+  let totalBytes = 0;
+
+  for (
+    const candidate of
+    ranked
+  ) {
+    if (
+      files.length >=
+      request.maxFiles
+    ) {
+      break;
     }
 
-    for (const excluded of policy.excludedPathSegments) {
-      if (
-        normalized === excluded ||
-        normalized.startsWith(`${excluded}/`) ||
-        normalized.includes(`/${excluded}/`)
-      ) {
-        throw new SourceInspectionPolicyError(
-          `path "${request.relativePath}" contains excluded path segment "${excluded}"`,
+    const path =
+      resolve(
+        request.workspacePath,
+        candidate.path,
+      );
+
+    try {
+      const content =
+        await readFile(
+          path,
+          "utf8",
         );
+
+      const bytes =
+        Buffer.byteLength(
+          content,
+          "utf8",
+        );
+
+      if (
+        bytes >
+        request.maxFileBytes
+      ) {
+        continue;
       }
+
+      files.push({
+        path:
+          candidate.path,
+        content,
+        bytes,
+      });
+
+      totalBytes +=
+        bytes;
+    } catch {
+      continue;
     }
   }
+
+  return {
+    files,
+    totalBytes,
+  };
 }
