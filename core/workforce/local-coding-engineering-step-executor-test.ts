@@ -2,6 +2,10 @@ import {
   LocalCodingEngineeringStepExecutor,
 } from "./local-coding-engineering-step-executor";
 
+import {
+  LocalCodingWorker,
+} from "./local-coding-worker";
+
 import type {
   AutonomousEngineeringExecution,
 } from "./autonomous-engineering-execution";
@@ -99,8 +103,33 @@ async function main(): Promise<void> {
         true,
     };
 
+  const worker =
+    new LocalCodingWorker();
+
+  /*
+   * Deterministic worker boundary.
+   *
+   * This proves the governed engineering-step executor independently
+   * of the external Ollama transport.
+   */
+  (worker as any).execute =
+    async () => ({
+      success:
+        true,
+
+      writtenPaths: [
+        "generated/kingsLocalMasterProof.ts",
+      ],
+
+      reasons: [
+        "deterministic-engineering-step-test",
+      ],
+    });
+
   const executor =
-    new LocalCodingEngineeringStepExecutor();
+    new LocalCodingEngineeringStepExecutor({
+      worker,
+    });
 
   const result =
     await executor.execute(
@@ -119,23 +148,23 @@ async function main(): Promise<void> {
 
         command,
 
-      engineeringIntent:
-        [
-          "Create a TypeScript source file.",
-          "Export a function named kingsLocalMasterProof.",
-          "The function must return the exact string KINGS_LOCAL_MASTER_GREEN.",
-          "",
-          "The authorized workspace is the working directory itself.",
-          "Write the file as generated/kingsLocalMasterProof.ts.",
-          "Use the K.I.N.G.S. coding proposal protocol:",
-          "SUMMARY:",
-          "OPERATION: create",
-          "PATH: generated/kingsLocalMasterProof.ts",
-          "CONTENT:",
-          "complete TypeScript source only.",
-        ].join(
-          "\n",
-        ),
+        engineeringIntent:
+          [
+            "Create a TypeScript source file.",
+            "Export a function named kingsLocalMasterProof.",
+            "The function must return the exact string KINGS_LOCAL_MASTER_GREEN.",
+            "",
+            "The authorized workspace is the working directory itself.",
+            "Write the file as generated/kingsLocalMasterProof.ts.",
+            "Use the K.I.N.G.S. coding proposal protocol.",
+            "SUMMARY:",
+            "OPERATION: create",
+            "PATH: generated/kingsLocalMasterProof.ts",
+            "CONTENT:",
+            "complete TypeScript source only.",
+          ].join(
+            "\n",
+          ),
       },
       execution,
     );
@@ -164,6 +193,13 @@ async function main(): Promise<void> {
     "Execution evidence must identify the local K.I.N.G.S. coding master.",
   );
 
+  assert(
+    result.evidence.includes(
+      "written:generated/kingsLocalMasterProof.ts",
+    ),
+    "Execution evidence must preserve the written artifact.",
+  );
+
   console.log(
     "001.LOCAL MASTER STEP → GOVERNED ENGINEERING VALIDATION: SUCCESS",
   );
@@ -174,6 +210,10 @@ async function main(): Promise<void> {
 
   console.log(
     "003.LOCAL MASTER STEP → ENGINEERING RESULT: SUCCESS",
+  );
+
+  console.log(
+    "004.LOCAL MASTER STEP → DETERMINISTIC WORKER BOUNDARY: SUCCESS",
   );
 
   console.log(
