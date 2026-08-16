@@ -18,6 +18,11 @@ import {
   WorkUnitExecutionStateStore,
 } from "./work-unit-execution-state";
 
+
+import {
+  WorkUnitContinuityBridge,
+} from "./work-unit-continuity-bridge";
+
 export interface ModelDrivenWorkUnit {
   id:
     ID;
@@ -80,6 +85,21 @@ export interface ModelDrivenWorkflowRequest {
 
   executionState?:
     WorkUnitExecutionStateStore;
+
+  continuityBridge?:
+    WorkUnitContinuityBridge;
+
+  continuityContext?:
+    {
+      ownerId:
+        ID;
+
+      runtimeSessionId:
+        ID;
+
+      runtimeDefinitionId:
+        ID;
+    };
 }
 
 export interface ModelDrivenWorkflowResult {
@@ -137,6 +157,38 @@ export class ModelDrivenWorkflowExecutor {
           workUnit.targetPath,
         );
 
+      const continuityExecution =
+        request.continuityBridge &&
+        request.continuityContext
+          ? request.continuityBridge.start(
+              {
+                missionId:
+                  request.missionId,
+
+                workflowId:
+                  request.id,
+
+                ownerId:
+                  request.continuityContext
+                    .ownerId,
+
+                runtimeSessionId:
+                  request.continuityContext
+                    .runtimeSessionId,
+
+                runtimeDefinitionId:
+                  request.continuityContext
+                    .runtimeDefinitionId,
+
+                executionId:
+                  `${request.id}:${workUnit.id}:execution`,
+
+                state,
+              },
+              new Date().toISOString(),
+            )
+          : undefined;
+
       const reasonedResult =
         await request.executor.execute({
           id:
@@ -177,6 +229,16 @@ export class ModelDrivenWorkflowExecutor {
           reasonedResult.evidence,
         );
 
+        if (
+          continuityExecution &&
+          request.continuityBridge
+        ) {
+          request.continuityBridge.fail(
+            continuityExecution.id,
+            new Date().toISOString(),
+          );
+        }
+
         blockedWorkUnitIds.push(
           workUnit.id,
         );
@@ -191,6 +253,16 @@ export class ModelDrivenWorkflowExecutor {
       evidence.push(
         `work-unit:${workUnit.id}:reasoned`,
       );
+
+      if (
+        continuityExecution &&
+        request.continuityBridge
+      ) {
+        request.continuityBridge.checkpoint(
+          continuityExecution.id,
+          new Date().toISOString(),
+        );
+      }
 
       /*
        * Coding becomes an execution phase only for work units
@@ -250,6 +322,16 @@ export class ModelDrivenWorkflowExecutor {
             codingResult.evidence,
           );
 
+          if (
+            continuityExecution &&
+            request.continuityBridge
+          ) {
+            request.continuityBridge.fail(
+              continuityExecution.id,
+              new Date().toISOString(),
+            );
+          }
+
           blockedWorkUnitIds.push(
             workUnit.id,
           );
@@ -273,6 +355,46 @@ export class ModelDrivenWorkflowExecutor {
           ],
         );
 
+        if (
+          continuityExecution &&
+          request.continuityBridge &&
+          request.continuityContext
+        ) {
+          request.continuityBridge.complete(
+            {
+              missionId:
+                request.missionId,
+
+              workflowId:
+                request.id,
+
+              ownerId:
+                request.continuityContext
+                  .ownerId,
+
+              runtimeSessionId:
+                request.continuityContext
+                  .runtimeSessionId,
+
+              runtimeDefinitionId:
+                request.continuityContext
+                  .runtimeDefinitionId,
+
+              executionId:
+                continuityExecution.id,
+
+              state:
+                executionState.get(
+                  workUnit.id,
+                ) ?? state,
+            },
+
+            continuityExecution,
+
+            new Date().toISOString(),
+          );
+        }
+
         evidence.push(
           `work-unit:${workUnit.id}:coding-complete`,
         );
@@ -285,6 +407,45 @@ export class ModelDrivenWorkflowExecutor {
           state,
           reasonedResult.evidence,
         );
+
+        if (
+          continuityExecution &&
+          request.continuityBridge
+        ) {
+          request.continuityBridge.complete(
+            {
+              missionId:
+                request.missionId,
+
+              workflowId:
+                request.id,
+
+              ownerId:
+                request.continuityContext?.ownerId ??
+                "workflow",
+
+              runtimeSessionId:
+                request.continuityContext?.runtimeSessionId ??
+                "workflow",
+
+              runtimeDefinitionId:
+                request.continuityContext?.runtimeDefinitionId ??
+                "workflow",
+
+              executionId:
+                continuityExecution.id,
+
+              state:
+                executionState.get(
+                  workUnit.id,
+                ) ?? state,
+            },
+
+            continuityExecution,
+
+            new Date().toISOString(),
+          );
+        }
       }
 
       results.push(
