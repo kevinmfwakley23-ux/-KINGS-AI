@@ -9,6 +9,7 @@ import type {
 
 import type {
   DurableWorkflowResumeAuthority,
+  DurableWorkflowResumeResult,
   DurableWorkflowState,
 } from "./durable-workflow-resume";
 
@@ -144,6 +145,30 @@ export class WorkUnitContinuityBridge {
     ExecutionContinuityRecord {
     return this.executionContinuity.fail(
       executionId,
+      updatedAt,
+    );
+  }
+
+  resume(
+    workflowId:
+      ID,
+
+    execution:
+      ExecutionContinuityRecord,
+
+    recovery:
+      Parameters<
+        DurableWorkflowResumeAuthority["resume"]
+      >[2],
+
+    updatedAt:
+      string,
+  ):
+    DurableWorkflowResumeResult {
+    return this.durableWorkflow.resume(
+      workflowId,
+      execution,
+      recovery,
       updatedAt,
     );
   }

@@ -248,6 +248,86 @@ async function main(): Promise<void> {
     "bridge did not promote durable workflow to completed",
   );
 
+  const resumeCalls: string[] = [];
+
+  const resumeBridge =
+    new WorkUnitContinuityBridge(
+      fakeExecutionContinuity as any,
+      {
+        ...fakeDurableWorkflow,
+
+        resume(
+          workflowId: string,
+          resumedExecution: any,
+          recovery: any,
+          updatedAt: string,
+        ) {
+          resumeCalls.push(
+            workflowId,
+          );
+
+          return {
+            workflow: {
+              id: workflowId,
+              missionId: "mission-001",
+              workflowId,
+              ownerId: "owner-001",
+              status: "running",
+              taskStates: [
+                {
+                  taskId: "unit-001",
+                  status: "completed",
+                  dependencyIds: [],
+                  evidenceIds: [],
+                  artifactIds: [],
+                },
+                {
+                  taskId: "unit-002",
+                  status: "running",
+                  dependencyIds: ["unit-001"],
+                  evidenceIds: [],
+                  artifactIds: [],
+                },
+              ],
+              activeTaskId:
+                "unit-002",
+              executionId:
+                resumedExecution.id,
+              runtimeSessionId:
+                resumedExecution.runtimeSessionId,
+              updatedAt,
+            },
+            execution:
+              resumedExecution,
+            recovery,
+            resumedTaskId:
+              "unit-002",
+          };
+        },
+      } as any,
+    );
+
+  const resumed =
+    resumeBridge.resume(
+      "workflow-001",
+      execution,
+      {
+        id: "recovery-001",
+        status: "recovered",
+      } as any,
+      "2026-08-15T00:03:00.000Z",
+    );
+
+  assert(
+    resumed.resumedTaskId === "unit-002",
+    "bridge did not return the next unfinished work unit",
+  );
+
+  assert(
+    resumeCalls.includes("workflow-001"),
+    "bridge did not forward resume to durable workflow authority",
+  );
+
   assert(
     calls.includes("start"),
     "execution start was not forwarded",
@@ -282,6 +362,10 @@ async function main(): Promise<void> {
 
   console.log(
     "004.WORK UNIT CONTINUITY → DURABLE WORKFLOW PROMOTION: SUCCESS",
+  );
+
+  console.log(
+    "005.WORK UNIT CONTINUITY → RESUME HANDOFF: SUCCESS",
   );
 
   console.log(
