@@ -32,6 +32,37 @@ import type {
   WorkflowTaskValidationPort,
 } from "./workflow-planner";
 
+import {
+  AutonomousEngineeringExecutionAuthority,
+} from "./autonomous-engineering-execution";
+
+import type {
+  AutonomousEngineeringExecution,
+  EngineeringExecutionStep,
+} from "./autonomous-engineering-execution";
+
+import {
+  EngineeringWorkspaceAuthority,
+  type EngineeringWorkspace,
+} from "./engineering-workspace";
+
+import {
+  EngineeringCommandBuilder,
+} from "./engineering-command-builder";
+
+import {
+  EngineeringExecutionPipeline,
+  type EngineeringExecutionPipelineResult,
+} from "./engineering-execution-pipeline";
+
+import type {
+  EngineeringCommandExecutor,
+} from "./engineering-execution-loop";
+
+import type {
+  EngineeringToolchain,
+} from "./engineering-toolchain";
+
 export interface KingsCodingMissionRequest {
   mission:
     Mission;
@@ -54,9 +85,55 @@ export interface KingsCodingMachineSnapshot {
     MissionCheckpoint;
 }
 
+export interface KingsCodingMachineExecutionRequest {
+  missionId:
+    ID;
+
+  projectId:
+    ID;
+
+  execution:
+    AutonomousEngineeringExecution;
+
+  step:
+    EngineeringExecutionStep;
+
+  workspace:
+    EngineeringWorkspace;
+
+  toolchain:
+    EngineeringToolchain;
+
+  completedAt:
+    string;
+}
+
+export interface KingsCodingMachineExecutionResult {
+  pipeline:
+    EngineeringExecutionPipelineResult;
+
+  execution:
+    AutonomousEngineeringExecution;
+
+  missionState:
+    MissionState;
+}
+
 export class KingsCodingMachine {
   private readonly buildPlanner:
     BuildPlanningAuthority;
+
+  private readonly engineeringExecution:
+    AutonomousEngineeringExecutionAuthority;
+
+  private readonly workspaceAuthority:
+    EngineeringWorkspaceAuthority;
+
+  private readonly commandBuilder:
+    EngineeringCommandBuilder;
+
+  private readonly executionPipeline:
+    EngineeringExecutionPipeline;
 
   constructor(
     private readonly continuity:
@@ -80,6 +157,18 @@ export class KingsCodingMachine {
         ),
         workUnits,
       );
+
+    this.engineeringExecution =
+      new AutonomousEngineeringExecutionAuthority();
+
+    this.workspaceAuthority =
+      new EngineeringWorkspaceAuthority();
+
+    this.commandBuilder =
+      new EngineeringCommandBuilder();
+
+    this.executionPipeline =
+      new EngineeringExecutionPipeline();
   }
 
   startMission(
@@ -132,6 +221,167 @@ export class KingsCodingMachine {
     );
 
     return result;
+  }
+
+  async executeEngineeringStep(
+    request:
+      KingsCodingMachineExecutionRequest,
+    executor:
+      EngineeringCommandExecutor,
+  ):
+    Promise<KingsCodingMachineExecutionResult> {
+    const mission =
+      this.continuity.getMission(
+        request.missionId,
+      );
+
+    const plan =
+      this.continuity.getPlan(
+        request.missionId,
+      );
+
+    if (
+      !mission ||
+      !plan
+    ) {
+      throw new Error(
+        `K.I.N.G.S. Coding Machine: mission "${request.missionId}" is not initialized`,
+      );
+    }
+
+    if (
+      !plan.approvedByHuman ||
+      !plan.locked
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Coding Machine: engineering execution requires an approved and locked mission plan",
+      );
+    }
+
+    if (
+      request.execution.projectId !==
+      request.projectId
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Coding Machine: engineering execution project mismatch",
+      );
+    }
+
+    if (
+      request.step.id !==
+      request.execution.currentStepId
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Coding Machine: requested engineering step is not the current governed step",
+      );
+    }
+
+    const command =
+      this.workspaceAuthority.authorizeStep(
+        request.workspace,
+        request.execution,
+        request.step,
+      );
+
+    const built =
+      this.commandBuilder.build({
+        command,
+        toolchain:
+          request.toolchain,
+      });
+
+    if (
+      !built.authorized
+    ) {
+      throw new Error(
+        built.reason ??
+          "K.I.N.G.S. Coding Machine: engineering command was not authorized",
+      );
+    }
+
+    const pipeline =
+      await this.executionPipeline.execute(
+        {
+          request: {
+            id:
+              `machine-step-${request.step.id}`,
+            projectId:
+              request.projectId,
+            executionId:
+              request.execution.id,
+            step:
+              request.step,
+            command:
+              built,
+          },
+          execution:
+            request.execution,
+          completedAt:
+            request.completedAt,
+        },
+        executor,
+      );
+
+    const successful =
+      pipeline.execution.status ===
+      "completed" &&
+      pipeline.step.completed;
+
+    const nextExecution =
+      successful
+        ? this.engineeringExecution.completeStep(
+            request.execution,
+            request.step.id,
+          )
+        : request.execution;
+
+    const currentState =
+      this.continuity.getState(
+        request.missionId,
+      );
+
+    if (!currentState) {
+      throw new Error(
+        `K.I.N.G.S. Coding Machine: mission "${request.missionId}" has no execution state`,
+      );
+    }
+
+    const updatedState =
+      this.updateState(
+        request.missionId,
+        {
+          activeTaskIds:
+            successful
+              ? currentState.activeTaskIds.filter(
+                  (id) =>
+                    id !==
+                    request.step.id,
+                )
+              : currentState.activeTaskIds,
+          completedTaskIds:
+            successful
+              ? [
+                  ...currentState.completedTaskIds,
+                  request.step.id,
+                ]
+              : currentState.completedTaskIds,
+          failedTaskIds:
+            successful
+              ? currentState.failedTaskIds
+              : [
+                  ...currentState.failedTaskIds,
+                  request.step.id,
+                ],
+        },
+      );
+
+    return {
+      pipeline,
+      execution:
+        nextExecution,
+      missionState:
+        updatedState,
+    };
   }
 
   updateState(
