@@ -8,6 +8,11 @@ import {
   type ModelDrivenMissionResult,
 } from "./model-driven-mission-executor";
 
+
+import {
+  TargetAwareLocalCodingWorkflowExecutor,
+} from "./target-aware-local-coding-workflow-executor";
+
 export interface ModelDrivenWorkUnit {
   id:
     ID;
@@ -23,6 +28,24 @@ export interface ModelDrivenWorkUnit {
 
   requiredCapabilities:
     ModelDrivenMissionRequest["requiredCapabilities"];
+
+  allowedToolIds:
+    readonly ID[];
+
+  allowedPaths:
+    readonly string[];
+
+  targetPath:
+    string;
+
+  acceptanceCriteria:
+    readonly string[];
+
+  requiredEvidenceTypes:
+    readonly string[];
+
+  approved:
+    boolean;
 }
 
 export interface ModelDrivenWorkflowRequest {
@@ -43,6 +66,12 @@ export interface ModelDrivenWorkflowRequest {
 
   model:
     ModelDrivenMissionRequest["model"];
+
+  codingExecutor?:
+    TargetAwareLocalCodingWorkflowExecutor;
+
+  workspacePath?:
+    string;
 }
 
 export interface ModelDrivenWorkflowResult {
@@ -89,7 +118,7 @@ export class ModelDrivenWorkflowExecutor {
       const workUnit of
       request.workUnits
     ) {
-      const result =
+      const reasonedResult =
         await request.executor.execute({
           id:
             `${request.id}:${workUnit.id}`,
@@ -113,31 +142,111 @@ export class ModelDrivenWorkflowExecutor {
             request.model,
         });
 
-      results.push(
-        result,
-      );
-
       if (
-        result.success
+        !reasonedResult.success
       ) {
-        completedWorkUnitIds.push(
-          workUnit.id,
+        results.push(
+          reasonedResult,
         );
 
-        evidence.push(
-          `work-unit:${workUnit.id}:reasoned`,
-        );
-      } else {
         blockedWorkUnitIds.push(
           workUnit.id,
         );
 
         evidence.push(
-          `work-unit:${workUnit.id}:blocked`,
+          `work-unit:${workUnit.id}:reasoning-blocked`,
         );
 
         break;
       }
+
+      evidence.push(
+        `work-unit:${workUnit.id}:reasoned`,
+      );
+
+      /*
+       * Coding becomes an execution phase only for work units
+       * that explicitly carry an approved target contract.
+       */
+      if (
+        request.codingExecutor &&
+        request.workspacePath &&
+        workUnit.approved &&
+        workUnit.targetPath
+      ) {
+        const codingResult =
+          await request.codingExecutor.execute({
+            id:
+              `${request.id}:${workUnit.id}:coding`,
+
+            missionId:
+              request.missionId,
+
+            workspacePath:
+              request.workspacePath,
+
+            workUnit,
+
+            instruction:
+              [
+                request.objective,
+                workUnit.context,
+                workUnit.objective,
+              ].join("\n\n"),
+
+            maxFileBytes:
+              128 * 1024,
+
+            maxOutputTokens:
+              1024,
+
+            maxRepairAttempts:
+              3,
+          });
+
+        if (
+          !codingResult.success
+        ) {
+          /*
+           * The mission result remains represented by the model
+           * reasoning result, while the evidence makes the coding
+           * boundary failure explicit.
+           */
+          results.push(
+            reasonedResult,
+          );
+
+          blockedWorkUnitIds.push(
+            workUnit.id,
+          );
+
+          evidence.push(
+            `work-unit:${workUnit.id}:coding-blocked`,
+          );
+
+          evidence.push(
+            ...codingResult.evidence,
+          );
+
+          break;
+        }
+
+        evidence.push(
+          `work-unit:${workUnit.id}:coding-complete`,
+        );
+
+        evidence.push(
+          ...codingResult.evidence,
+        );
+      }
+
+      results.push(
+        reasonedResult,
+      );
+
+      completedWorkUnitIds.push(
+        workUnit.id,
+      );
     }
 
     const success =

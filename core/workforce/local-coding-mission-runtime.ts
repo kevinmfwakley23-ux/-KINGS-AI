@@ -6,6 +6,11 @@ import {
   type ModelDrivenWorkflowResult,
 } from "./model-driven-workflow-executor";
 
+
+import {
+  TargetAwareLocalCodingWorkflowExecutor,
+} from "./target-aware-local-coding-workflow-executor";
+
 import {
   LocalCodingEngineeringStepExecutor,
 } from "./local-coding-engineering-step-executor";
@@ -41,10 +46,12 @@ export interface LocalCodingMissionRuntimeResult {
 
 export interface LocalCodingMissionRuntimeOptions {
   workflowExecutor?: ModelDrivenWorkflowExecutor;
+  codingExecutor?: TargetAwareLocalCodingWorkflowExecutor;
 }
 
 export class LocalCodingMissionRuntime {
   private readonly workflowExecutor: ModelDrivenWorkflowExecutor;
+  private readonly codingExecutor: TargetAwareLocalCodingWorkflowExecutor;
 
   constructor(
     options: LocalCodingMissionRuntimeOptions = {},
@@ -52,6 +59,10 @@ export class LocalCodingMissionRuntime {
     this.workflowExecutor =
       options.workflowExecutor ??
       new ModelDrivenWorkflowExecutor();
+
+    this.codingExecutor =
+      options.codingExecutor ??
+      new TargetAwareLocalCodingWorkflowExecutor();
   }
 
   async execute(
@@ -65,6 +76,13 @@ export class LocalCodingMissionRuntime {
         workUnits: request.workUnits,
         executor: request.executor,
         model: request.model,
+
+        codingExecutor:
+          this.codingExecutor,
+
+        workspacePath:
+          process.env.KINGS_WORKSPACE ??
+          process.cwd(),
       });
 
     const evidence = [

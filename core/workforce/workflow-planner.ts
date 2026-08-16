@@ -37,6 +37,7 @@ export interface WorkflowPlanningRequest {
     capabilityIds: ID[];
     allowedToolIds: ID[];
     allowedPaths: string[];
+    targetPath: string;
     maxTimeMs: number;
     maxTokens: number;
     maxIterations: number;
@@ -274,6 +275,24 @@ export class WorkflowPlanningAuthority {
     }
 
     if (
+      !request.workUnitDefaults.targetPath.trim()
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Workflow Planning: work unit targetPath is required",
+      );
+    }
+
+    if (
+      !request.workUnitDefaults.allowedPaths.includes(
+        request.workUnitDefaults.targetPath,
+      )
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Workflow Planning: work unit targetPath must be included in allowedPaths",
+      );
+    }
+
+    if (
       request.workUnitDefaults.maxTimeMs <= 0 ||
       request.workUnitDefaults.maxTokens <= 0 ||
       request.workUnitDefaults.maxIterations <= 0
@@ -443,6 +462,9 @@ export class WorkflowPlanningAuthority {
         ...request.workUnitDefaults
           .allowedPaths,
       ],
+      targetPath:
+        request.workUnitDefaults
+          .targetPath,
       budget: {
         maxTimeMs:
           request.workUnitDefaults

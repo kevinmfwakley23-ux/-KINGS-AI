@@ -45,6 +45,9 @@ export class LocalCodingEngineeringExecutor
     const startedAt =
       Date.now();
 
+    const targetPath =
+      `${command.workingDirectory}/generated/kings-output.ts`;
+
     const result =
       await this.worker.execute({
         id:
@@ -57,21 +60,22 @@ export class LocalCodingEngineeringExecutor
           command.projectId,
 
         instruction:
-          `${command.operation} ${command.executable} ${command.args.join(" ")}`.trim(),
+          `${command.operation} ${command.executable} ${command.args.join(" ")}`
+            .trim(),
 
         workspacePath:
           command.workingDirectory,
 
+        targetPath,
+
         allowedReadPaths: [
           command.workingDirectory,
+          targetPath,
         ],
 
-        allowedWritePaths:
-          command.workingDirectory
-            ? [
-                command.workingDirectory,
-              ]
-            : [],
+        allowedWritePaths: [
+          targetPath,
+        ],
 
         maxFileBytes:
           128 *

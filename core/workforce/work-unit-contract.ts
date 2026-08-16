@@ -37,6 +37,11 @@ export interface WorkUnitContract {
   allowedPaths: string[];
 
   /**
+   * Primary artifact target for this work unit.
+   */
+  targetPath: string;
+
+  /**
    * Execution budget.
    */
   budget: WorkUnitBudget;
@@ -98,6 +103,34 @@ export function validateWorkUnitContract(
   ) {
     reasons.push(
       "Work unit contract requires at least one capability.",
+    );
+  }
+
+  if (
+    !contract.targetPath.trim()
+  ) {
+    reasons.push(
+      "Work unit targetPath is required.",
+    );
+  }
+
+  if (
+    contract.allowedPaths.length === 0
+  ) {
+    reasons.push(
+      "Work unit contract requires at least one allowed path.",
+    );
+  }
+
+  if (
+    contract.targetPath.trim() &&
+    contract.allowedPaths.length > 0 &&
+    !contract.allowedPaths.includes(
+      contract.targetPath,
+    )
+  ) {
+    reasons.push(
+      "Work unit targetPath must be explicitly authorized by allowedPaths.",
     );
   }
 

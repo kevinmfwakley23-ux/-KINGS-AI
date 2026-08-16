@@ -464,6 +464,7 @@ export interface LocalCodingWorkerRequest {
   missionId: ID;
   instruction: string;
   workspacePath: string;
+  targetPath: string;
   allowedWritePaths: readonly string[];
   allowedReadPaths: readonly string[];
   maxFileBytes: number;

@@ -77,6 +77,9 @@ export class LocalCodingVerificationLoop {
           workspacePath:
             request.workspacePath,
 
+          targetPath:
+            request.targetPath,
+
           allowedWritePaths:
             request.allowedWritePaths,
 

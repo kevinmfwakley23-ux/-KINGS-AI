@@ -51,6 +51,9 @@ export class LocalCodingEngineeringStepExecutor {
         execution,
       );
 
+    const targetPath =
+      `${request.command.workingDirectory}/generated/kings-output.ts`;
+
     const workerResult =
       await this.worker.execute({
         id:
@@ -68,13 +71,15 @@ export class LocalCodingEngineeringStepExecutor {
         workspacePath:
           request.command.workingDirectory,
 
+        targetPath,
+
         allowedReadPaths: [
           request.command.workingDirectory,
+          targetPath,
         ],
 
         allowedWritePaths: [
-          request.command.workingDirectory,
-          `${request.command.workingDirectory}/generated`,
+          targetPath,
         ],
 
         maxFileBytes:
