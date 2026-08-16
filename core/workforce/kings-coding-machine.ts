@@ -14,6 +14,24 @@ import {
   ProjectBrainCheckpointAdapter,
 } from "./project-brain-checkpoint";
 
+import {
+  BuildPlanningAuthority,
+  type BuildPlanningResult,
+  type BuildPlanningRequest,
+} from "./build-planner";
+
+import {
+  WorkflowPlanningAuthority,
+} from "./workflow-planner";
+
+import {
+  WorkUnitRegistry,
+} from "./work-unit-registry";
+
+import type {
+  WorkflowTaskValidationPort,
+} from "./workflow-planner";
+
 export interface KingsCodingMissionRequest {
   mission:
     Mission;
@@ -37,6 +55,9 @@ export interface KingsCodingMachineSnapshot {
 }
 
 export class KingsCodingMachine {
+  private readonly buildPlanner:
+    BuildPlanningAuthority;
+
   constructor(
     private readonly continuity:
       MissionContinuityStore =
@@ -46,7 +67,20 @@ export class KingsCodingMachine {
         new ProjectBrainCheckpointAdapter(
           continuity,
         ),
-  ) {}
+    taskControl:
+      WorkflowTaskValidationPort,
+    workUnits:
+      WorkUnitRegistry =
+        new WorkUnitRegistry(),
+  ) {
+    this.buildPlanner =
+      new BuildPlanningAuthority(
+        new WorkflowPlanningAuthority(
+          taskControl,
+        ),
+        workUnits,
+      );
+  }
 
   startMission(
     request:
@@ -81,6 +115,23 @@ export class KingsCodingMachine {
     return this.continuity.lockPlan(
       missionId,
     );
+  }
+
+  planMission(
+    request:
+      BuildPlanningRequest,
+  ):
+    BuildPlanningResult {
+    const result =
+      this.buildPlanner.plan(
+        request,
+      );
+
+    this.buildPlanner.bind(
+      result,
+    );
+
+    return result;
   }
 
   updateState(
