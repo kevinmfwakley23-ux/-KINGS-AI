@@ -146,6 +146,15 @@ export class ModelDrivenWorkflowExecutor {
       request.executionState ??
       new WorkUnitExecutionStateStore();
 
+    if (
+      request.continuityBridge &&
+      !request.continuityContext
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Model-Driven Workflow: continuityBridge requires continuityContext",
+      );
+    }
+
     for (
       const workUnit of
       request.workUnits
@@ -421,16 +430,15 @@ export class ModelDrivenWorkflowExecutor {
                 request.id,
 
               ownerId:
-                request.continuityContext?.ownerId ??
-                "workflow",
+                request.continuityContext!.ownerId,
 
               runtimeSessionId:
-                request.continuityContext?.runtimeSessionId ??
-                "workflow",
+                request.continuityContext!
+                  .runtimeSessionId,
 
               runtimeDefinitionId:
-                request.continuityContext?.runtimeDefinitionId ??
-                "workflow",
+                request.continuityContext!
+                  .runtimeDefinitionId,
 
               executionId:
                 continuityExecution.id,
