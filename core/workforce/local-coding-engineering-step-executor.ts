@@ -13,105 +13,54 @@ import {
 } from "./local-coding-worker";
 
 export interface LocalCodingEngineeringStepExecutorOptions {
-  worker?:
-    LocalCodingWorker;
+  worker?: LocalCodingWorker;
 }
 
 export class LocalCodingEngineeringStepExecutor {
-  private readonly validator:
-    EngineeringStepExecutor;
-
-  private readonly worker:
-    LocalCodingWorker;
+  private readonly validator: EngineeringStepExecutor;
+  private readonly worker: LocalCodingWorker;
 
   constructor(
-    options:
-      LocalCodingEngineeringStepExecutorOptions = {},
+    options: LocalCodingEngineeringStepExecutorOptions = {},
   ) {
-    this.validator =
-      new EngineeringStepExecutor();
-
-    this.worker =
-      options.worker ??
-      new LocalCodingWorker();
+    this.validator = new EngineeringStepExecutor();
+    this.worker = options.worker ?? new LocalCodingWorker();
   }
 
   async execute(
-    request:
-      EngineeringStepExecutionRequest,
-    execution:
-      AutonomousEngineeringExecution,
-  ):
-    Promise<
-      EngineeringStepExecutionResult
-    > {
-    const validated =
-      this.validator.execute(
-        request,
-        execution,
-      );
+    request: EngineeringStepExecutionRequest,
+    execution: AutonomousEngineeringExecution,
+  ): Promise<EngineeringStepExecutionResult> {
+    const validated = this.validator.execute(request, execution);
 
     const targetPath =
       `${request.command.workingDirectory}/generated/kings-output.ts`;
 
-    const workerResult =
-      await this.worker.execute({
-        id:
-          request.id,
+    const workerResult = await this.worker.execute({
+      id: request.id,
+      taskId: request.step.id,
+      missionId: request.projectId,
+      instruction: [
+        request.engineeringIntent,
+        "",
+        `K.I.N.G.S. TARGET: ${targetPath}`,
+        "Complete only this target artifact.",
+      ].join("\n"),
+      workspacePath: request.command.workingDirectory,
+      targetPath,
+      allowedReadPaths: [request.command.workingDirectory],
+      allowedWritePaths: [targetPath],
+      maxFileBytes: 128 * 1024,
+      maxOutputTokens: 1024,
+    });
 
-        taskId:
-          request.step.id,
-
-        missionId:
-          request.projectId,
-
-        instruction:
-          request.engineeringIntent,
-
-        workspacePath:
-          request.command.workingDirectory,
-
-        targetPath,
-
-        allowedReadPaths: [
-          request.command.workingDirectory,
-          targetPath,
-        ],
-
-        allowedWritePaths: [
-          targetPath,
-        ],
-
-        maxFileBytes:
-          128 *
-          1024,
-
-        maxOutputTokens:
-          1024,
-      });
-
-    if (
-      !workerResult.success
-    ) {
+    if (!workerResult.success) {
       return {
         ...validated,
-
-        completed:
-          false,
-
-        exitCode:
-          1,
-
-        stdout:
-          workerResult.writtenPaths.join(
-            "\n",
-          ),
-
-        stderr:
-          workerResult.reasons.join(
-            "\n",
-          ),
-
+        completed: false,
+        exitCode: 1,
+        stdout: workerResult.writtenPaths.join("\n"),
+        stderr: workerResult.reasons.join("\n"),
         evidence: [
           ...validated.evidence,
           "local-coding-worker:failed",
@@ -121,29 +70,15 @@ export class LocalCodingEngineeringStepExecutor {
 
     return {
       ...validated,
-
-      completed:
-        true,
-
-      exitCode:
-        0,
-
-      stdout:
-        workerResult.writtenPaths.join(
-          "\n",
-        ),
-
-      stderr:
-        "",
-
+      completed: true,
+      exitCode: 0,
+      stdout: workerResult.writtenPaths.join("\n"),
+      stderr: "",
       evidence: [
         ...validated.evidence,
         "local-coding-worker:success",
         ...workerResult.writtenPaths.map(
-          (
-            path,
-          ) =>
-            `written:${path}`,
+          (path) => `written:${path}`,
         ),
       ],
     };
