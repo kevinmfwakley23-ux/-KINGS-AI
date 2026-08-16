@@ -13,6 +13,11 @@ import {
   TargetAwareLocalCodingWorkflowExecutor,
 } from "./target-aware-local-coding-workflow-executor";
 
+
+import {
+  WorkUnitExecutionStateStore,
+} from "./work-unit-execution-state";
+
 export interface ModelDrivenWorkUnit {
   id:
     ID;
@@ -72,6 +77,9 @@ export interface ModelDrivenWorkflowRequest {
 
   workspacePath?:
     string;
+
+  executionState?:
+    WorkUnitExecutionStateStore;
 }
 
 export interface ModelDrivenWorkflowResult {
@@ -114,10 +122,21 @@ export class ModelDrivenWorkflowExecutor {
         `mission:${request.missionId}`,
       ];
 
+    const executionState =
+      request.executionState ??
+      new WorkUnitExecutionStateStore();
+
     for (
       const workUnit of
       request.workUnits
     ) {
+      const state =
+        executionState.start(
+          workUnit.id,
+          request.missionId,
+          workUnit.targetPath,
+        );
+
       const reasonedResult =
         await request.executor.execute({
           id:
@@ -147,6 +166,15 @@ export class ModelDrivenWorkflowExecutor {
       ) {
         results.push(
           reasonedResult,
+        );
+
+        executionState.block(
+          state,
+          [
+            reasonedResult.failureReason ??
+              "Model-driven reasoning failed.",
+          ],
+          reasonedResult.evidence,
         );
 
         blockedWorkUnitIds.push(
@@ -216,6 +244,12 @@ export class ModelDrivenWorkflowExecutor {
             reasonedResult,
           );
 
+          executionState.block(
+            state,
+            codingResult.verification.reasons,
+            codingResult.evidence,
+          );
+
           blockedWorkUnitIds.push(
             workUnit.id,
           );
@@ -231,12 +265,25 @@ export class ModelDrivenWorkflowExecutor {
           break;
         }
 
+        executionState.markVerified(
+          state,
+          [
+            ...reasonedResult.evidence,
+            ...codingResult.evidence,
+          ],
+        );
+
         evidence.push(
           `work-unit:${workUnit.id}:coding-complete`,
         );
 
         evidence.push(
           ...codingResult.evidence,
+        );
+      } else {
+        executionState.markVerified(
+          state,
+          reasonedResult.evidence,
         );
       }
 
