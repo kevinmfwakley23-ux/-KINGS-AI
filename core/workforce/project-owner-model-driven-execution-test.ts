@@ -56,11 +56,9 @@ import {
 } from "./registry";
 
 import type {
-  IntelligenceCapability,
-} from "./model-interface";
-
-import type {
   Mission,
+  IntelligenceCapability,
+  IntelligenceModality,
 } from "./types";
 
 import type {
@@ -297,7 +295,7 @@ async function main(): Promise<void> {
           "coding",
           "reasoning",
         ] satisfies IntelligenceCapability[],
-        inputModalities: ["text"],
+        inputModalities: ["text"] satisfies IntelligenceModality[],
         outputModality: "text" as const,
         maxOutputTokens: 256,
         temperature: 0,
@@ -412,8 +410,9 @@ async function main(): Promise<void> {
       result.view?.state.completedTaskIds.includes("task-owner-model-driven"),
       "real model coding task must be promoted to completed mission state",
     );
+    const evidenceIds = result.view?.state.evidenceIds ?? [];
     assert(
-      result.view?.state.evidenceIds?.length > 0,
+      evidenceIds.length > 0,
       "real model coding must produce evidence",
     );
 
