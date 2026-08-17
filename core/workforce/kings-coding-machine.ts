@@ -69,6 +69,19 @@ import {
   type CodingWorkUnitExecutionResult,
 } from "./coding-work-unit-execution";
 
+import {
+  ModelCodingMachineBridge,
+  type ModelCodingMachineBridgeRequest,
+} from "./model-coding-machine-bridge";
+
+import type {
+  ModelExecutionResult,
+} from "./model-interface";
+
+import type {
+  ModelCodingProposalParserOptions,
+} from "./model-coding-proposal-parser";
+
 import type {
   EngineeringRepairEditor,
 } from "./engineering-repair-editor";
@@ -118,6 +131,20 @@ export interface KingsCodingMachineExecutionRequest {
     string;
 }
 
+export interface KingsCodingMachineModelExecutionRequest {
+  modelResult:
+    ModelExecutionResult;
+
+  proposalParser:
+    ModelCodingProposalParserOptions;
+
+  execution:
+    Omit<
+      CodingWorkUnitExecutionRequest,
+      "proposal"
+    >;
+}
+
 export interface KingsCodingMachineExecutionResult {
   pipeline:
     EngineeringExecutionPipelineResult;
@@ -144,6 +171,9 @@ export class KingsCodingMachine {
 
   private readonly executionPipeline:
     EngineeringExecutionPipeline;
+
+  private readonly modelCodingBridge:
+    ModelCodingMachineBridge;
 
   constructor(
     private readonly continuity:
@@ -179,6 +209,9 @@ export class KingsCodingMachine {
 
     this.executionPipeline =
       new EngineeringExecutionPipeline();
+
+    this.modelCodingBridge =
+      new ModelCodingMachineBridge();
   }
 
   startMission(
@@ -242,8 +275,8 @@ export class KingsCodingMachine {
       ConstructorParameters<
         typeof CodingWorkUnitExecutionAuthority
       >[1],
-  ):
-    Promise<CodingWorkUnitExecutionResult> {
+  )
+    : Promise<CodingWorkUnitExecutionResult> {
     const mission =
       this.continuity.getMission(
         request.projectId,
@@ -283,13 +316,46 @@ export class KingsCodingMachine {
     );
   }
 
+  async executeCodingWorkUnitFromModel(
+    input:
+      KingsCodingMachineModelExecutionRequest,
+    editor:
+      EngineeringRepairEditor,
+    buildTestOptions:
+      ConstructorParameters<
+        typeof CodingWorkUnitExecutionAuthority
+      >[1],
+  )
+    : Promise<CodingWorkUnitExecutionResult> {
+    const bridgeInput:
+      ModelCodingMachineBridgeRequest = {
+      modelResult:
+        input.modelResult,
+      proposalParser:
+        input.proposalParser,
+      execution:
+        input.execution,
+    };
+
+    const bridged =
+      this.modelCodingBridge.buildRequest(
+        bridgeInput,
+      );
+
+    return this.executeCodingWorkUnit(
+      bridged.request,
+      editor,
+      buildTestOptions,
+    );
+  }
+
   async executeEngineeringStep(
     request:
       KingsCodingMachineExecutionRequest,
     executor:
       EngineeringCommandExecutor,
-  ):
-    Promise<KingsCodingMachineExecutionResult> {
+  )
+    : Promise<KingsCodingMachineExecutionResult> {
     const mission =
       this.continuity.getMission(
         request.missionId,
