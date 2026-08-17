@@ -49,8 +49,9 @@ function modelResult(
       usage: {
         inputTokens: 10,
         outputTokens: 20,
-        maxTokens: 30,
-        usedTokens: 20,
+        elapsedMs: 1,
+        tokensUsed: 20,
+        iterationsUsed: 1,
       },
       metadata: {
         requestId: "request-bridge-test",
