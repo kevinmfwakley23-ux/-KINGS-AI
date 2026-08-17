@@ -14,11 +14,16 @@ if [[ ! -f "$UNIT_SOURCE" ]]; then
   exit 1
 fi
 
+if [[ ! -x "$ROOT/ui/project-owner/start-server.sh" ]]; then
+  chmod +x "$ROOT/ui/project-owner/start-server.sh"
+fi
+
 cp "$UNIT_SOURCE" "$UNIT_TARGET"
 systemctl --user daemon-reload
-systemctl --user enable --now "$UNIT_NAME"
+systemctl --user enable "$UNIT_NAME" >/dev/null
+systemctl --user restart "$UNIT_NAME"
 
-sleep 1
+sleep 2
 
 if systemctl --user is-active --quiet "$UNIT_NAME"; then
   echo "KINGS CODING MACHINE SERVICE: RUNNING"
@@ -26,6 +31,9 @@ if systemctl --user is-active --quiet "$UNIT_NAME"; then
   echo "Fallback: http://127.0.0.1:8787"
 else
   echo "KINGS CODING MACHINE SERVICE: FAILED TO START" >&2
-  systemctl --user --no-pager status "$UNIT_NAME" || true
+  systemctl --user --no-pager -l status "$UNIT_NAME" || true
+  echo
+  echo "===== SERVICE JOURNAL =====" >&2
+  journalctl --user -u "$UNIT_NAME" --no-pager -n 40 >&2 || true
   exit 1
 fi
