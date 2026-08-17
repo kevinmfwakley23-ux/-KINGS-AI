@@ -1,32 +1,57 @@
 import {
+  ProjectOwnerMachineApi,
+  type ProjectOwnerMachineApiRequest,
+  type ProjectOwnerMachineApiResponse,
+  type ProjectOwnerMissionFactory,
+} from "../../core/workforce/project-owner-machine-api";
+
+import {
   ProjectOwnerUiController,
   type ProjectOwnerDesignInput,
-  type ProjectOwnerUiResponse,
 } from "../../core/workforce/project-owner-ui-contract";
 
-export interface ProjectOwnerMissionApiHandler {
-  createMission(
-    input: ProjectOwnerDesignInput,
-  ): Promise<ProjectOwnerUiResponse> | ProjectOwnerUiResponse;
+export interface ProjectOwnerMachineApiHandler {
+  handle(
+    request:
+      ProjectOwnerMachineApiRequest,
+  ): Promise<ProjectOwnerMachineApiResponse>;
 }
 
-export class ProjectOwnerMissionApiController
-  implements ProjectOwnerMissionApiHandler {
-  private readonly ui =
-    new ProjectOwnerUiController();
+export class ProjectOwnerMachineServerController
+  implements ProjectOwnerMachineApiHandler {
+  private readonly api:
+    ProjectOwnerMachineApi;
 
-  createMission(
-    input: ProjectOwnerDesignInput,
-  ): ProjectOwnerUiResponse {
-    const request =
-      this.ui.createMissionRequest(
-        input,
+  constructor(
+    machine: ConstructorParameters<
+      typeof ProjectOwnerMachineApi
+    >[0],
+    missionFactory: ProjectOwnerMissionFactory,
+  ) {
+    this.api =
+      new ProjectOwnerMachineApi(
+        machine,
+        missionFactory,
+        new ProjectOwnerUiController(),
       );
-
-    return {
-      ok: true,
-      message:
-        `Design received for project "${request.projectName}".`,
-    };
   }
+
+  handle(
+    request: ProjectOwnerMachineApiRequest,
+  ): Promise<ProjectOwnerMachineApiResponse> {
+    return this.api.handle(
+      request,
+    );
+  }
+}
+
+export function createProjectOwnerMissionRequest(
+  input:
+    ProjectOwnerDesignInput,
+): ProjectOwnerMachineApiRequest {
+  return {
+    action:
+      "create-mission",
+    input,
+  };
 }
