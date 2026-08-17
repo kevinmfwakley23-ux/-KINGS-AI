@@ -34,9 +34,9 @@ function successfulResponse():
         providerId:
           "internal-intelligence",
         modelId:
-          "qwen2.5-coder:0.5b",
+          "qwen2.5-coder:1.5b",
         displayName:
-          "Ollama: qwen2.5-coder:0.5b",
+          "Ollama: qwen2.5-coder:1.5b",
         providerKind:
           "internal-local",
         capabilities: [
@@ -128,7 +128,7 @@ class TestParser
       changes: [
         {
           path:
-            "core/workforce/generated-test.ts",
+            "src/generated-test.ts",
           operation:
             "create",
           content:
@@ -166,6 +166,33 @@ class UnauthorizedParser
   }
 }
 
+class TraversalParser
+  implements LocalCodingProposalParser {
+  parse():
+    LocalCodingChangeProposal {
+    return {
+      id:
+        "proposal-local-coding-003",
+      taskId:
+        "task-local-coding-proposal",
+      missionId:
+        "mission-local-coding-proposal",
+      summary:
+        "Traversal attempt.",
+      changes: [
+        {
+          path:
+            "src/../package.json",
+          operation:
+            "replace",
+          content:
+            "{}",
+        },
+      ],
+    };
+  }
+}
+
 function expectFailure(
   operation:
     () => void,
@@ -193,7 +220,7 @@ function main(): void {
     new GovernedLocalCodingProposal();
 
   const allowedPaths = [
-    "core/workforce/generated-test.ts",
+    "src",
   ];
 
   const proposal =
@@ -216,12 +243,12 @@ function main(): void {
 
   assert(
     proposal.changes[0].path ===
-      "core/workforce/generated-test.ts",
+      "src/generated-test.ts",
     "Authorized proposal must preserve the approved path.",
   );
 
   console.log(
-    "06.LOCAL-CODING proposal acceptance: SUCCESS",
+    "06.LOCAL-CODING proposal root authorization: SUCCESS",
   );
 
   expectFailure(
@@ -243,14 +270,30 @@ function main(): void {
     "06.LOCAL-CODING path authorization: SUCCESS",
   );
 
-  const mismatchedTask =
-    authority;
+  expectFailure(
+    () =>
+      authority.propose(
+        {
+          response:
+            successfulResponse(),
+          request:
+            request(),
+          allowedPaths,
+        },
+        new TraversalParser(),
+      ),
+    "Path traversal must be blocked.",
+  );
+
+  console.log(
+    "06.LOCAL-CODING traversal protection: SUCCESS",
+  );
 
   let taskRejected =
     false;
 
   try {
-    mismatchedTask.propose(
+    authority.propose(
       {
         response:
           successfulResponse(),
