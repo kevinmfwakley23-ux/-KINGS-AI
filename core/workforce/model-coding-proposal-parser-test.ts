@@ -48,8 +48,8 @@ function main(): void {
     expectedTaskId: "task-parser-001",
     expectedMissionId: "mission-parser-001",
     allowedPaths: [
-      "src/generated.ts",
-      "test/generated.test.ts",
+      "src",
+      "test",
     ],
     expectedFilePaths: [
       "src/generated.ts",
@@ -75,37 +75,69 @@ function main(): void {
     ),
   );
 
-  assert(parsed.changes.length === 2, "Parser must produce both authorized file changes.");
-  assert(parsed.changes[0].path === "src/generated.ts", "First file path must be preserved.");
-  assert(parsed.changes[1].path === "test/generated.test.ts", "Second file path must be preserved.");
-  assert(parsed.changes[0].content.includes("generatedValue = 42"), "Code fences must be normalized away.");
+  assert(
+    parsed.changes.length === 2,
+    "Parser must produce both authorized file changes.",
+  );
+  assert(
+    parsed.changes[0].path === "src/generated.ts",
+    "First file path must be preserved.",
+  );
+  assert(
+    parsed.changes[1].path === "test/generated.test.ts",
+    "Second file path must be preserved.",
+  );
+  assert(
+    parsed.changes[0].content.includes("generatedValue = 42"),
+    "Code fences must be normalized away.",
+  );
 
-  console.log("K.I.N.G.S. MODEL CODING PROPOSAL → MULTI-FILE PARSING: SUCCESS");
+  console.log(
+    "K.I.N.G.S. MODEL CODING PROPOSAL → AUTHORIZED ROOTS: SUCCESS",
+  );
 
   let malformedRejected = false;
   try {
-    parser.parse(response("Here is the code you requested:\n```typescript\nexport const x = 1;\n```"));
+    parser.parse(
+      response(
+        "Here is the code you requested:\n```typescript\nexport const x = 1;\n```",
+      ),
+    );
   } catch {
     malformedRejected = true;
   }
-  assert(malformedRejected, "Conversational model output must be rejected.");
-  console.log("K.I.N.G.S. MODEL CODING PROPOSAL → MALFORMED OUTPUT REJECTION: SUCCESS");
+  assert(
+    malformedRejected,
+    "Conversational model output must be rejected.",
+  );
+  console.log(
+    "K.I.N.G.S. MODEL CODING PROPOSAL → MALFORMED OUTPUT REJECTION: SUCCESS",
+  );
 
   let unauthorizedRejected = false;
   try {
     parser.parse(
-      response([
-        "FILE: src/secret.ts [create]",
-        "export const secret = true;",
-      ].join("\n")),
+      response(
+        [
+          "FILE: ../outside.ts [create]",
+          "export const secret = true;",
+        ].join("\n"),
+      ),
     );
   } catch {
     unauthorizedRejected = true;
   }
-  assert(unauthorizedRejected, "Unauthorized model paths must be rejected.");
-  console.log("K.I.N.G.S. MODEL CODING PROPOSAL → PATH REJECTION: SUCCESS");
+  assert(
+    unauthorizedRejected,
+    "Unauthorized model paths must be rejected.",
+  );
+  console.log(
+    "K.I.N.G.S. MODEL CODING PROPOSAL → PATH REJECTION: SUCCESS",
+  );
 
-  console.log("TREE-KCM-MODEL-CODING-PROPOSAL: SUCCESS");
+  console.log(
+    "TREE-KCM-MODEL-CODING-PROPOSAL: SUCCESS",
+  );
 }
 
 main();
