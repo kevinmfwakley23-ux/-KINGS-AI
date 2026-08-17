@@ -2,7 +2,6 @@ import {
   mkdtemp,
   readFile,
   rm,
-  writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -160,6 +159,14 @@ async function main(): Promise<void> {
     const worker = new InternalModelExecutionPort(providers, requests);
     const workerResult = await worker.execute(request.taskId);
     assert(workerResult.status === "success", workerResult.summary || "Local model failed.");
+    console.log("KINGS CODING MACHINE → INTERNAL MODEL PORT: SUCCESS");
+
+    const rawModelResult = await providers.execute(
+      route.providerId!,
+      route.modelId!,
+      request,
+    );
+    assert(rawModelResult.success && Boolean(rawModelResult.response), "Local provider must return a model response.");
     console.log("KINGS CODING MACHINE → 1.5B MODEL GENERATION: SUCCESS");
 
     const parser = new ModelCodingProposalParser({
@@ -171,12 +178,9 @@ async function main(): Promise<void> {
     });
 
     const governed = new GovernedLocalCodingProposal();
-    const modelResult = workerResult.modelResult;
-    assert(Boolean(modelResult), "Worker must expose model execution result.");
-
     const proposal = governed.propose(
       {
-        response: modelResult!,
+        response: rawModelResult,
         request,
         allowedPaths: ["src"],
       },
@@ -195,8 +199,6 @@ async function main(): Promise<void> {
       allowedLanguages: ["typescript"],
       allowedOperations: ["create"],
     });
-
-    await writeFile(join(root, "placeholder"), "");
 
     const editor = new EngineeringRepairEditor(
       new ControlledFileEditor({
