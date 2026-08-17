@@ -16,6 +16,34 @@ export interface ModelCodingProposalParserOptions {
   allowMultipleFiles?: boolean;
 }
 
+function normalizePath(
+  value: string,
+): string {
+  return value
+    .replace(/\\/g, "/")
+    .replace(/^\.\/+/, "")
+    .replace(/\/+/g, "/")
+    .trim();
+}
+
+function isWithinAuthorizedPath(
+  candidate: string,
+  allowed: string,
+): boolean {
+  const normalizedCandidate =
+    normalizePath(candidate);
+  const normalizedAllowed =
+    normalizePath(allowed);
+
+  return (
+    normalizedCandidate ===
+      normalizedAllowed ||
+    normalizedCandidate.startsWith(
+      `${normalizedAllowed}/`,
+    )
+  );
+}
+
 export class ModelCodingProposalParser
   implements LocalCodingProposalParser {
   constructor(
@@ -49,9 +77,7 @@ export class ModelCodingProposalParser
         .trim();
 
     const blocks =
-      this.extractFileBlocks(
-        normalized,
-      );
+      this.extractFileBlocks(normalized);
 
     if (blocks.length === 0) {
       throw new Error(
@@ -71,20 +97,20 @@ export class ModelCodingProposalParser
     const expected =
       this.options.expectedFilePaths ?? [];
 
-    if (
-      expected.length > 0
-    ) {
+    if (expected.length > 0) {
       const actual =
         new Set(
           blocks.map(
-            (block) => block.path,
+            (block) =>
+              normalizePath(block.path),
           ),
         );
 
-      for (
-        const path of expected
-      ) {
-        if (!actual.has(path)) {
+      for (const path of expected) {
+        const normalizedPath =
+          normalizePath(path);
+
+        if (!actual.has(normalizedPath)) {
           throw new Error(
             `K.I.N.G.S. Model Coding Proposal Parser: expected file "${path}" was not returned by the model.`,
           );
@@ -96,12 +122,9 @@ export class ModelCodingProposalParser
       LocalCodingFileChange[] =
       blocks.map(
         (block) => ({
-          path:
-            block.path,
-          operation:
-            block.operation,
-          content:
-            block.content,
+          path: normalizePath(block.path),
+          operation: block.operation,
+          content: block.content,
         }),
       );
 
@@ -149,8 +172,14 @@ export class ModelCodingProposalParser
       const fileContent =
         current.content
           .join("\n")
-          .replace(/^```(?:typescript|javascript|tsx|jsx|ts|js)?\s*\n?/i, "")
-          .replace(/\n?```\s*$/i, "")
+          .replace(
+            /^```(?:typescript|javascript|tsx|jsx|ts|js)?\s*\n?/i,
+            "",
+          )
+          .replace(
+            /\n?```\s*$/i,
+            "",
+          )
           .trim();
 
       if (!current.path.trim()) {
@@ -167,22 +196,21 @@ export class ModelCodingProposalParser
 
       blocks.push({
         path:
-          current.path,
+          normalizePath(current.path),
         operation:
           current.operation,
         content:
           fileContent,
       });
 
-      current =
-        undefined;
+      current = undefined;
     };
 
-    for (
-      const line of lines
-    ) {
+    for (const line of lines) {
       const header =
-        /^FILE:\s+(.+?)(?:\s+\[(create|replace)\])?\s*$/i.exec(line.trim());
+        /^FILE:\s+(.+?)(?:\s+\[(create|replace)\])?\s*$/i.exec(
+          line.trim(),
+        );
 
       if (header) {
         flush();
@@ -203,12 +231,8 @@ export class ModelCodingProposalParser
       }
 
       if (current) {
-        current.content.push(
-          line,
-        );
-      } else if (
-        line.trim() !== ""
-      ) {
+        current.content.push(line);
+      } else if (line.trim() !== "") {
         throw new Error(
           "K.I.N.G.S. Model Coding Proposal Parser: response contains text outside an authorized FILE block.",
         );
@@ -217,24 +241,21 @@ export class ModelCodingProposalParser
 
     flush();
 
-    if (
-      blocks.some(
+    const unauthorized =
+      blocks.find(
         (block) =>
-          !this.options.allowedPaths.includes(
-            block.path,
+          !this.options.allowedPaths.some(
+            (allowedPath) =>
+              isWithinAuthorizedPath(
+                block.path,
+                allowedPath,
+              ),
           ),
-      )
-    ) {
-      const invalid =
-        blocks.find(
-          (block) =>
-            !this.options.allowedPaths.includes(
-              block.path,
-            ),
-        )!;
+      );
 
+    if (unauthorized) {
       throw new Error(
-        `K.I.N.G.S. Model Coding Proposal Parser: model proposed unauthorized path "${invalid.path}".`,
+        `K.I.N.G.S. Model Coding Proposal Parser: model proposed unauthorized path "${unauthorized.path}".`,
       );
     }
 
@@ -245,13 +266,10 @@ export class ModelCodingProposalParser
         )
         .filter(
           (path, index, paths) =>
-            paths.indexOf(path) !==
-            index,
+            paths.indexOf(path) !== index,
         );
 
-    if (
-      duplicatePaths.length > 0
-    ) {
+    if (duplicatePaths.length > 0) {
       throw new Error(
         `K.I.N.G.S. Model Coding Proposal Parser: duplicate file proposal "${duplicatePaths[0]}".`,
       );
