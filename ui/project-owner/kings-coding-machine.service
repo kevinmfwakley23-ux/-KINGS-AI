@@ -1,0 +1,16 @@
+[Unit]
+Description=KINGS Coding Machine local owner server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/KINGS-AI
+Environment=KINGS_CODING_MACHINE_PORT=8787
+Environment=KINGS_CODING_MACHINE_HOST=kings.local
+Environment=KINGS_CODING_MACHINE_MODEL=qwen2.5-coder:1.5b
+ExecStart=/bin/bash %h/KINGS-AI/ui/project-owner/start-local.sh
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
