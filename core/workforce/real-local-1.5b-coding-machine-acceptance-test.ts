@@ -25,7 +25,8 @@ import { EngineeringWorkspaceAuthority } from "./engineering-workspace";
 import { EngineeringWorkspaceProposalAuthority } from "./engineering-workspace-proposal";
 import { ControlledFileEditor } from "./file-editor";
 import { EngineeringRepairEditor } from "./engineering-repair-editor";
-import { LocalCodingWriteBridge } from "./local-coding-write-bridge";
+import { BuildTestExecutor } from "./build-test-executor";
+import type { WorkUnitContract } from "./work-unit-contract";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) {
@@ -243,7 +244,7 @@ async function main(): Promise<void> {
       proposal,
     });
 
-    const writeBridge = new LocalCodingWriteBridge(editor);
+    const writeBridge = new (await import("./local-coding-write-bridge")).LocalCodingWriteBridge(editor);
     const writes = await writeBridge.execute({
       step: repair,
       projectId: request.missionId,
@@ -255,8 +256,67 @@ async function main(): Promise<void> {
     const written = await readFile(targetAbsolute, "utf8");
     assert(written.includes("generatedValue"), "Generated source must be written.");
     assert(written.includes("42"), "Generated source must preserve the requested value.");
-
     console.log("KINGS CODING MACHINE → GOVERNED FILESYSTEM WRITE: SUCCESS");
+
+    const workUnit: WorkUnitContract = {
+      id: "work-unit-1.5b-acceptance",
+      role: "coding-engineer",
+      objective: "Verify generated TypeScript code.",
+      capabilityIds: ["engineering-typescript"],
+      allowedToolIds: ["tool-execution-sandbox"],
+      allowedPaths: [workspaceRoot],
+      budget: {
+        maxTimeMs: 30_000,
+        maxTokens: 1_000,
+        maxIterations: 1,
+      },
+      dependencyIds: [],
+      acceptanceCriteria: ["TypeScript compiles successfully."],
+      requiredEvidenceTypes: ["command"],
+      approved: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const buildTest = new BuildTestExecutor({
+      sandboxPolicy: {
+        allowedCommands: ["/tmp/kings-typescript/node_modules/.bin/tsc", "node"],
+        allowedWorkingDirectories: [workspaceRoot],
+        allowedReadPaths: [workspaceRoot],
+        allowedWritePaths: [workspaceRoot],
+        allowedEnvironmentKeys: [],
+        allowedSideEffects: ["read", "execute", "write"],
+        timeoutMs: 30_000,
+        maxOutputBytes: 32_768,
+        maxConcurrentProcesses: 1,
+        allowShell: false,
+        allowNetwork: false,
+      },
+    });
+
+    const buildResult = await buildTest.execute({
+      taskId: request.taskId,
+      workUnit,
+      steps: [
+        {
+          id: "verify-generated-typescript",
+          operation: "validate",
+          command: "/tmp/kings-typescript/node_modules/.bin/tsc",
+          args: [
+            "--target", "ES2022",
+            "--module", "CommonJS",
+            "--moduleResolution", "Node",
+            "--strict",
+            "--noEmit",
+            "src/generated.ts",
+          ],
+          workingDirectory: workspaceRoot,
+        },
+      ],
+    });
+
+    assert(buildResult.passed, buildResult.steps[0]?.execution.stderr || "Generated TypeScript verification failed.");
+    console.log("KINGS CODING MACHINE → REAL BUILD/VERIFICATION: SUCCESS");
     console.log("KINGS CODING MACHINE → 1.5B ARTIFACT VERIFICATION: SUCCESS");
     console.log("TREE-KCM-REAL-LOCAL-1.5B-ACCEPTANCE: SUCCESS");
   } finally {
