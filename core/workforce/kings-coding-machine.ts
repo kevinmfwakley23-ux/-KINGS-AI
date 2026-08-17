@@ -311,9 +311,100 @@ export class KingsCodingMachine {
         buildTestOptions,
       );
 
-    return authority.execute(
-      request,
-    );
+    const result =
+      await authority.execute(
+        request,
+      );
+
+    const currentState =
+      this.continuity.getState(
+        request.projectId,
+      );
+
+    if (!currentState) {
+      throw new Error(
+        `K.I.N.G.S. Coding Machine: mission "${request.projectId}" has no execution state`,
+      );
+    }
+
+    const state =
+      this.continuity.updateState(
+        request.projectId,
+        {
+          activeTaskIds:
+            result.completed
+              ? currentState.activeTaskIds.filter(
+                  (id) =>
+                    id !==
+                    request.taskId,
+                )
+              : currentState.activeTaskIds,
+          completedTaskIds:
+            result.completed &&
+            !currentState.completedTaskIds.includes(
+              request.taskId,
+            )
+              ? [
+                  ...currentState.completedTaskIds,
+                  request.taskId,
+                ]
+              : currentState.completedTaskIds,
+          failedTaskIds:
+            result.completed
+              ? currentState.failedTaskIds
+              : currentState.failedTaskIds.includes(
+                  request.taskId,
+                )
+                ? currentState.failedTaskIds
+                : [
+                    ...currentState.failedTaskIds,
+                    request.taskId,
+                  ],
+          evidenceIds:
+            result.completed
+              ? [
+                  ...currentState.evidenceIds,
+                  `coding-verification-${request.taskId}`,
+                ]
+              : currentState.evidenceIds,
+        },
+      );
+
+    const planNow =
+      this.continuity.getPlan(
+        request.projectId,
+      );
+
+    if (!planNow) {
+      throw new Error(
+        `K.I.N.G.S. Coding Machine: mission "${request.projectId}" has no plan after coding execution`,
+      );
+    }
+
+    this.projectBrain.create({
+      id:
+        `checkpoint-coding-${request.taskId}-${Date.now()}`,
+      missionId:
+        request.projectId,
+      planId:
+        planNow.id,
+      planVersion:
+        planNow.version,
+      state,
+      summary:
+        result.completed
+          ? `Coding Work Unit "${request.taskId}" completed and verified.`
+          : `Coding Work Unit "${request.taskId}" failed verification.` ,
+      reason:
+        result.failureDiagnostics ??
+        (result.completed
+          ? "Governed coding execution completed successfully."
+          : "Governed coding execution produced a non-completed result."),
+      createdAt:
+        new Date().toISOString(),
+    });
+
+    return result;
   }
 
   async executeCodingWorkUnitFromModel(
