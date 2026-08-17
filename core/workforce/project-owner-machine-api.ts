@@ -22,22 +22,9 @@ import {
   validateProjectOwnerDesignInput,
 } from "./project-owner-ui-contract";
 
-import {
-  ModelDrivenCodingExecutionAuthority,
-  type ModelDrivenCodingExecutionRequest,
-} from "./model-driven-coding-execution";
-
-import type {
-  ModelRouter,
-} from "./model-routing";
-
-import type {
-  ProviderAdapterRegistry,
-} from "./provider-adapters";
-
 export interface ProjectOwnerMachineApiRequest {
   action:
-    "create-mission"
+    | "create-mission"
     | "approve-plan"
     | "lock-plan"
     | "snapshot"
@@ -49,8 +36,14 @@ export interface ProjectOwnerMachineApiRequest {
   missionId?:
     ID;
 
-  executionRequest?:
-    ModelDrivenCodingExecutionRequest;
+  executionRequest?: {
+    modelRequest: import("./model-interface").ModelExecutionRequest;
+    routing: import("./model-routing").ModelRoutingRequest;
+    machineRequest: Omit<
+      import("./kings-coding-machine").KingsCodingMachineModelExecutionRequest,
+      "modelResult"
+    >;
+  };
 
   editor?:
     EngineeringRepairEditor;
@@ -92,31 +85,19 @@ export class ProjectOwnerMachineApi {
   private readonly controller:
     ProjectOwnerUiController;
 
-  private readonly modelDrivenCoding:
-    ModelDrivenCodingExecutionAuthority;
-
   constructor(
     private readonly machine:
       KingsCodingMachine,
     private readonly missionFactory:
       ProjectOwnerMissionFactory,
-    router:
-      ModelRouter,
-    providers:
-      ProviderAdapterRegistry,
+    private readonly modelDrivenCoding:
+      import("./model-driven-coding-execution").ModelDrivenCodingExecutionAuthority,
     controller:
       ProjectOwnerUiController =
         new ProjectOwnerUiController(),
   ) {
     this.controller =
       controller;
-
-    this.modelDrivenCoding =
-      new ModelDrivenCodingExecutionAuthority(
-        machine,
-        router,
-        providers,
-      );
   }
 
   async handle(
@@ -374,7 +355,9 @@ export class ProjectOwnerMachineApi {
         message:
           "Unsupported Project Owner action.",
       };
-    } catch (error) {
+    } catch (
+      error
+    ) {
       return {
         ok:
           false,
