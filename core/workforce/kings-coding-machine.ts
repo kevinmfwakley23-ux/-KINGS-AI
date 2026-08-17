@@ -327,6 +327,20 @@ export class KingsCodingMachine {
       );
     }
 
+    const evidenceId =
+      `coding-verification-${request.taskId}`;
+
+    const nextEvidenceIds =
+      result.completed &&
+      !currentState.evidenceIds.includes(
+        evidenceId,
+      )
+        ? [
+            ...currentState.evidenceIds,
+            evidenceId,
+          ]
+        : currentState.evidenceIds;
+
     const state =
       this.continuity.updateState(
         request.projectId,
@@ -351,7 +365,11 @@ export class KingsCodingMachine {
               : currentState.completedTaskIds,
           failedTaskIds:
             result.completed
-              ? currentState.failedTaskIds
+              ? currentState.failedTaskIds.filter(
+                  (id) =>
+                    id !==
+                    request.taskId,
+                )
               : currentState.failedTaskIds.includes(
                   request.taskId,
                 )
@@ -361,12 +379,7 @@ export class KingsCodingMachine {
                     request.taskId,
                   ],
           evidenceIds:
-            result.completed
-              ? [
-                  ...currentState.evidenceIds,
-                  `coding-verification-${request.taskId}`,
-                ]
-              : currentState.evidenceIds,
+            nextEvidenceIds,
         },
       );
 
@@ -394,7 +407,7 @@ export class KingsCodingMachine {
       summary:
         result.completed
           ? `Coding Work Unit "${request.taskId}" completed and verified.`
-          : `Coding Work Unit "${request.taskId}" failed verification.` ,
+          : `Coding Work Unit "${request.taskId}" failed verification.`,
       reason:
         result.failureDiagnostics ??
         (result.completed
