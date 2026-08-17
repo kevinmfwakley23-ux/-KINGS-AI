@@ -23,8 +23,8 @@ if command -v sudo >/dev/null 2>&1 && [[ "$HOSTNAME" == "kings.local" ]]; then
   fi
 fi
 
-# If the machine is already running, do not create a second listener.
-if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 2 "http://${HOSTNAME}:${PORT}/" >/dev/null 2>&1; then
+# If the machine is already running on the local port, do not create a second listener.
+if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 2 "http://127.0.0.1:${PORT}/" >/dev/null 2>&1; then
   echo
   echo "KINGS CODING MACHINE UI ALREADY RUNNING"
   echo "Open: http://${HOSTNAME}:${PORT}"
