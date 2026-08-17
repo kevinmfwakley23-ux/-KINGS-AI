@@ -1,0 +1,17 @@
+[Unit]
+Description=KINGS Coding Machine Owner Console
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/KINGS-AI
+Environment=KINGS_CODING_MACHINE_PORT=8787
+Environment=KINGS_CODING_MACHINE_HOST=kings.local
+Environment=KINGS_CODING_MACHINE_WORKSPACE=%h/KINGS-AI
+Environment=KINGS_CODING_MACHINE_OLLAMA_URL=http://127.0.0.1:11434
+ExecStart=%h/KINGS-AI/ui/project-owner/start-local.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
