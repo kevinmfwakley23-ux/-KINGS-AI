@@ -290,7 +290,7 @@ export class ProjectOwnerMachineApi {
         }
 
         if (
-          request.executionRequest.machineRequest.projectId !==
+          request.executionRequest.machineRequest.execution.projectId !==
           missionId
         ) {
           return {
