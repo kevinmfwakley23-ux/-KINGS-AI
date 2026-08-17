@@ -9,20 +9,16 @@ import type {
 
 import {
   KingsCodingMachine,
-  type KingsCodingMachineModelExecutionRequest,
 } from "./kings-coding-machine";
 
 import type {
   EngineeringRepairEditor,
 } from "./engineering-repair-editor";
 
-import type {
-  ProjectOwnerDesignInput,
-  ProjectOwnerMissionView,
-} from "./project-owner-ui-contract";
-
 import {
   ProjectOwnerUiController,
+  type ProjectOwnerDesignInput,
+  type ProjectOwnerMissionView,
   validateProjectOwnerDesignInput,
 } from "./project-owner-ui-contract";
 
@@ -32,12 +28,7 @@ import {
 } from "./model-driven-coding-execution";
 
 import type {
-  ModelExecutionRequest,
-} from "./model-interface";
-
-import type {
   ModelRouter,
-  ModelRoutingRequest,
 } from "./model-routing";
 
 import type {
@@ -46,7 +37,7 @@ import type {
 
 export interface ProjectOwnerMachineApiRequest {
   action:
-    | "create-mission"
+    "create-mission"
     | "approve-plan"
     | "lock-plan"
     | "snapshot"
@@ -58,17 +49,8 @@ export interface ProjectOwnerMachineApiRequest {
   missionId?:
     ID;
 
-  modelExecution?: {
-    modelRequest:
-      ModelExecutionRequest;
-    routing:
-      ModelRoutingRequest;
-    machineRequest:
-      Omit<
-        KingsCodingMachineModelExecutionRequest,
-        "modelResult"
-      >;
-  };
+  executionRequest?:
+    ModelDrivenCodingExecutionRequest;
 
   editor?:
     EngineeringRepairEditor;
@@ -106,14 +88,6 @@ export interface ProjectOwnerMissionFactory {
     };
 }
 
-export interface ProjectOwnerModelExecutionDefaults {
-  request:
-    ModelExecutionRequest;
-
-  routing:
-    ModelRoutingRequest;
-}
-
 export class ProjectOwnerMachineApi {
   private readonly controller:
     ProjectOwnerUiController;
@@ -126,12 +100,10 @@ export class ProjectOwnerMachineApi {
       KingsCodingMachine,
     private readonly missionFactory:
       ProjectOwnerMissionFactory,
-    modelRouter:
+    router:
       ModelRouter,
     providers:
       ProviderAdapterRegistry,
-    modelDefaults:
-      ProjectOwnerModelExecutionDefaults,
     controller:
       ProjectOwnerUiController =
         new ProjectOwnerUiController(),
@@ -142,16 +114,10 @@ export class ProjectOwnerMachineApi {
     this.modelDrivenCoding =
       new ModelDrivenCodingExecutionAuthority(
         machine,
-        modelRouter,
+        router,
         providers,
       );
-
-    this.modelDefaults =
-      modelDefaults;
   }
-
-  private readonly modelDefaults:
-    ProjectOwnerModelExecutionDefaults;
 
   async handle(
     request:
@@ -243,6 +209,7 @@ export class ProjectOwnerMachineApi {
           this.machine.approvePlan(
             missionId,
           );
+
         const snapshot =
           this.machine.snapshot(
             missionId,
@@ -273,6 +240,7 @@ export class ProjectOwnerMachineApi {
           this.machine.lockPlan(
             missionId,
           );
+
         const snapshot =
           this.machine.snapshot(
             missionId,
@@ -331,12 +299,24 @@ export class ProjectOwnerMachineApi {
         request.action ===
         "execute-next"
       ) {
-        if (!request.modelExecution) {
+        if (!request.executionRequest) {
           return {
             ok:
               false,
             message:
-              "A model execution request is required.",
+              "A model-driven coding execution request is required.",
+          };
+        }
+
+        if (
+          request.executionRequest.machineRequest.projectId !==
+          missionId
+        ) {
+          return {
+            ok:
+              false,
+            message:
+              "Execution request mission does not match the selected owner mission.",
           };
         }
 
@@ -358,29 +338,9 @@ export class ProjectOwnerMachineApi {
           };
         }
 
-        const executionRequest:
-          ModelDrivenCodingExecutionRequest = {
-          modelRequest: {
-            ...this.modelDefaults.request,
-            ...request.modelExecution.modelRequest,
-            id:
-              request.modelExecution.modelRequest.id,
-            taskId:
-              request.modelExecution.machineRequest.taskId,
-            missionId:
-              request.modelExecution.machineRequest.projectId,
-          },
-          routing: {
-            ...this.modelDefaults.routing,
-            ...request.modelExecution.routing,
-          },
-          machineRequest:
-            request.modelExecution.machineRequest,
-        };
-
         const result =
           await this.modelDrivenCoding.execute(
-            executionRequest,
+            request.executionRequest,
             request.editor,
             request.buildTestOptions,
           );
@@ -414,9 +374,7 @@ export class ProjectOwnerMachineApi {
         message:
           "Unsupported Project Owner action.",
       };
-    } catch (
-      error,
-    ) {
+    } catch (error) {
       return {
         ok:
           false,
