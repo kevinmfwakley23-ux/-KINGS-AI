@@ -63,6 +63,16 @@ import type {
   EngineeringToolchain,
 } from "./engineering-toolchain";
 
+import {
+  CodingWorkUnitExecutionAuthority,
+  type CodingWorkUnitExecutionRequest,
+  type CodingWorkUnitExecutionResult,
+} from "./coding-work-unit-execution";
+
+import type {
+  EngineeringRepairEditor,
+} from "./engineering-repair-editor";
+
 export interface KingsCodingMissionRequest {
   mission:
     Mission;
@@ -221,6 +231,56 @@ export class KingsCodingMachine {
     );
 
     return result;
+  }
+
+  async executeCodingWorkUnit(
+    request:
+      CodingWorkUnitExecutionRequest,
+    editor:
+      EngineeringRepairEditor,
+    buildTestOptions:
+      ConstructorParameters<
+        typeof CodingWorkUnitExecutionAuthority
+      >[1],
+  ):
+    Promise<CodingWorkUnitExecutionResult> {
+    const mission =
+      this.continuity.getMission(
+        request.projectId,
+      );
+
+    const plan =
+      this.continuity.getPlan(
+        request.projectId,
+      );
+
+    if (
+      !mission ||
+      !plan
+    ) {
+      throw new Error(
+        `K.I.N.G.S. Coding Machine: mission "${request.projectId}" is not initialized`,
+      );
+    }
+
+    if (
+      !plan.approvedByHuman ||
+      !plan.locked
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Coding Machine: coding work-unit execution requires an approved and locked mission plan",
+      );
+    }
+
+    const authority =
+      new CodingWorkUnitExecutionAuthority(
+        editor,
+        buildTestOptions,
+      );
+
+    return authority.execute(
+      request,
+    );
   }
 
   async executeEngineeringStep(
