@@ -57,9 +57,12 @@ import {
 
 import type {
   Mission,
+} from "./types";
+
+import type {
   IntelligenceCapability,
   IntelligenceModality,
-} from "./types";
+} from "./model-interface";
 
 import type {
   MissionPlan,
@@ -295,7 +298,9 @@ async function main(): Promise<void> {
           "coding",
           "reasoning",
         ] satisfies IntelligenceCapability[],
-        inputModalities: ["text"] satisfies IntelligenceModality[],
+        inputModalities: [
+          "text",
+        ] satisfies IntelligenceModality[],
         outputModality: "text" as const,
         maxOutputTokens: 256,
         temperature: 0,
