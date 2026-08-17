@@ -52,7 +52,7 @@ import type {
 } from "../../core/workforce/kings-coding-machine";
 
 import type {
-  ProjectOwnerMachineApiRequest as OwnerRequest,
+  ProjectOwnerMachineApiRequest,
 } from "../../core/workforce/project-owner-machine-api";
 
 export interface ProjectOwnerMachineApiHandler {
@@ -62,18 +62,26 @@ export interface ProjectOwnerMachineApiHandler {
   ): Promise<ProjectOwnerMachineApiResponse>;
 }
 
-export type ProjectOwnerMachineApiRequest = OwnerRequest;
-
 export interface ProjectOwnerRuntimeOptions {
   ollamaBaseUrl?: string;
   modelId?: string;
   workspaceRoot?: string;
 }
 
+type BuildTestOptions = ConstructorParameters<
+  typeof import("../../core/workforce/coding-work-unit-execution").CodingWorkUnitExecutionAuthority
+>[1];
+
 export class ProjectOwnerMachineServerController
   implements ProjectOwnerMachineApiHandler {
   private readonly api:
     ProjectOwnerMachineApi;
+
+  private readonly editor:
+    EngineeringRepairEditor;
+
+  private readonly buildTestOptions:
+    BuildTestOptions;
 
   constructor(
     machine:
@@ -90,6 +98,10 @@ export class ProjectOwnerMachineServerController
     const baseUrl =
       runtime.ollamaBaseUrl ??
       "http://127.0.0.1:11434";
+
+    const workspaceRoot =
+      runtime.workspaceRoot ??
+      process.cwd();
 
     const transport: OllamaHttpTransport = {
       async post(path, body) {
@@ -149,11 +161,15 @@ export class ProjectOwnerMachineServerController
         },
       });
 
-    adapter.registerModel(model);
+    adapter.registerModel(
+      model,
+    );
 
     const providers =
       new ProviderAdapterRegistry();
-    providers.register(adapter);
+    providers.register(
+      adapter,
+    );
 
     const capabilities =
       new ModelCapabilityRegistry();
@@ -210,38 +226,34 @@ export class ProjectOwnerMachineServerController
         providers,
       );
 
-    const editor =
+    this.editor =
       new EngineeringRepairEditor(
         new ControlledFileEditor({
           allowedReadPaths: [
-            runtime.workspaceRoot ??
-              process.cwd(),
+            workspaceRoot,
           ],
           allowedWritePaths: [
-            runtime.workspaceRoot ??
-              process.cwd(),
+            workspaceRoot,
           ],
-          maxFileBytes: 1_048_576,
+          maxFileBytes:
+            1_048_576,
         }),
       );
 
-    const buildTestOptions = {
+    this.buildTestOptions = {
       sandboxPolicy: {
         allowedCommands: [
           process.execPath,
           "/tmp/kings-typescript/node_modules/.bin/tsc",
         ],
         allowedWorkingDirectories: [
-          runtime.workspaceRoot ??
-            process.cwd(),
+          workspaceRoot,
         ],
         allowedReadPaths: [
-          runtime.workspaceRoot ??
-            process.cwd(),
+          workspaceRoot,
         ],
         allowedWritePaths: [
-          runtime.workspaceRoot ??
-            process.cwd(),
+          workspaceRoot,
         ],
         allowedEnvironmentKeys: [],
         allowedSideEffects: [
@@ -249,11 +261,16 @@ export class ProjectOwnerMachineServerController
           "write",
           "execute",
         ],
-        timeoutMs: 60_000,
-        maxOutputBytes: 131_072,
-        maxConcurrentProcesses: 1,
-        allowShell: false,
-        allowNetwork: false,
+        timeoutMs:
+          60_000,
+        maxOutputBytes:
+          131_072,
+        maxConcurrentProcesses:
+          1,
+        allowShell:
+          false,
+        allowNetwork:
+          false,
       },
     };
 
@@ -264,37 +281,7 @@ export class ProjectOwnerMachineServerController
         modelDrivenCoding,
         new ProjectOwnerUiController(),
       );
-
-    this.runtimeRequestDefaults = {
-      editor,
-      buildTestOptions,
-    };
   }
-
-  private readonly runtimeRequestDefaults: {
-    editor: EngineeringRepairEditor;
-    buildTestOptions: Parameters<
-      ProjectOwnerMachineApi["handle"]
-    >[0] extends never
-      ? never
-      : {
-          sandboxPolicy: {
-            allowedCommands: string[];
-            allowedWorkingDirectories: string[];
-            allowedReadPaths: string[];
-            allowedWritePaths: string[];
-            allowedEnvironmentKeys: string[];
-            allowedSideEffects: Array<
-              "read" | "write" | "execute" | "network"
-            >;
-            timeoutMs: number;
-            maxOutputBytes: number;
-            maxConcurrentProcesses: number;
-            allowShell: boolean;
-            allowNetwork: boolean;
-          };
-        };
-  };
 
   handle(
     request:
@@ -313,10 +300,10 @@ export class ProjectOwnerMachineServerController
       ...request,
       editor:
         request.editor ??
-        this.runtimeRequestDefaults.editor,
+        this.editor,
       buildTestOptions:
         request.buildTestOptions ??
-        this.runtimeRequestDefaults.buildTestOptions,
+        this.buildTestOptions,
     });
   }
 }
