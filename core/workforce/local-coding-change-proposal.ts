@@ -55,14 +55,59 @@ export interface GovernedCodingProposalInput {
     readonly string[];
 }
 
+function normalizePath(
+  value:
+    string,
+): string {
+  return value
+    .replace(
+      /\\/g,
+      "/",
+    )
+    .replace(
+      /^\.\/+/, 
+      "",
+    )
+    .replace(
+      /\/+/g,
+      "/",
+    )
+    .trim();
+}
+
+function isWithinAuthorizedPath(
+  candidate:
+    string,
+  allowed:
+    string,
+): boolean {
+  const normalizedCandidate =
+    normalizePath(
+      candidate,
+    );
+
+  const normalizedAllowed =
+    normalizePath(
+      allowed,
+    );
+
+  return (
+    normalizedCandidate ===
+      normalizedAllowed ||
+    normalizedCandidate.startsWith(
+      `${normalizedAllowed}/`,
+    )
+  );
+}
+
 export class GovernedLocalCodingProposal {
   propose(
     input:
       GovernedCodingProposalInput,
     parser:
       LocalCodingProposalParser,
-  ):
-    LocalCodingChangeProposal {
+  )
+    : LocalCodingChangeProposal {
     if (
       !input.response.success ||
       !input.response.response
@@ -95,28 +140,17 @@ export class GovernedLocalCodingProposal {
       );
     }
 
-    const allowed =
-      new Set(
-        input.allowedPaths,
-      );
-
     for (
       const change of
       proposal.changes
     ) {
-      if (
-        !allowed.has(
+      const normalizedPath =
+        normalizePath(
           change.path,
-        )
-      ) {
-        throw new Error(
-          `K.I.N.G.S. Local Coding Proposal: path "${change.path}" is outside the Work Unit authorization.`,
         );
-      }
 
       if (
-        change.path.trim() ===
-        ""
+        !normalizedPath
       ) {
         throw new Error(
           "K.I.N.G.S. Local Coding Proposal: file path is required.",
@@ -124,11 +158,30 @@ export class GovernedLocalCodingProposal {
       }
 
       if (
+        !input.allowedPaths.some(
+          (
+            allowedPath,
+          ) =>
+            isWithinAuthorizedPath(
+              normalizedPath,
+              allowedPath,
+            ),
+        )
+      ) {
+        throw new Error(
+          `K.I.N.G.S. Local Coding Proposal: path "${normalizedPath}" is outside the Work Unit authorization.`,
+        );
+      }
+
+      change.path =
+        normalizedPath;
+
+      if (
         change.content.trim() ===
         ""
       ) {
         throw new Error(
-          `K.I.N.G.S. Local Coding Proposal: proposed content for "${change.path}" is empty.`,
+          `K.I.N.G.S. Local Coding Proposal: proposed content for "${normalizedPath}" is empty.`,
         );
       }
     }
