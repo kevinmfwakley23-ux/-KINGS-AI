@@ -18,7 +18,7 @@ import type {
 function assert(
   condition: boolean,
   message: string,
-): void {
+): asserts condition {
   if (!condition) {
     throw new Error(
       `ASSERTION FAILED: ${message}`,
@@ -65,7 +65,7 @@ function createMission(
   };
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const calls: string[] = [];
 
   const fakeMachine = {
@@ -205,9 +205,11 @@ function main(): void {
     });
 
   const created =
-    api.createMission(
+    await api.handle({
+      action:
+        "create-mission",
       input,
-    );
+    });
 
   assert(
     created.ok,
@@ -225,9 +227,12 @@ function main(): void {
   );
 
   const approved =
-    api.approvePlan(
-      "owner-ui-test",
-    );
+    await api.handle({
+      action:
+        "approve-plan",
+      missionId:
+        "owner-ui-test",
+    });
 
   assert(
     approved.ok,
@@ -235,9 +240,12 @@ function main(): void {
   );
 
   const locked =
-    api.lockPlan(
-      "owner-ui-test",
-    );
+    await api.handle({
+      action:
+        "lock-plan",
+      missionId:
+        "owner-ui-test",
+    });
 
   assert(
     locked.ok,
@@ -249,9 +257,12 @@ function main(): void {
   );
 
   const snapshot =
-    api.snapshot(
-      "owner-ui-test",
-    );
+    await api.handle({
+      action:
+        "snapshot",
+      missionId:
+        "owner-ui-test",
+    });
 
   assert(
     snapshot.ok,
@@ -279,4 +290,14 @@ function main(): void {
   );
 }
 
-main();
+main().catch(
+  (error) => {
+    console.error(
+      "TREE-KCM-PROJECT-OWNER-MACHINE-API: FAILURE",
+    );
+    console.error(
+      error,
+    );
+    process.exitCode = 1;
+  },
+);
