@@ -18,7 +18,7 @@ import type {
 function assert(
   condition: boolean,
   message: string,
-): asserts condition {
+): void {
   if (!condition) {
     throw new Error(
       `ASSERTION FAILED: ${message}`,
@@ -277,7 +277,7 @@ async function main(): Promise<void> {
 
   assert(
     calls.join(",") ===
-      "create,approve:owner-ui-test,lock:owner-ui-test,snapshot:owner-ui-test",
+      "create,approve:owner-ui-test,snapshot:owner-ui-test,lock:owner-ui-test,snapshot:owner-ui-test",
     "owner UI actions must map to the coding machine in governed order",
   );
 
