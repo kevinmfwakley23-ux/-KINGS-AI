@@ -56,6 +56,10 @@ import {
 } from "./registry";
 
 import type {
+  IntelligenceCapability,
+} from "./model-interface";
+
+import type {
   Mission,
 } from "./types";
 
@@ -159,7 +163,7 @@ async function main(): Promise<void> {
     const ollamaClient = new HttpOllamaExecutionClient(transport);
     const model = new OllamaIntelligenceModel(
       ollamaClient,
-      "qwen2.5-coder:0.5b",
+      "qwen2.5-coder:1.5b",
       [
         "reasoning",
         "planning",
@@ -185,11 +189,23 @@ async function main(): Promise<void> {
     providers.register(internalAdapter);
 
     const capabilityRegistry = new ModelCapabilityRegistry();
+    const verificationEvidence = ["owner-model-real"];
+
     capabilityRegistry.register({
       model: model.identity,
       capabilities: [
-        { capability: "coding", strength: 90, evidenceIds: ["owner-model-real"] },
-        { capability: "reasoning", strength: 80, evidenceIds: ["owner-model-real"] },
+        {
+          capability: "coding",
+          strength: 90,
+          status: "verified",
+          evidenceReferences: verificationEvidence,
+        },
+        {
+          capability: "reasoning",
+          strength: 80,
+          status: "verified",
+          evidenceReferences: verificationEvidence,
+        },
       ],
     });
 
@@ -260,8 +276,6 @@ async function main(): Promise<void> {
     });
     assert(locked.ok, "owner UI must lock the real mission");
 
-    const now = new Date().toISOString();
-
     const executionRequest = {
       modelRequest: {
         id: "model-request-owner-real",
@@ -279,7 +293,10 @@ async function main(): Promise<void> {
               "Create a TypeScript file exporting const KINGS_OWNER_MODEL_GREEN = true;",
           },
         ],
-        requiredCapabilities: ["coding", "reasoning"],
+        requiredCapabilities: [
+          "coding",
+          "reasoning",
+        ] satisfies IntelligenceCapability[],
         inputModalities: ["text"],
         outputModality: "text" as const,
         maxOutputTokens: 256,
@@ -287,7 +304,10 @@ async function main(): Promise<void> {
         allowToolProposals: false,
       },
       routing: {
-        requiredCapabilities: ["coding", "reasoning"],
+        requiredCapabilities: [
+          "coding",
+          "reasoning",
+        ] satisfies IntelligenceCapability[],
         minimumCapabilityStrength: 70,
         preferInternal: true,
         maximumEstimatedCost: 0,
@@ -393,7 +413,7 @@ async function main(): Promise<void> {
       "real model coding task must be promoted to completed mission state",
     );
     assert(
-      result.view?.state.evidenceIds.length > 0,
+      result.view?.state.evidenceIds?.length > 0,
       "real model coding must produce evidence",
     );
 
