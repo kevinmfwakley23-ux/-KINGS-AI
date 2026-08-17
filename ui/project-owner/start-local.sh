@@ -23,6 +23,16 @@ if command -v sudo >/dev/null 2>&1 && [[ "$HOSTNAME" == "kings.local" ]]; then
   fi
 fi
 
+# If the machine is already running, do not create a second listener.
+if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 2 "http://${HOSTNAME}:${PORT}/" >/dev/null 2>&1; then
+  echo
+  echo "KINGS CODING MACHINE UI ALREADY RUNNING"
+  echo "Open: http://${HOSTNAME}:${PORT}"
+  echo "Fallback: http://127.0.0.1:${PORT}"
+  echo "Model: qwen2.5-coder:1.5b"
+  exit 0
+fi
+
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
@@ -43,11 +53,10 @@ if [[ "${KINGS_CODING_MACHINE_OPEN_UI:-0}" == "1" ]] && command -v xdg-open >/de
 fi
 
 echo
- echo "KINGS CODING MACHINE UI"
+echo "KINGS CODING MACHINE UI"
 echo "Open: http://${HOSTNAME}:${PORT}"
 echo "Fallback: http://127.0.0.1:${PORT}"
 echo "Model: qwen2.5-coder:1.5b"
-
 echo
 
 exec node "$OUT/ui/project-owner/local-server.js"
