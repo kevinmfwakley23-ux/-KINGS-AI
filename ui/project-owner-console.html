@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>K.I.N.G.S. Project Owner Console</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, system-ui, sans-serif;
+      background: #0b1020;
+      color: #e8edf7;
+    }
+    body { margin: 0; background: #0b1020; }
+    main { max-width: 1100px; margin: 0 auto; padding: 32px; }
+    h1 { margin: 0 0 8px; }
+    p { color: #aeb8cb; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .card { background: #121a2b; border: 1px solid #26324a; border-radius: 14px; padding: 20px; }
+    label { display: block; margin: 14px 0 6px; font-weight: 600; }
+    input, textarea, button { width: 100%; box-sizing: border-box; border-radius: 10px; border: 1px solid #33425f; background: #0d1424; color: #e8edf7; padding: 11px 12px; }
+    textarea { min-height: 110px; resize: vertical; }
+    button { margin-top: 16px; cursor: pointer; background: #1f6feb; border-color: #1f6feb; font-weight: 700; }
+    button.secondary { background: #18233a; border-color: #33425f; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #0a0f1b; padding: 14px; border-radius: 10px; border: 1px solid #26324a; min-height: 180px; }
+    .status { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+    .stat { padding: 12px; background: #0d1424; border: 1px solid #26324a; border-radius: 10px; }
+    .stat strong { display: block; font-size: 20px; margin-top: 4px; }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } main { padding: 18px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>K.I.N.G.S. Project Owner Console</h1>
+    <p>Describe what you want built. K.I.N.G.S. turns the design into a governed mission, plan, implementation, verification, and durable project state.</p>
+
+    <div class="grid">
+      <section class="card">
+        <h2>Design Brief</h2>
+        <label for="projectName">Project name</label>
+        <input id="projectName" placeholder="My application">
+
+        <label for="objective">What should K.I.N.G.S. build?</label>
+        <textarea id="objective" placeholder="Describe the app or software in plain language."></textarea>
+
+        <label for="requirements">Requirements</label>
+        <textarea id="requirements" placeholder="One requirement per line"></textarea>
+
+        <label for="platform">Preferred platform</label>
+        <input id="platform" placeholder="Web, Linux, Android, desktop, etc.">
+
+        <label for="language">Preferred language</label>
+        <input id="language" placeholder="TypeScript, Python, etc.">
+
+        <label for="constraints">Constraints</label>
+        <textarea id="constraints" placeholder="Budget, storage, dependencies, security, deadlines, etc."></textarea>
+
+        <label for="acceptance">How do we know it is finished?</label>
+        <textarea id="acceptance" placeholder="One acceptance criterion per line"></textarea>
+
+        <button id="create">Create Mission</button>
+      </section>
+
+      <section class="card">
+        <h2>Mission Control</h2>
+        <div class="status">
+          <div class="stat">Status<strong id="missionStatus">—</strong></div>
+          <div class="stat">Active<strong id="activeTasks">0</strong></div>
+          <div class="stat">Completed<strong id="completedTasks">0</strong></div>
+        </div>
+
+        <label>Owner Command</label>
+        <textarea id="command" placeholder="Describe the next change, feature, repair, or design decision."></textarea>
+        <button class="secondary" id="send">Send to K.I.N.G.S.</button>
+
+        <label>Mission State</label>
+        <pre id="output">No mission loaded.</pre>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    function lines(id) {
+      return $(id).value
+        .split(/\r?\n/)
+        .map((value) => value.trim())
+        .filter(Boolean);
+    }
+
+    function buildDesignInput() {
+      return {
+        id: crypto.randomUUID(),
+        projectName: $("projectName").value.trim(),
+        objective: $("objective").value.trim(),
+        requirements: lines("requirements"),
+        preferredPlatform: $("platform").value.trim() || undefined,
+        preferredLanguage: $("language").value.trim() || undefined,
+        constraints: lines("constraints"),
+        acceptanceCriteria: lines("acceptance"),
+      };
+    }
+
+    async function createMission() {
+      const payload = buildDesignInput();
+      render({ status: "MISSION_REQUESTED", designInput: payload });
+
+      // The production API endpoint will be attached to KingsCodingMachine.
+      // Keeping the browser contract stable lets the backend evolve without changing the owner workflow.
+      try {
+        const response = await fetch("/api/project-owner/missions", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        render(await response.json());
+      } catch (error) {
+        render({
+          status: "UI_ONLY_REQUEST_CAPTURED",
+          message: "Mission brief captured. Connect /api/project-owner/missions to the K.I.N.G.S. backend to execute it.",
+          error: String(error),
+          designInput: payload,
+        });
+      }
+    }
+
+    async function sendCommand() {
+      const command = $("command").value.trim();
+      if (!command) return;
+
+      try {
+        const response = await fetch("/api/project-owner/commands", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ command }),
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        render(await response.json());
+      } catch (error) {
+        render({
+          status: "COMMAND_CAPTURED",
+          message: "Owner command captured. Connect /api/project-owner/commands to execute it through K.I.N.G.S.",
+          error: String(error),
+          command,
+        });
+      }
+    }
+
+    function render(data) {
+      const state = data.state ?? {};
+      $("missionStatus").textContent = data.status ?? state.status ?? "—";
+      $("activeTasks").textContent = (state.activeTaskIds ?? []).length;
+      $("completedTasks").textContent = (state.completedTaskIds ?? []).length;
+      $("output").textContent = JSON.stringify(data, null, 2);
+    }
+
+    $("create").addEventListener("click", createMission);
+    $("send").addEventListener("click", sendCommand);
+  </script>
+</body>
+</html>
