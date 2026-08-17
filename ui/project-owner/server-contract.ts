@@ -52,8 +52,8 @@ import type {
 } from "../../core/workforce/kings-coding-machine";
 
 import type {
-  ProjectOwnerMachineApiRequest,
-} from "../../core/workforce/project-owner-machine-api";
+  IntelligenceCapability,
+} from "../../core/workforce/model-interface";
 
 export interface ProjectOwnerMachineApiHandler {
   handle(
@@ -174,34 +174,37 @@ export class ProjectOwnerMachineServerController
     const capabilities =
       new ModelCapabilityRegistry();
 
+    const verifiedCapabilities: IntelligenceCapability[] = [
+      "reasoning",
+      "planning",
+      "coding",
+      "debugging",
+      "source-inspection",
+      "verification",
+      "recovery",
+    ];
+
     capabilities.register({
       model:
         model.identity,
-      capabilities: [
-        "reasoning",
-        "planning",
-        "coding",
-        "debugging",
-        "source-inspection",
-        "verification",
-        "recovery",
-      ].map(
-        (capability) => ({
-          capability,
-          strength:
-            capability ===
-            "coding"
-              ? 90
-              : 82,
-          status:
-            "verified" as const,
-          evidenceReferences: [
-            "real-local-1.5b-acceptance",
-          ],
-          verifiedAt:
-            new Date().toISOString(),
-        }),
-      ),
+      capabilities:
+        verifiedCapabilities.map(
+          (capability) => ({
+            capability,
+            strength:
+              capability ===
+              "coding"
+                ? 90
+                : 82,
+            status:
+              "verified" as const,
+            evidenceReferences: [
+              "real-local-1.5b-acceptance",
+            ],
+            verifiedAt:
+              new Date().toISOString(),
+          }),
+        ),
     });
 
     const router =
