@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>K.I.N.G.S. Project Owner Console</title>
+  <title>K.I.N.G.S. Coding Machine Owner Console</title>
   <style>
     :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; }
     body { margin:0; background:#0b1020; color:#edf2f7; }
@@ -18,20 +18,20 @@
     button { margin:8px 8px 0 0; padding:11px 16px; border:0; border-radius:10px; cursor:pointer; font-weight:700; }
     button:disabled { opacity:.45; cursor:not-allowed; }
     #submit { background:#f1c75b; color:#111827; }
-    .danger { background:#ef6a6a; color:#fff; }
     .secondary { background:#2b3958; color:#fff; }
     .success { background:#4fae78; color:#fff; }
     .stack { display:grid; gap:12px; }
     .metric { padding:14px; background:#0e1628; border-radius:10px; }
     pre { white-space:pre-wrap; word-break:break-word; }
     .controls { margin-top:18px; }
+    .notice { margin-top:12px; padding:12px 14px; border-radius:10px; background:#18243d; }
     @media (max-width:800px){ .grid{grid-template-columns:1fr;} }
   </style>
 </head>
 <body>
   <main>
-    <h1>K.I.N.G.S. Project Owner Console</h1>
-    <div class="muted">Describe what you want built. K.I.N.G.S. turns the design into a governed engineering mission.</div>
+    <h1>K.I.N.G.S. Coding Machine Owner Console</h1>
+    <div class="muted">Describe the software you want built. The local coding machine turns your design into governed engineering work.</div>
 
     <div class="grid">
       <section class="card">
@@ -57,7 +57,7 @@
           <label for="acceptance">How will we know it works?</label>
           <textarea id="acceptance" required placeholder="One acceptance criterion per line"></textarea>
 
-          <button id="submit" type="submit">Create Engineering Mission</button>
+          <button id="submit" type="submit">Create Coding Mission</button>
         </form>
 
         <div class="controls">
@@ -66,10 +66,14 @@
           <button id="refresh" class="secondary" disabled>Refresh State</button>
           <button id="execute" class="success" disabled>Execute Next</button>
         </div>
+
+        <div id="notice" class="notice muted">
+          The browser console is intentionally thin. Execution is performed by the local Linux machine runtime; the UI never receives provider credentials or direct filesystem authority.
+        </div>
       </section>
 
       <aside class="card">
-        <h2>Mission Status</h2>
+        <h2>Machine Status</h2>
         <div class="stack">
           <div class="metric"><strong>Mission</strong><div id="mission">Not created</div></div>
           <div class="metric"><strong>Plan</strong><div id="plan">Waiting for mission</div></div>
@@ -84,6 +88,7 @@
   <script>
     const form = document.getElementById('mission-form');
     const system = document.getElementById('system');
+    const notice = document.getElementById('notice');
     const approve = document.getElementById('approve');
     const lock = document.getElementById('lock');
     const refresh = document.getElementById('refresh');
@@ -129,7 +134,7 @@
 
       const payload = await response.json();
       if (!response.ok || !payload.ok) {
-        throw new Error(payload.message || 'K.I.N.G.S. request failed.');
+        throw new Error(payload.message || 'Coding machine request failed.');
       }
 
       render(payload);
@@ -139,7 +144,7 @@
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      system.textContent = 'Creating engineering mission...';
+      system.textContent = 'Creating coding mission...';
 
       const input = {
         id: `ui-${Date.now()}`,
@@ -187,8 +192,14 @@
     });
 
     execute.addEventListener('click', async () => {
-      system.textContent = 'Execution requires the configured machine runtime context.';
-      execute.disabled = true;
+      system.textContent = 'Preparing local coding runtime...';
+      notice.textContent = 'Execution is delegated to the local Linux runtime. The browser does not construct model or filesystem authority objects itself.';
+      try {
+        const payload = await call('execute-next');
+        system.textContent = payload.message || 'Execution complete';
+      } catch (error) {
+        system.textContent = error instanceof Error ? error.message : String(error);
+      }
     });
   </script>
 </body>
