@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { join, extname } from "node:path";
+import { join } from "node:path";
 
 import { TaskControl } from "../../core/workforce/task-control";
 import { WorkforceRegistry } from "../../core/workforce/registry";
@@ -12,6 +12,7 @@ import type { Mission, MissionStatus } from "../../core/workforce/types";
 import type { MissionPlan } from "../../core/workforce/mission-continuity";
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
+const hostname = process.env.KINGS_CODING_MACHINE_HOST ?? "kings.local";
 const workspaceRoot = process.env.KINGS_CODING_MACHINE_WORKSPACE ?? process.cwd();
 const publicFile = join(process.cwd(), "ui/project-owner/index.html");
 
@@ -56,14 +57,6 @@ function buildMission(input: ProjectOwnerDesignInput): { mission: Mission; plan:
   };
 }
 
-function contentType(path: string): string {
-  const ext = extname(path);
-  if (ext === ".html") return "text/html; charset=utf-8";
-  if (ext === ".js") return "text/javascript; charset=utf-8";
-  if (ext === ".css") return "text/css; charset=utf-8";
-  return "text/plain; charset=utf-8";
-}
-
 async function body(request: import("node:http").IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   for await (const chunk of request) chunks.push(Buffer.from(chunk));
@@ -87,7 +80,13 @@ async function main(): Promise<void> {
 
   const server = createServer(async (req, res) => {
     try {
-      if (req.method === "GET" && req.url === "/") {
+      if (req.method === "GET" && (req.url === "/" || req.url === `/health`)) {
+        if (req.url === "/health") {
+          res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+          res.end(JSON.stringify({ ok: true, name: "kings.local", model: "qwen2.5-coder:1.5b" }));
+          return;
+        }
+
         const html = await readFile(publicFile, "utf8");
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(html);
@@ -111,7 +110,8 @@ async function main(): Promise<void> {
   });
 
   server.listen(port, "127.0.0.1", () => {
-    console.log(`KINGS CODING MACHINE UI: http://127.0.0.1:${port}`);
+    console.log(`KINGS CODING MACHINE UI: http://${hostname}:${port}`);
+    console.log(`Fallback: http://127.0.0.1:${port}`);
     console.log(`Workspace: ${workspaceRoot}`);
     console.log("Model: qwen2.5-coder:1.5b");
   });
