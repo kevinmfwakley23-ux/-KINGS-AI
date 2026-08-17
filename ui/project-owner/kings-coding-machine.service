@@ -8,7 +8,7 @@ WorkingDirectory=%h/KINGS-AI
 Environment=KINGS_CODING_MACHINE_PORT=8787
 Environment=KINGS_CODING_MACHINE_HOST=kings.local
 Environment=KINGS_CODING_MACHINE_MODEL=qwen2.5-coder:1.5b
-ExecStart=/bin/bash %h/KINGS-AI/ui/project-owner/start-local.sh
+ExecStart=/bin/bash %h/KINGS-AI/ui/project-owner/start-server.sh
 Restart=on-failure
 RestartSec=2
 
