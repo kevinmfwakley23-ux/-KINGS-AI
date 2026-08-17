@@ -119,11 +119,11 @@ export class EngineeringStepExecutor {
       stepId:
         request.step.id,
       started:
-        true,
+        false,
       completed:
-        true,
+        false,
       exitCode:
-        0,
+        -1,
       stdout:
         "",
       stderr:
@@ -132,6 +132,7 @@ export class EngineeringStepExecutor {
         `command:${request.command.executable}`,
         `operation:${request.command.operation}`,
         `language:${request.command.language}`,
+        "execution-pending",
       ],
     };
   }
