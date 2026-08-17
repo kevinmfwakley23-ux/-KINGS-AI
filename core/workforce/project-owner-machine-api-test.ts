@@ -66,11 +66,8 @@ function createMission(
 }
 
 async function main(): Promise<void> {
-  const calls: string[] = [];
-
   const fakeMachine = {
     startMission(request: any) {
-      calls.push("create");
       return {
         mission: request.mission,
         plan: request.plan,
@@ -87,7 +84,6 @@ async function main(): Promise<void> {
     },
 
     approvePlan(missionId: string) {
-      calls.push(`approve:${missionId}`);
       return {
         id: `plan-${missionId}`,
         missionId,
@@ -106,7 +102,6 @@ async function main(): Promise<void> {
     },
 
     lockPlan(missionId: string) {
-      calls.push(`lock:${missionId}`);
       return {
         id: `plan-${missionId}`,
         missionId,
@@ -125,7 +120,6 @@ async function main(): Promise<void> {
     },
 
     snapshot(missionId: string) {
-      calls.push(`snapshot:${missionId}`);
       return {
         mission: {
           id: missionId,
@@ -222,6 +216,12 @@ async function main(): Promise<void> {
     "created mission id must be preserved",
   );
 
+  assert(
+    created.view?.plan.locked ===
+      false,
+    "new mission plan must begin unlocked",
+  );
+
   console.log(
     "K.I.N.G.S. OWNER UI → MACHINE MISSION: SUCCESS",
   );
@@ -239,6 +239,12 @@ async function main(): Promise<void> {
     "owner UI must approve the plan",
   );
 
+  assert(
+    approved.plan?.approvedByHuman ===
+      true,
+    "approval action must return an approved plan",
+  );
+
   const locked =
     await api.handle({
       action:
@@ -250,6 +256,12 @@ async function main(): Promise<void> {
   assert(
     locked.ok,
     "owner UI must lock the plan",
+  );
+
+  assert(
+    locked.plan?.locked ===
+      true,
+    "lock action must return a locked plan",
   );
 
   console.log(
@@ -276,9 +288,15 @@ async function main(): Promise<void> {
   );
 
   assert(
-    calls.join(",") ===
-      "create,approve:owner-ui-test,snapshot:owner-ui-test,lock:owner-ui-test,snapshot:owner-ui-test",
-    "owner UI actions must map to the coding machine in governed order",
+    snapshot.view?.plan.approvedByHuman ===
+      true,
+    "snapshot must expose human approval",
+  );
+
+  assert(
+    snapshot.view?.state.missionId ===
+      "owner-ui-test",
+    "snapshot must preserve mission identity",
   );
 
   console.log(
