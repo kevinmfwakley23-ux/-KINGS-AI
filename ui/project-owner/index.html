@@ -15,11 +15,16 @@
     label { display:block; margin:14px 0 6px; font-weight:600; }
     input, textarea { width:100%; box-sizing:border-box; background:#0e1628; color:#fff; border:1px solid #33415f; border-radius:10px; padding:11px 12px; }
     textarea { min-height:120px; resize:vertical; }
-    button { margin-top:16px; padding:11px 16px; border:0; border-radius:10px; cursor:pointer; font-weight:700; }
+    button { margin:8px 8px 0 0; padding:11px 16px; border:0; border-radius:10px; cursor:pointer; font-weight:700; }
+    button:disabled { opacity:.45; cursor:not-allowed; }
     #submit { background:#f1c75b; color:#111827; }
+    .danger { background:#ef6a6a; color:#fff; }
+    .secondary { background:#2b3958; color:#fff; }
+    .success { background:#4fae78; color:#fff; }
     .stack { display:grid; gap:12px; }
     .metric { padding:14px; background:#0e1628; border-radius:10px; }
     pre { white-space:pre-wrap; word-break:break-word; }
+    .controls { margin-top:18px; }
     @media (max-width:800px){ .grid{grid-template-columns:1fr;} }
   </style>
 </head>
@@ -41,10 +46,10 @@
           <textarea id="requirements" required placeholder="One requirement per line"></textarea>
 
           <label for="platform">Preferred platform</label>
-          <input id="platform" placeholder="Linux, web, Android, Chromebook..."></input>
+          <input id="platform" placeholder="Linux, web, Android, Chromebook...">
 
           <label for="language">Preferred language</label>
-          <input id="language" placeholder="TypeScript, Python, Rust..."></input>
+          <input id="language" placeholder="TypeScript, Python, Rust...">
 
           <label for="constraints">Constraints</label>
           <textarea id="constraints" placeholder="One constraint per line"></textarea>
@@ -54,6 +59,13 @@
 
           <button id="submit" type="submit">Create Engineering Mission</button>
         </form>
+
+        <div class="controls">
+          <button id="approve" class="secondary" disabled>Approve Plan</button>
+          <button id="lock" class="secondary" disabled>Lock Plan</button>
+          <button id="refresh" class="secondary" disabled>Refresh State</button>
+          <button id="execute" class="success" disabled>Execute Next</button>
+        </div>
       </section>
 
       <aside class="card">
@@ -72,12 +84,62 @@
   <script>
     const form = document.getElementById('mission-form');
     const system = document.getElementById('system');
+    const approve = document.getElementById('approve');
+    const lock = document.getElementById('lock');
+    const refresh = document.getElementById('refresh');
+    const execute = document.getElementById('execute');
+
+    let missionId = null;
+    let planApproved = false;
+    let planLocked = false;
 
     const lines = value => value.split('\n').map(v => v.trim()).filter(Boolean);
 
+    function render(payload) {
+      const view = payload?.view;
+      if (!view) return;
+
+      missionId = view.mission?.id || missionId;
+      planApproved = !!view.plan?.approvedByHuman;
+      planLocked = !!view.plan?.locked;
+
+      document.getElementById('mission').textContent = view.mission?.name || 'Unknown';
+      document.getElementById('plan').textContent = view.plan?.objective || 'Plan unavailable';
+
+      const state = view.state || {};
+      document.getElementById('tasks').textContent =
+        `${state.completedTaskIds?.length || 0} completed · ` +
+        `${state.activeTaskIds?.length || 0} active · ` +
+        `${state.failedTaskIds?.length || 0} failed`;
+
+      document.getElementById('details').textContent = JSON.stringify(view, null, 2);
+
+      approve.disabled = !missionId || planApproved;
+      lock.disabled = !missionId || !planApproved || planLocked;
+      refresh.disabled = !missionId;
+      execute.disabled = !missionId || !planLocked;
+    }
+
+    async function call(action, extra = {}) {
+      const response = await fetch('/api/project-owner/missions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action, missionId, ...extra }),
+      });
+
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.message || 'K.I.N.G.S. request failed.');
+      }
+
+      render(payload);
+      system.textContent = payload.message || 'Complete';
+      return payload;
+    }
+
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      system.textContent = 'Submitting mission...';
+      system.textContent = 'Creating engineering mission...';
 
       const input = {
         id: `ui-${Date.now()}`,
@@ -94,7 +156,7 @@
         const response = await fetch('/api/project-owner/missions', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(input),
+          body: JSON.stringify({ action: 'create-mission', input }),
         });
 
         const payload = await response.json();
@@ -102,15 +164,31 @@
           throw new Error(payload.message || 'Mission creation failed.');
         }
 
-        document.getElementById('mission').textContent = payload.view?.mission?.name || input.projectName;
-        document.getElementById('plan').textContent = payload.view?.plan?.objective || 'Plan created';
-        const state = payload.view?.state;
-        document.getElementById('tasks').textContent = `${state?.completedTaskIds?.length || 0} completed · ${state?.activeTaskIds?.length || 0} active · ${state?.failedTaskIds?.length || 0} failed`;
-        document.getElementById('details').textContent = JSON.stringify(payload.view || payload, null, 2);
-        system.textContent = 'Mission created';
+        render(payload);
+        system.textContent = payload.message || 'Mission created';
       } catch (error) {
         system.textContent = error instanceof Error ? error.message : String(error);
       }
+    });
+
+    approve.addEventListener('click', async () => {
+      try { await call('approve-plan'); }
+      catch (error) { system.textContent = error instanceof Error ? error.message : String(error); }
+    });
+
+    lock.addEventListener('click', async () => {
+      try { await call('lock-plan'); }
+      catch (error) { system.textContent = error instanceof Error ? error.message : String(error); }
+    });
+
+    refresh.addEventListener('click', async () => {
+      try { await call('snapshot'); }
+      catch (error) { system.textContent = error instanceof Error ? error.message : String(error); }
+    });
+
+    execute.addEventListener('click', async () => {
+      system.textContent = 'Execution requires the configured machine runtime context.';
+      execute.disabled = true;
     });
   </script>
 </body>
