@@ -15,10 +15,6 @@ import type {
   EngineeringRepairEditor,
 } from "./engineering-repair-editor";
 
-import type {
-  ConstructorParameters,
-} from "typescript";
-
 import {
   ProjectOwnerUiController,
   type ProjectOwnerDesignInput,
@@ -98,11 +94,11 @@ export class ProjectOwnerMachineApi {
       controller;
   }
 
-  handle(
+  async handle(
     request:
       ProjectOwnerMachineApiRequest,
   ):
-    ProjectOwnerMachineApiResponse {
+    Promise<ProjectOwnerMachineApiResponse> {
     try {
       if (
         request.action ===
