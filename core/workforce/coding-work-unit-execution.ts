@@ -122,6 +122,9 @@ export interface CodingWorkUnitExecutionResult {
 
   completed:
     boolean;
+
+  failureDiagnostics?:
+    string;
 }
 
 export class CodingWorkUnitExecutionAuthority {
@@ -175,9 +178,7 @@ export class CodingWorkUnitExecutionAuthority {
       CodingWorkUnitExecutionRequest,
   ):
     Promise<CodingWorkUnitExecutionResult> {
-    this.validateRequest(
-      request,
-    );
+    this.validateRequest(request);
 
     const authorizedProposal =
       this.workspaceProposal.authorize({
@@ -216,9 +217,7 @@ export class CodingWorkUnitExecutionAuthority {
     const commandResults:
       EngineeringCommandResult[] =
       buildTest.steps.map(
-        (
-          stepResult,
-        ) => ({
+        (stepResult) => ({
           id:
             `build-test-${request.taskId}-${stepResult.step.id}`,
           commandId:
@@ -247,6 +246,25 @@ export class CodingWorkUnitExecutionAuthority {
             stepResult.execution.completedAt,
         }),
       );
+
+    const diagnostics =
+      commandResults
+        .filter(
+          (result) =>
+            result.status ===
+            "failed",
+        )
+        .map(
+          (result) =>
+            [
+              `command=${result.commandId}`,
+              `exitCode=${result.exitCode}`,
+              `stdout=${result.stdout}`,
+              `stderr=${result.stderr}`,
+            ].join("\n"),
+        )
+        .join("\n\n") ||
+      undefined;
 
     const verification =
       this.verification.verify({
@@ -283,6 +301,8 @@ export class CodingWorkUnitExecutionAuthority {
       completion,
       completed:
         completion.completed,
+      failureDiagnostics:
+        diagnostics,
     };
   }
 
@@ -290,80 +310,55 @@ export class CodingWorkUnitExecutionAuthority {
     request:
       CodingWorkUnitExecutionRequest,
   ): void {
-    if (
-      !request.taskId.trim()
-    ) {
+    if (!request.taskId.trim()) {
       throw new Error(
         "K.I.N.G.S. Coding Work Unit Execution: task id is required.",
       );
     }
 
-    if (
-      !request.projectId.trim()
-    ) {
+    if (!request.projectId.trim()) {
       throw new Error(
         "K.I.N.G.S. Coding Work Unit Execution: project id is required.",
       );
     }
 
-    if (
-      request.workUnit.approved !==
-      true
-    ) {
+    if (request.workUnit.approved !== true) {
       throw new Error(
         `K.I.N.G.S. Coding Work Unit Execution: Work Unit "${request.workUnit.id}" is not approved.`,
       );
     }
 
-    if (
-      request.workUnit.allowedPaths.length ===
-      0
-    ) {
+    if (request.workUnit.allowedPaths.length === 0) {
       throw new Error(
         "K.I.N.G.S. Coding Work Unit Execution: Work Unit has no authorized paths.",
       );
     }
 
-    if (
-      request.proposal.taskId !==
-      request.taskId
-    ) {
+    if (request.proposal.taskId !== request.taskId) {
       throw new Error(
         "K.I.N.G.S. Coding Work Unit Execution: proposal task does not match Work Unit task.",
       );
     }
 
-    if (
-      request.proposal.missionId !==
-      request.projectId
-    ) {
+    if (request.proposal.missionId !== request.projectId) {
       throw new Error(
         "K.I.N.G.S. Coding Work Unit Execution: proposal mission does not match project.",
       );
     }
 
-    if (
-      request.proposal.changes.length ===
-      0
-    ) {
+    if (request.proposal.changes.length === 0) {
       throw new Error(
         "K.I.N.G.S. Coding Work Unit Execution: proposal contains no file changes.",
       );
     }
 
-    if (
-      request.buildTestSteps.length ===
-      0
-    ) {
+    if (request.buildTestSteps.length === 0) {
       throw new Error(
         "K.I.N.G.S. Coding Work Unit Execution: at least one build/test step is required.",
       );
     }
 
-    if (
-      request.requiredCriteria.length ===
-      0
-    ) {
+    if (request.requiredCriteria.length === 0) {
       throw new Error(
         "K.I.N.G.S. Coding Work Unit Execution: at least one verification criterion is required.",
       );
