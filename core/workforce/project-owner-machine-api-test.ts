@@ -40,7 +40,7 @@ function createMission(
       id: input.id,
       name: input.projectName,
       description: input.objective,
-      status: "draft",
+      status: "planned",
       objectives: [input.objective],
       sourceReferences: [
         "project-owner-ui",
@@ -89,65 +89,72 @@ function main(): void {
     approvePlan(missionId: string) {
       calls.push(`approve:${missionId}`);
       return {
-        ...createMission({
-          id: missionId,
-          projectName: "fixture",
-          objective: "fixture",
-          requirements: ["fixture"],
-          constraints: [],
-          acceptanceCriteria: ["fixture"],
-        }).plan,
+        id: `plan-${missionId}`,
+        missionId,
+        version: 1,
+        objective: "Test project",
+        milestones: [],
+        decisionIds: [],
+        acceptanceCriteria: [
+          "Project is created.",
+        ],
+        locked: false,
         approvedByHuman: true,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date().toISOString(),
       };
     },
 
     lockPlan(missionId: string) {
       calls.push(`lock:${missionId}`);
       return {
-        ...createMission({
-          id: missionId,
-          projectName: "fixture",
-          objective: "fixture",
-          requirements: ["fixture"],
-          constraints: [],
-          acceptanceCriteria: ["fixture"],
-        }).plan,
-        approvedByHuman: true,
+        id: `plan-${missionId}`,
+        missionId,
+        version: 1,
+        objective: "Test project",
+        milestones: [],
+        decisionIds: [],
+        acceptanceCriteria: [
+          "Project is created.",
+        ],
         locked: true,
+        approvedByHuman: true,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date().toISOString(),
       };
     },
 
     snapshot(missionId: string) {
       calls.push(`snapshot:${missionId}`);
-      const now =
-        new Date().toISOString();
       return {
         mission: {
           id: missionId,
-          name: "Fixture Mission",
-          description: "Fixture mission.",
-          status: "active",
+          name: "Test project",
+          description: "Test project",
+          status: "planned" as const,
           objectives: [
-            "Fixture mission.",
+            "Test project",
           ],
-          sourceReferences: [],
-          createdAt: now,
-          updatedAt: now,
+          sourceReferences: [
+            "project-owner-ui",
+          ],
+          createdAt: new Date(0).toISOString(),
+          updatedAt: new Date().toISOString(),
         },
         plan: {
           id: `plan-${missionId}`,
           missionId,
           version: 1,
-          objective: "Fixture mission.",
+          objective: "Test project",
           milestones: [],
           decisionIds: [],
           acceptanceCriteria: [
-            "Fixture mission.",
+            "Project is created.",
           ],
           locked: true,
           approvedByHuman: true,
-          createdAt: now,
-          updatedAt: now,
+          createdAt: new Date(0).toISOString(),
+          updatedAt: new Date().toISOString(),
         },
         state: {
           missionId,
@@ -156,123 +163,111 @@ function main(): void {
           failedTaskIds: [],
           blockedTaskIds: [],
           evidenceIds: [],
-          updatedAt: now,
+          updatedAt: new Date().toISOString(),
         },
       };
     },
-  } as any;
+  };
 
   const api =
     new ProjectOwnerMachineApi(
-      fakeMachine,
+      fakeMachine as any,
       {
         create:
           createMission,
       },
-      new ProjectOwnerUiController(),
     );
 
-  const created =
-    api.handle({
-      action:
-        "create-mission",
-      input: {
-        id:
-          "mission-owner-ui-test",
-        projectName:
-          "Owner Console Test",
-        objective:
-          "Build a project from typed design requirements.",
-        requirements: [
-          "Provide a working application.",
-        ],
-        preferredPlatform:
-          "Linux",
-        preferredLanguage:
-          "TypeScript",
-        constraints: [
-          "Use local tooling where possible.",
-        ],
-        acceptanceCriteria: [
-          "Application starts successfully.",
-        ],
-      },
+  const controller =
+    new ProjectOwnerUiController();
+
+  const input =
+    controller.createMissionRequest({
+      id:
+        "owner-ui-test",
+      projectName:
+        "Owner UI Test Project",
+      objective:
+        "Create a governed project from typed design requirements.",
+      requirements: [
+        "Typed requirements are preserved.",
+      ],
+      preferredPlatform:
+        "Linux",
+      preferredLanguage:
+        "TypeScript",
+      constraints: [
+        "No unauthorized paths.",
+      ],
+      acceptanceCriteria: [
+        "Project mission exists.",
+      ],
     });
+
+  const created =
+    api.createMission(
+      input,
+    );
 
   assert(
     created.ok,
-    "owner create action must succeed",
+    "owner UI must create a mission",
   );
 
   assert(
-    calls.includes("create"),
-    "owner create action must call the machine",
-  );
-
-  const approved =
-    api.handle({
-      action:
-        "approve-plan",
-      missionId:
-        "mission-owner-ui-test",
-    });
-
-  assert(
-    approved.ok,
-    "owner approve action must succeed",
-  );
-
-  const locked =
-    api.handle({
-      action:
-        "lock-plan",
-      missionId:
-        "mission-owner-ui-test",
-    });
-
-  assert(
-    locked.ok,
-    "owner lock action must succeed",
-  );
-
-  const snapshot =
-    api.handle({
-      action:
-        "snapshot",
-      missionId:
-        "mission-owner-ui-test",
-    });
-
-  assert(
-    snapshot.ok,
-    "owner snapshot action must succeed",
-  );
-
-  assert(
-    snapshot.view !== undefined,
-    "owner snapshot must return mission view",
-  );
-
-  assert(
-    calls.includes(
-      "approve:mission-owner-ui-test",
-    ),
-    "approval must reach the machine",
-  );
-
-  assert(
-    calls.includes(
-      "lock:mission-owner-ui-test",
-    ),
-    "lock must reach the machine",
+    created.view?.mission.id ===
+      "owner-ui-test",
+    "created mission id must be preserved",
   );
 
   console.log(
     "K.I.N.G.S. OWNER UI → MACHINE MISSION: SUCCESS",
   );
 
+  const approved =
+    api.approvePlan(
+      "owner-ui-test",
+    );
+
+  assert(
+    approved.ok,
+    "owner UI must approve the plan",
+  );
+
+  const locked =
+    api.lockPlan(
+      "owner-ui-test",
+    );
+
+  assert(
+    locked.ok,
+    "owner UI must lock the plan",
+  );
+
   console.log(
     "K.I.N.G.S. OWNER UI → APPROVAL/LOCK: SUCCESS",
+  );
+
+  const snapshot =
+    api.snapshot(
+      "owner-ui-test",
+    );
+
+  assert(
+    snapshot.ok,
+    "owner UI must return a mission snapshot",
+  );
+
+  assert(
+    snapshot.view?.plan.locked ===
+      true,
+    "snapshot must expose locked plan state",
+  );
+
+  assert(
+    calls.join(",") ===
+      "create,approve:owner-ui-test,lock:owner-ui-test,snapshot:owner-ui-test",
+    "owner UI actions must map to the coding machine in governed order",
   );
 
   console.log(
