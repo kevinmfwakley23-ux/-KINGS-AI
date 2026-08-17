@@ -11,6 +11,14 @@ import {
   KingsCodingMachine,
 } from "./kings-coding-machine";
 
+import type {
+  EngineeringRepairEditor,
+} from "./engineering-repair-editor";
+
+import type {
+  ConstructorParameters,
+} from "typescript";
+
 import {
   ProjectOwnerUiController,
   type ProjectOwnerDesignInput,
@@ -23,13 +31,27 @@ export interface ProjectOwnerMachineApiRequest {
     "create-mission"
     | "approve-plan"
     | "lock-plan"
-    | "snapshot";
+    | "snapshot"
+    | "execute-next";
 
   input?:
     ProjectOwnerDesignInput;
 
   missionId?:
     ID;
+
+  execution?:
+    Parameters<
+      KingsCodingMachine["executeCodingWorkUnit"]
+    >[0];
+
+  editor?:
+    EngineeringRepairEditor;
+
+  buildTestOptions?:
+    Parameters<
+      KingsCodingMachine["executeCodingWorkUnit"]
+    >[2];
 }
 
 export interface ProjectOwnerMachineApiResponse {
@@ -243,6 +265,67 @@ export class ProjectOwnerMachineApi {
               state:
                 snapshot.state,
             }),
+          view: {
+            mission:
+              snapshot.mission,
+            plan:
+              snapshot.plan,
+            state:
+              snapshot.state,
+          },
+        };
+      }
+
+      if (
+        request.action ===
+        "execute-next"
+      ) {
+        if (!request.execution) {
+          return {
+            ok:
+              false,
+            message:
+              "A governed coding execution request is required.",
+          };
+        }
+
+        if (!request.editor) {
+          return {
+            ok:
+              false,
+            message:
+              "A governed engineering editor is required.",
+          };
+        }
+
+        if (!request.buildTestOptions) {
+          return {
+            ok:
+              false,
+            message:
+              "Build/test runtime options are required.",
+          };
+        }
+
+        const result =
+          await this.machine.executeCodingWorkUnit(
+            request.execution,
+            request.editor,
+            request.buildTestOptions,
+          );
+
+        const snapshot =
+          this.machine.snapshot(
+            missionId,
+          );
+
+        return {
+          ok:
+            result.completed,
+          message:
+            result.completed
+              ? "Coding work unit completed and verified."
+              : "Coding work unit did not satisfy completion criteria.",
           view: {
             mission:
               snapshot.mission,
