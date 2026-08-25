@@ -102,14 +102,19 @@ import type {
   EngineeringRepairEditor,
 } from "./engineering-repair-editor";
 
+import {
+  MissionLearningController,
+  type MissionLearningRecord,
+  type MissionLearningSnapshot,
+} from "./mission-learning-controller";
+
+import {
+  CapabilityLearningBridge,
+} from "./capability-learning-bridge";
+
 import type {
   ToolchainProbe,
 } from "./toolchain-verification";
-
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
 
 export interface KingsCodingMissionRequest {
   mission: Mission;
@@ -121,6 +126,7 @@ export interface KingsCodingMachineSnapshot {
   plan: MissionPlan;
   state: MissionState;
   latestCheckpoint?: MissionCheckpoint;
+  learning?: MissionLearningSnapshot;
 }
 
 export interface KingsCodingMachineExecutionRequest {
@@ -154,6 +160,8 @@ export class KingsCodingMachine {
   private readonly executionPipeline: EngineeringExecutionPipeline;
   private readonly modelCodingBridge: ModelCodingMachineBridge;
   private readonly capabilityGate: CodingCapabilityGate;
+  private readonly learning: MissionLearningController;
+  private readonly capabilityLearning: CapabilityLearningBridge;
 
   constructor(
     private readonly continuity: MissionContinuityStore = new MissionContinuityStore(),
@@ -190,6 +198,8 @@ export class KingsCodingMachine {
         discovery,
       ),
     );
+    this.capabilityLearning = new CapabilityLearningBridge();
+    this.learning = new MissionLearningController(continuity, this.capabilityLearning);
   }
 
   startMission(request: KingsCodingMissionRequest): KingsCodingMachineSnapshot {
@@ -213,6 +223,7 @@ export class KingsCodingMachine {
       plan: snapshot.plan,
       state: snapshot.state,
       latestCheckpoint: snapshot.latestCheckpoint,
+      learning: this.learning.snapshot(missionId),
     };
   }
 
@@ -261,6 +272,26 @@ export class KingsCodingMachine {
     }
 
     return state;
+  }
+
+  beginCapabilityLearning(input: Parameters<CapabilityLearningBridge["createBlocker"]>[0]): MissionLearningRecord {
+    return this.learning.blockTask(input);
+  }
+
+  markLearningResearchRequested(recordId: ID): MissionLearningRecord {
+    return this.learning.markResearchRequested(recordId);
+  }
+
+  markLearningReadyToResume(recordId: ID): MissionLearningRecord {
+    return this.learning.markReadyToResume(recordId);
+  }
+
+  resumeLearnedTask(recordId: ID): MissionLearningRecord {
+    return this.learning.resume(recordId);
+  }
+
+  learningSnapshot(missionId: ID): MissionLearningSnapshot {
+    return this.learning.snapshot(missionId);
   }
 
   planMission(request: BuildPlanningRequest): BuildPlanningResult {
@@ -345,29 +376,6 @@ export class KingsCodingMachine {
     return this.executeCodingWorkUnit(bridged.request, editor, buildTestOptions);
   }
 
-  private async probeExecutable(executable: string): Promise<ToolchainProbe> {
-    if (!executable.trim()) {
-      return { executable, available: false };
-    }
-
-    try {
-      const result = await execFileAsync(executable, ["--version"], {
-        timeout: 5_000,
-        maxBuffer: 16 * 1024,
-      });
-      return {
-        executable,
-        available: true,
-        version: `${result.stdout || result.stderr}`.trim(),
-      };
-    } catch {
-      return {
-        executable,
-        available: false,
-      };
-    }
-  }
-
   async executeEngineeringStep(
     request: KingsCodingMachineExecutionRequest,
     executor: EngineeringCommandExecutor,
@@ -391,29 +399,32 @@ export class KingsCodingMachine {
       throw new Error("K.I.N.G.S. Coding Machine: requested engineering step is not the current governed step");
     }
 
-    const commandDefinition = request.toolchain.commands.find(
-      (command) => command.operation === request.step.operation,
-    );
-
-    if (!commandDefinition) {
-      throw new Error(
-        `K.I.N.G.S. Coding Machine: toolchain "${request.toolchain.id}" does not define operation "${request.step.operation}"`,
-      );
-    }
-
-    const probes = request.capabilityProbes ?? [
-      await this.probeExecutable(commandDefinition.command),
-    ];
-
     const capability = await this.capabilityGate.check({
       language: request.step.language as EngineeringLanguage,
       operations: [request.step.operation],
-      probes,
+      probes: request.capabilityProbes ?? [
+        {
+          executable: request.toolchain.commands.find(
+            (command) => command.operation === request.step.operation,
+          )?.command ?? "",
+          available: true,
+        },
+      ],
     });
 
     if (!capability.ready) {
+      const blocker = this.beginCapabilityLearning({
+        missionId: request.missionId,
+        taskId: request.step.id,
+        agentId: "coding-engineer",
+        capabilityId: `engineering-${request.step.language}`,
+        language: request.step.language as EngineeringLanguage,
+        operations: [request.step.operation],
+        gate: capability,
+      });
+
       throw new Error(
-        `K.I.N.G.S. Coding Machine: coding capability gate blocked execution. ${capability.reason}`,
+        `K.I.N.G.S. Coding Machine: coding capability gate blocked execution. ${capability.reason} Learning record: ${blocker.id}. Research request: ${blocker.blocker.researchRequest.id}.`,
       );
     }
 
