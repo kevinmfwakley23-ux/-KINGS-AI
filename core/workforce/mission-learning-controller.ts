@@ -81,10 +81,9 @@ export class MissionLearningController {
   markReadyToResume(recordId: ID): MissionLearningRecord {
     const record = this.requireRecord(recordId);
     const current = this.requireState(record.missionId);
-    const state = this.continuity.updateState(record.missionId, {
+    this.continuity.updateState(record.missionId, {
       blockedTaskIds: current.blockedTaskIds.filter((id) => id !== record.taskId),
     });
-    void state;
     return this.updateRecord(recordId, "ready-to-resume");
   }
 
@@ -165,7 +164,9 @@ function cloneRecord(record: MissionLearningRecord): MissionLearningRecord {
         requestedHosts: record.blocker.researchRequest.requestedHosts
           ? [...record.blocker.researchRequest.requestedHosts]
           : undefined,
-        requestedSourceTypes: [...record.blocker.researchRequest.requestedSourceTypes],
+        requestedSourceTypes: record.blocker.researchRequest.requestedSourceTypes
+          ? [...record.blocker.researchRequest.requestedSourceTypes]
+          : undefined,
       },
     },
   };
