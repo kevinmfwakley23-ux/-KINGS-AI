@@ -38,6 +38,7 @@ import {
 
 import type {
   AutonomousEngineeringExecution,
+  EngineeringExecutionRequest,
   EngineeringExecutionStep,
 } from "./autonomous-engineering-execution";
 
@@ -52,6 +53,7 @@ import {
 
 import {
   EngineeringExecutionPipeline,
+  type EngineeringExecutionPipelineRequest,
   type EngineeringExecutionPipelineResult,
 } from "./engineering-execution-pipeline";
 
@@ -248,9 +250,7 @@ export class KingsCodingMachine {
       : currentState.evidenceIds;
 
     const state = this.continuity.updateState(request.projectId, {
-      activeTaskIds: result.completed
-        ? currentState.activeTaskIds.filter((id) => id !== request.taskId)
-        : currentState.activeTaskIds,
+      activeTaskIds: currentState.activeTaskIds.filter((id) => id !== request.taskId),
       completedTaskIds: result.completed && !currentState.completedTaskIds.includes(request.taskId)
         ? [...currentState.completedTaskIds, request.taskId]
         : currentState.completedTaskIds,
@@ -325,13 +325,78 @@ export class KingsCodingMachine {
 
     const command = this.workspaceAuthority.authorizeStep(request.workspace, request.execution, request.step);
     const built = this.commandBuilder.build({ command, toolchain: request.toolchain });
-    const result = await this.engineeringExecution.execute(built, executor);
-    const pipeline = await this.executionPipeline.run(result, request);
+
+    if (!built.authorized) {
+      throw new Error(
+        `K.I.N.G.S. Coding Machine: engineering command was not authorized. ${built.reason ?? "No authorization reason provided."}`,
+      );
+    }
+
+    const executionRequest: EngineeringExecutionRequest = {
+      id: request.execution.id,
+      projectId: request.projectId,
+      profile: {
+        projectId: request.projectId,
+        allowedLanguages: [request.step.language],
+        allowedOperations: [request.step.operation],
+        rootPath: request.workspace.rootPath,
+      },
+      plan: {
+        id: request.execution.id,
+        projectId: request.projectId,
+        blocked: false,
+        blockReasons: [],
+        requirements: [
+          {
+            language: request.step.language,
+            operations: [request.step.operation],
+          },
+        ],
+      },
+    };
+
+    const plannedExecution = this.engineeringExecution.plan(executionRequest);
+    const governedStep = plannedExecution.steps.find((candidate) => candidate.id === request.step.id)
+      ?? plannedExecution.steps[0];
+
+    if (!governedStep) {
+      throw new Error(
+        `K.I.N.G.S. Coding Machine: execution plan produced no step for task "${request.step.id}"`,
+      );
+    }
+
+    const pipelineRequest: EngineeringExecutionPipelineRequest = {
+      request: {
+        id: built.id,
+        projectId: request.projectId,
+        executionId: plannedExecution.id,
+        stepId: governedStep.id,
+        command: {
+          id: built.id,
+          projectId: built.projectId,
+          executionStepId: governedStep.id,
+          language: built.language,
+          operation: built.operation,
+          executable: built.executable,
+          args: built.args,
+          workingDirectory: built.workingDirectory,
+          allowed: built.authorized,
+        },
+      },
+      execution: plannedExecution,
+      completedAt: request.completedAt,
+    };
+
+    const pipeline = await this.executionPipeline.execute(pipelineRequest, executor);
+    const execution = pipeline.step.completed
+      ? this.engineeringExecution.completeStep(plannedExecution, governedStep.id)
+      : { ...plannedExecution, status: "failed" as const };
 
     return {
       pipeline,
-      execution: result.execution,
-      missionState: this.continuity.getState(request.missionId)!,
+      execution,
+      missionState: this.continuity.getState(request.missionId) ??
+        (() => { throw new Error(`K.I.N.G.S. Coding Machine: mission "${request.missionId}" has no execution state`); })(),
     };
   }
 
