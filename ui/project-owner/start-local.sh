@@ -48,16 +48,22 @@ fi
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
+TSC_ARGS=(
+  --target ES2022
+  --module CommonJS
+  --moduleResolution Node
+  --esModuleInterop
+  --skipLibCheck
+  --strict
+  --outDir "$OUT"
+)
+
+if [[ -d "$ROOT/node_modules/@types/node" ]]; then
+  TSC_ARGS+=(--types node)
+fi
+
 "$TSC" \
-  --target ES2022 \
-  --module CommonJS \
-  --moduleResolution Node \
-  --esModuleInterop \
-  --skipLibCheck \
-  --strict \
-  --typeRoots /tmp/kings-typescript/node_modules/@types \
-  --types node \
-  --outDir "$OUT" \
+  "${TSC_ARGS[@]}" \
   ui/project-owner/local-server.ts
 
 if [[ "${KINGS_CODING_MACHINE_OPEN_UI:-0}" == "1" ]] && command -v xdg-open >/dev/null 2>&1; then
