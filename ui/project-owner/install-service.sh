@@ -14,6 +14,12 @@ if [[ ! -f "$UNIT_SOURCE" ]]; then
   exit 1
 fi
 
+NODE_BIN="${KINGS_CODING_MACHINE_NODE:-$(command -v node || true)}"
+if [[ -z "$NODE_BIN" || ! -x "$NODE_BIN" ]]; then
+  echo "KINGS CODING MACHINE: node executable not found" >&2
+  exit 1
+fi
+
 chmod +x "$ROOT/ui/project-owner/start-local.sh"
 chmod +x "$ROOT/ui/project-owner/start-service.sh"
 
@@ -24,13 +30,28 @@ chmod +x "$ROOT/ui/project-owner/start-service.sh"
   exit 1
 }
 
-# start-local is a foreground launcher; stop it after the successful build so
-# systemd becomes the sole owner of the long-running server process.
+# Stop any interactive instance so systemd becomes the sole owner of the port.
 if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 1 "http://127.0.0.1:8787/health" >/dev/null 2>&1; then
   pkill -f "$ROOT/.kings-ui-build/ui/project-owner/local-server.js" || true
 fi
 
-cp "$UNIT_SOURCE" "$UNIT_TARGET"
+# Materialize the service unit with the exact Node executable available now.
+python3 - "$UNIT_SOURCE" "$UNIT_TARGET" "$NODE_BIN" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1]).read_text()
+target = Path(sys.argv[2])
+node = sys.argv[3]
+
+source = source.replace(
+    "ExecStart=/usr/bin/env node %h/KINGS-AI/ui/project-owner/start-service.js",
+    f"ExecStart={node} %h/KINGS-AI/ui/project-owner/start-service.js",
+)
+
+target.write_text(source)
+PY
+
 systemctl --user daemon-reload
 systemctl --user enable "$UNIT_NAME" >/dev/null
 systemctl --user restart "$UNIT_NAME"
@@ -41,6 +62,7 @@ if systemctl --user is-active --quiet "$UNIT_NAME"; then
   echo "KINGS CODING MACHINE SERVICE: RUNNING"
   echo "Open: http://kings.local:8787"
   echo "Fallback: http://127.0.0.1:8787"
+  echo "Node: $NODE_BIN"
 else
   echo "KINGS CODING MACHINE SERVICE: FAILED TO START" >&2
   systemctl --user --no-pager -l status "$UNIT_NAME" || true
