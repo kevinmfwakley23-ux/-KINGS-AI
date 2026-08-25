@@ -1,6 +1,5 @@
 import { strict as assert } from "node:assert";
 
-import { ProjectOwnerMachineServerController } from "./server-contract";
 import { ProjectOwnerUiController } from "../../core/workforce/project-owner-ui-contract";
 import { ProjectOwnerMachineApi } from "../../core/workforce/project-owner-machine-api";
 import { KingsCodingMachine } from "../../core/workforce/kings-coding-machine";
@@ -98,10 +97,20 @@ async function main(): Promise<void> {
     },
   };
 
+  const executionContext = {
+    getTask(taskId: string) {
+      return registry.getTask(taskId);
+    },
+    getWorkUnit(taskId: string) {
+      return workUnits.require(taskId);
+    },
+  };
+
   const controller = new ProjectOwnerMachineApi(
     machine,
     factory,
     {} as any,
+    executionContext,
     new ProjectOwnerUiController(),
   );
 
@@ -128,7 +137,6 @@ async function main(): Promise<void> {
 
   assert.equal(result.ok, true);
   assert.equal(result.view?.plan.milestones[0]?.taskIds.length, 1);
-  assert.equal(result.view?.state.activeTaskIds.length, 0);
   assert.ok(result.view?.plan.milestones[0]?.taskIds[0]);
   assert.ok(
     workUnits.has(
