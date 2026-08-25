@@ -10,19 +10,34 @@ import { ProjectOwnerMachineServerController } from "./server-contract";
 import type { ProjectOwnerDesignInput } from "../../core/workforce/project-owner-ui-contract";
 import type { Mission, MissionStatus, Task, TaskStatus } from "../../core/workforce/types";
 import type { MissionPlan } from "../../core/workforce/mission-continuity";
+import { WorkUnitRegistry } from "../../core/workforce/work-unit-registry";
+import type { WorkUnitContract } from "../../core/workforce/work-unit-contract";
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
 const hostname = process.env.KINGS_CODING_MACHINE_HOST ?? "kings.local";
 const workspaceRoot = process.env.KINGS_CODING_MACHINE_WORKSPACE ?? process.cwd();
 const publicFile = join(process.cwd(), "ui/project-owner/index.html");
 
-function buildMission(input: ProjectOwnerDesignInput): { mission: Mission; plan: MissionPlan; task: Task } {
+function buildMission(input: ProjectOwnerDesignInput): {
+  mission: Mission;
+  plan: MissionPlan;
+  task: Task;
+  workUnit: WorkUnitContract;
+} {
   const now = new Date().toISOString();
   const missionId = input.id;
   const taskId = `task-${missionId}-build`;
   const milestoneId = `milestone-${missionId}`;
   const status: MissionStatus = "planned";
   const taskStatus: TaskStatus = "ready";
+
+  const objective = [
+    `Build the application described by the owner vision: ${input.objective}`,
+    `Requirements: ${input.requirements.join(" | ")}`,
+    input.preferredPlatform ? `Preferred platform: ${input.preferredPlatform}` : "",
+    input.preferredLanguage ? `Preferred language: ${input.preferredLanguage}` : "",
+    input.constraints.length ? `Constraints: ${input.constraints.join(" | ")}` : "",
+  ].filter(Boolean).join(" ");
 
   const mission: Mission = {
     id: missionId,
@@ -38,17 +53,45 @@ function buildMission(input: ProjectOwnerDesignInput): { mission: Mission; plan:
   const task: Task = {
     id: taskId,
     missionId,
-    name: "Build first working implementation",
-    description: input.objective,
-    requiredCapabilities: ["coding", "debugging", "verification"],
+    name: `Build ${input.projectName}`,
+    description: objective,
+    requiredCapabilities: [
+      "reasoning",
+      "planning",
+      "coding",
+      "debugging",
+      "source-inspection",
+      "verification",
+      "recovery",
+    ],
     requiredToolIds: ["tool-execution-sandbox"],
     status: taskStatus,
     dependencyIds: [],
-    inputReferences: ["project-owner-ui"],
+    inputReferences: ["project-owner-vision"],
     expectedOutputs: [
-      "Working implementation matching the owner objective.",
-      "Build/test verification evidence.",
+      "Working application source code",
+      "Build/test verification evidence",
     ],
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const workUnit: WorkUnitContract = {
+    id: `work-unit-${missionId}-build`,
+    role: "coding-engineer",
+    objective,
+    capabilityIds: ["engineering-typescript"],
+    allowedToolIds: ["tool-execution-sandbox"],
+    allowedPaths: ["."],
+    budget: {
+      maxTimeMs: 120_000,
+      maxTokens: 8_000,
+      maxIterations: 5,
+    },
+    dependencyIds: [],
+    acceptanceCriteria: input.acceptanceCriteria,
+    requiredEvidenceTypes: ["write", "command", "verification"],
+    approved: true,
     createdAt: now,
     updatedAt: now,
   };
@@ -63,7 +106,7 @@ function buildMission(input: ProjectOwnerDesignInput): { mission: Mission; plan:
         id: milestoneId,
         missionId,
         name: "Build",
-        objective: input.objective,
+        objective,
         taskIds: [taskId],
         dependencyIds: [],
         status: taskStatus,
@@ -77,7 +120,7 @@ function buildMission(input: ProjectOwnerDesignInput): { mission: Mission; plan:
     updatedAt: now,
   };
 
-  return { mission, plan, task };
+  return { mission, plan, task, workUnit };
 }
 
 async function body(request: import("node:http").IncomingMessage): Promise<unknown> {
@@ -89,11 +132,14 @@ async function body(request: import("node:http").IncomingMessage): Promise<unkno
 
 async function main(): Promise<void> {
   const registry = new WorkforceRegistry();
+  const workUnits = new WorkUnitRegistry();
   const taskControl = new TaskControl(registry);
+
   const missionFactory: ProjectOwnerMissionFactory = {
     create(input) {
       const created = buildMission(input);
       registry.registerTask(created.task);
+      workUnits.register(created.task.id, created.workUnit);
       return {
         mission: created.mission,
         plan: created.plan,
@@ -101,7 +147,7 @@ async function main(): Promise<void> {
     },
   };
 
-  const machine = new KingsCodingMachine(undefined, undefined, taskControl);
+  const machine = new KingsCodingMachine(undefined, undefined, taskControl, workUnits);
   const controller = new ProjectOwnerMachineServerController(
     machine,
     missionFactory,
