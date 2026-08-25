@@ -9,7 +9,7 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin:%h/.local/bin:%h/.nvm/versions/nod
 Environment=KINGS_CODING_MACHINE_PORT=8787
 Environment=KINGS_CODING_MACHINE_HOST=kings.local
 Environment=KINGS_CODING_MACHINE_MODEL=qwen2.5-coder:1.5b
-ExecStart=/bin/bash %h/KINGS-AI/ui/project-owner/start-server.sh
+ExecStart=/bin/bash %h/KINGS-AI/ui/project-owner/start-service.sh
 Restart=on-failure
 RestartSec=2
 
