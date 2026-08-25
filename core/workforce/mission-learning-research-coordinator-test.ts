@@ -65,9 +65,22 @@ async function main(): Promise<void> {
   assert(record.status === "blocked", "learning record should start blocked");
 
   const policy = {
-    assertApproved(input: { approvalId: string }) {
-      if (input.approvalId !== "approval-learning-research-test") {
-        throw new Error("approval mismatch");
+    authorize(request: { researchId: string; taskId: string; question: string; urls: string[]; maxSources: number }) {
+      if (request.researchId !== "research-learning-research-test") {
+        throw new Error("research id mismatch");
+      }
+      if (request.taskId !== "task-learning-research-test") {
+        throw new Error("task id mismatch");
+      }
+      if (request.question !== "Find verified Rust build knowledge.") {
+        throw new Error("research question mismatch");
+      }
+      if (request.maxSources !== 1) {
+        throw new Error("source limit mismatch");
+      }
+      const host = new URL(request.urls[0]).hostname;
+      if (host !== "rust-lang.org") {
+        throw new Error("research host mismatch");
       }
     },
   };
