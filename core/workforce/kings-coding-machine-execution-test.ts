@@ -19,9 +19,14 @@ import { EngineeringWorkspaceAuthority } from "./engineering-workspace";
 import { EngineeringWorkUnitBridge } from "./engineering-work-unit-bridge";
 import { ProjectEngineeringProfileAuthority } from "./project-engineering-profile";
 
-const assert = (
+type Assert = (
   condition: unknown,
   message: string,
+) => asserts condition;
+
+const assert: Assert = (
+  condition,
+  message,
 ): asserts condition => {
   if (!condition) throw new Error(`ASSERTION FAILED: ${message}`);
 };
