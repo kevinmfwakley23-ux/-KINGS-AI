@@ -62,6 +62,7 @@ import type {
 } from "./engineering-execution-loop";
 
 import type {
+  EngineeringLanguage,
   EngineeringToolchain,
 } from "./engineering-toolchain";
 
@@ -336,10 +337,21 @@ export class KingsCodingMachine {
       id: request.execution.id,
       projectId: request.projectId,
       profile: {
-        projectId: request.projectId,
-        allowedLanguages: [request.step.language],
-        allowedOperations: [request.step.operation],
-        rootPath: request.workspace.rootPath,
+        id: `profile-${request.projectId}-${request.step.id}`,
+        projectPath: request.workspace.rootPath,
+        languages: [
+          {
+            language: request.step.language as EngineeringLanguage,
+            fileCount: 0,
+            extensions: [],
+          },
+        ],
+        requiredOperations: [request.step.operation],
+        verifiedToolchains: [],
+        unsupportedLanguages: [],
+        buildReady: true,
+        testReady: true,
+        debugReady: true,
       },
       plan: {
         id: request.execution.id,
@@ -350,14 +362,15 @@ export class KingsCodingMachine {
           {
             language: request.step.language,
             operations: [request.step.operation],
+            required: true,
           },
         ],
+        capabilityIds: [`engineering-${request.step.language}`],
       },
     };
 
     const plannedExecution = this.engineeringExecution.plan(executionRequest);
-    const governedStep = plannedExecution.steps.find((candidate) => candidate.id === request.step.id)
-      ?? plannedExecution.steps[0];
+    const governedStep = plannedExecution.steps[0];
 
     if (!governedStep) {
       throw new Error(
@@ -371,17 +384,7 @@ export class KingsCodingMachine {
         projectId: request.projectId,
         executionId: plannedExecution.id,
         stepId: governedStep.id,
-        command: {
-          id: built.id,
-          projectId: built.projectId,
-          executionStepId: governedStep.id,
-          language: built.language,
-          operation: built.operation,
-          executable: built.executable,
-          args: built.args,
-          workingDirectory: built.workingDirectory,
-          allowed: built.authorized,
-        },
+        command: built,
       },
       execution: plannedExecution,
       completedAt: request.completedAt,
