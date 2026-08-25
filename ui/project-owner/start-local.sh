@@ -2,30 +2,27 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TSC="${TSC:-}"
 OUT="${ROOT}/.kings-ui-build"
 PORT="${KINGS_CODING_MACHINE_PORT:-8787}"
 HOSTNAME="${KINGS_CODING_MACHINE_HOST:-kings.local}"
 
 cd "$ROOT"
 
-if [[ -z "$TSC" ]]; then
-  for candidate in \
-    "$(command -v tsc 2>/dev/null || true)" \
-    "$ROOT/node_modules/.bin/tsc" \
-    "${HOME}/.local/bin/tsc" \
-    "/usr/local/bin/tsc" \
-    "/usr/bin/tsc"; do
-    if [[ -n "$candidate" && -x "$candidate" ]]; then
-      TSC="$candidate"
-      break
-    fi
-  done
+# The interactive launcher is also the one-time bootstrap for the local
+# development toolchain. The background systemd service never invokes npm/tsc.
+if [[ ! -x "$ROOT/node_modules/.bin/tsc" ]]; then
+  command -v npm >/dev/null 2>&1 || {
+    echo "KINGS CODING MACHINE: npm is required to bootstrap the local toolchain." >&2
+    exit 1
+  }
+
+  echo "KINGS CODING MACHINE: installing local toolchain..."
+  npm install --no-audit --no-fund
 fi
 
-if [[ -z "$TSC" || ! -x "$TSC" ]]; then
-  echo "KINGS CODING MACHINE: TypeScript compiler not found." >&2
-  echo "Install TypeScript locally or set TSC=/path/to/tsc." >&2
+TSC="$ROOT/node_modules/.bin/tsc"
+if [[ ! -x "$TSC" ]]; then
+  echo "KINGS CODING MACHINE: repository TypeScript compiler unavailable after npm install." >&2
   exit 1
 fi
 
@@ -48,22 +45,15 @@ fi
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-TSC_ARGS=(
-  --target ES2022
-  --module CommonJS
-  --moduleResolution Node
-  --esModuleInterop
-  --skipLibCheck
-  --strict
-  --outDir "$OUT"
-)
-
-if [[ -d "$ROOT/node_modules/@types/node" ]]; then
-  TSC_ARGS+=(--types node)
-fi
-
 "$TSC" \
-  "${TSC_ARGS[@]}" \
+  --target ES2022 \
+  --module CommonJS \
+  --moduleResolution Node \
+  --esModuleInterop \
+  --skipLibCheck \
+  --strict \
+  --types node \
+  --outDir "$OUT" \
   ui/project-owner/local-server.ts
 
 if [[ "${KINGS_CODING_MACHINE_OPEN_UI:-0}" == "1" ]] && command -v xdg-open >/dev/null 2>&1; then
