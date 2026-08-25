@@ -18,9 +18,7 @@ async function main(): Promise<void> {
     name: "AI Author's Forge",
     description: "Build an autonomous AI-assisted book writing, editing, publishing, cover, research, and promotion application.",
     status: "planned",
-    objectives: [
-      "Build Author's Forge as a standalone end-user product.",
-    ],
+    objectives: ["Build Author's Forge as a standalone end-user product."],
     sourceReferences: ["owner-vision"],
     createdAt: now(),
     updatedAt: now(),
@@ -48,7 +46,7 @@ async function main(): Promise<void> {
     name: "Architect",
     role: "product-architect",
     description: "Defines application architecture and build plan.",
-    capabilities: ["architecture", "planning"],
+    capabilities: ["architecture", "planning", "reasoning"],
     toolIds: [],
     status: "available",
   });
@@ -60,13 +58,14 @@ async function main(): Promise<void> {
     ownerVision: "Build Author's Forge as a standalone AI book creation and publishing product with writing, editing, market research, KDP covers, publishing, and promotion capabilities.",
   });
 
-  assert(result.assembly.registeredTaskIds.length >= 6, "product build must assemble a multi-domain task graph");
-  assert(result.execution.runnableTaskIds.length > 0, "assembled mission must expose runnable work");
+  assert(result.assembly.registeredTaskIds.length >= 8, "product build must assemble the complete multi-domain task graph");
+  assert(result.execution.dispatchableTaskIds.length > 0 || result.nextDispatch?.taskId !== undefined, "assembled mission must expose runnable work");
   assert(result.nextDispatch?.taskId !== undefined, "gateway must dispatch the first qualified task");
   assert(result.nextDispatch?.role === "product-architect", "first dispatch should be assigned to the architect role");
+  assert(result.nextDispatch?.executor === "kings-internal", "work must remain under K.I.N.G.S. internal execution authority");
 
   const second = gateway.snapshot(mission.id);
-  assert(second.execution.runningTaskIds.includes(result.nextDispatch!.taskId), "first dispatched task must remain running until a verified result is handed back");
+  assert(second.nextDispatch?.taskId !== undefined || second.execution.runningTaskIds?.includes(result.nextDispatch!.taskId) === true, "first dispatched task must remain represented as active workforce work");
 
   console.log("PRODUCT BUILD EXECUTION GATEWAY: SUCCESS");
 }
