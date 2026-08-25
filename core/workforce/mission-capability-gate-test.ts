@@ -15,15 +15,20 @@ function assert(condition: boolean, message: string): void {
 function profile(): ProjectEngineeringProfile {
   return {
     id: "profile-test",
-    projectId: "mission-capability-gate-test",
     projectPath: "/tmp/mission-capability-gate-test",
     languages: [
-      { language: "typescript", source: "owner-test", confidence: 1 },
+      {
+        language: "typescript",
+        fileCount: 1,
+        extensions: [".ts"],
+      },
     ],
     requiredOperations: ["typecheck", "test"],
-    toolchainReady: true,
-    workspaceReady: true,
-    verificationReady: true,
+    verifiedToolchains: [],
+    unsupportedLanguages: [],
+    buildReady: false,
+    testReady: false,
+    debugReady: false,
   };
 }
 
