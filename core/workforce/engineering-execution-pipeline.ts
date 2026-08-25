@@ -61,7 +61,7 @@ export class EngineeringExecutionPipeline {
   ):
     Promise<EngineeringExecutionPipelineResult> {
     const validated =
-      this.stepExecutor.execute(
+      await this.stepExecutor.execute(
         request.request,
         request.execution,
       );
@@ -99,6 +99,10 @@ export class EngineeringExecutionPipeline {
       execution,
       step: {
         ...validated,
+        id: request.request.id,
+        projectId: request.request.projectId,
+        executionId: request.request.executionId,
+        stepId: request.request.step.id,
         started:
           true,
         completed:
