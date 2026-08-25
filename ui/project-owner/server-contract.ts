@@ -3,6 +3,7 @@ import {
   type ProjectOwnerMachineApiRequest,
   type ProjectOwnerMachineApiResponse,
   type ProjectOwnerMissionFactory,
+  type ProjectOwnerExecutionContext,
 } from "../../core/workforce/project-owner-machine-api";
 
 import {
@@ -73,8 +74,7 @@ import type {
 
 export interface ProjectOwnerMachineApiHandler {
   handle(
-    request:
-      ProjectOwnerMachineApiRequest,
+    request: ProjectOwnerMachineApiRequest,
   ): Promise<ProjectOwnerMachineApiResponse>;
 }
 
@@ -98,30 +98,18 @@ function createVisionTask(
   taskId: string;
   milestoneId: string;
 } {
-  const taskId =
-    `task-${input.id}-build`;
-
-  const milestoneId =
-    `milestone-${input.id}`;
+  const taskId = `task-${input.id}-build`;
+  const milestoneId = `milestone-${input.id}`;
 
   const objective = [
     `Build the application described by the owner vision: ${input.objective}`,
     `Requirements: ${input.requirements.join(" | ")}`,
-    input.preferredPlatform
-      ? `Preferred platform: ${input.preferredPlatform}`
-      : "",
-    input.preferredLanguage
-      ? `Preferred language: ${input.preferredLanguage}`
-      : "",
-    input.constraints.length > 0
-      ? `Constraints: ${input.constraints.join(" | ")}`
-      : "",
+    input.preferredPlatform ? `Preferred platform: ${input.preferredPlatform}` : "",
+    input.preferredLanguage ? `Preferred language: ${input.preferredLanguage}` : "",
+    input.constraints.length > 0 ? `Constraints: ${input.constraints.join(" | ")}` : "",
   ]
     .filter(Boolean)
     .join(" ");
-
-  const acceptanceCriteria =
-    input.acceptanceCriteria;
 
   const task: Task = {
     id: taskId,
@@ -137,53 +125,30 @@ function createVisionTask(
       "verification",
       "recovery",
     ],
-    requiredToolIds: [
-      "tool-execution-sandbox",
-    ],
+    requiredToolIds: ["tool-execution-sandbox"],
     status: "ready",
     dependencyIds: [],
-    inputReferences: [
-      "project-owner-vision",
-    ],
-    expectedOutputs: [
-      "Working application source code",
-      "Passing build and verification evidence",
-    ],
+    inputReferences: ["project-owner-vision"],
+    expectedOutputs: ["Working application source code", "Passing build and verification evidence"],
     createdAt: now,
     updatedAt: now,
   };
 
   const workUnit: WorkUnitContract = {
-    id:
-      `work-unit-${input.id}-build`,
-    role:
-      "coding-engineer",
+    id: `work-unit-${input.id}-build`,
+    role: "coding-engineer",
     objective,
-    capabilityIds: [
-      "engineering-typescript",
-    ],
-    allowedToolIds: [
-      "tool-execution-sandbox",
-    ],
-    allowedPaths: [
-      "src",
-      ".",
-    ],
+    capabilityIds: ["engineering-typescript"],
+    allowedToolIds: ["tool-execution-sandbox"],
+    allowedPaths: ["src", "."],
     budget: {
-      maxTimeMs:
-        120_000,
-      maxTokens:
-        8_000,
-      maxIterations:
-        5,
+      maxTimeMs: 120_000,
+      maxTokens: 8_000,
+      maxIterations: 5,
     },
     dependencyIds: [],
-    acceptanceCriteria,
-    requiredEvidenceTypes: [
-      "write",
-      "command",
-      "verification",
-    ],
+    acceptanceCriteria: input.acceptanceCriteria,
+    requiredEvidenceTypes: ["write", "command", "verification"],
     approved: true,
     createdAt: now,
     updatedAt: now,
@@ -209,14 +174,8 @@ function buildMissionFromVision(
   const now = new Date().toISOString();
   const vision = createVisionTask(input, now);
 
-  registry.registerTask(
-    vision.task,
-  );
-
-  workUnits.register(
-    vision.task.id,
-    vision.workUnit,
-  );
+  registry.registerTask(vision.task);
+  workUnits.register(vision.task.id, vision.workUnit);
 
   return {
     mission: {
@@ -224,12 +183,8 @@ function buildMissionFromVision(
       name: input.projectName,
       description: input.objective,
       status: "planned",
-      objectives: [
-        input.objective,
-      ],
-      sourceReferences: [
-        "project-owner-ui",
-      ],
+      objectives: [input.objective],
+      sourceReferences: ["project-owner-ui"],
       createdAt: now,
       updatedAt: now,
     },
@@ -244,9 +199,7 @@ function buildMissionFromVision(
           missionId: input.id,
           name: "Build",
           objective: vision.planObjective,
-          taskIds: [
-            vision.taskId,
-          ],
+          taskIds: [vision.taskId],
           dependencyIds: [],
           status: "planned",
         },
@@ -261,69 +214,37 @@ function buildMissionFromVision(
   };
 }
 
-export class ProjectOwnerMachineServerController
-  implements ProjectOwnerMachineApiHandler {
-  private readonly api:
-    ProjectOwnerMachineApi;
-
-  private readonly editor:
-    EngineeringRepairEditor;
-
-  private readonly buildTestOptions:
-    BuildTestOptions;
+export class ProjectOwnerMachineServerController implements ProjectOwnerMachineApiHandler {
+  private readonly api: ProjectOwnerMachineApi;
+  private readonly editor: EngineeringRepairEditor;
+  private readonly buildTestOptions: BuildTestOptions;
 
   constructor(
-    machine:
-      KingsCodingMachine,
-    missionFactory:
-      ProjectOwnerMissionFactory,
-    runtime:
-      ProjectOwnerRuntimeOptions = {},
+    machine: KingsCodingMachine,
+    missionFactory: ProjectOwnerMissionFactory,
+    executionContext: ProjectOwnerExecutionContext,
+    runtime: ProjectOwnerRuntimeOptions = {},
   ) {
-    const modelId =
-      runtime.modelId ??
-      "qwen2.5-coder:1.5b";
-
-    const baseUrl =
-      runtime.ollamaBaseUrl ??
-      "http://127.0.0.1:11434";
-
-    const workspaceRoot =
-      runtime.workspaceRoot ??
-      process.cwd();
+    const modelId = runtime.modelId ?? "qwen2.5-coder:1.5b";
+    const baseUrl = runtime.ollamaBaseUrl ?? "http://127.0.0.1:11434";
+    const workspaceRoot = runtime.workspaceRoot ?? process.cwd();
 
     const transport: OllamaHttpTransport = {
       async post(path, body) {
-        const response = await fetch(
-          `${baseUrl}${path}`,
-          {
-            method: "POST",
-            headers: {
-              "content-type":
-                "application/json",
-            },
-            body:
-              JSON.stringify(body),
-          },
-        );
-
+        const response = await fetch(`${baseUrl}${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
         if (!response.ok) {
-          throw new Error(
-            `Ollama HTTP ${response.status}: ${await response.text()}`,
-          );
+          throw new Error(`Ollama HTTP ${response.status}: ${await response.text()}`);
         }
-
         return response.json();
       },
     };
 
-    const ollamaClient =
-      new HttpOllamaExecutionClient(
-        transport,
-      );
-
-    const capabilitiesForModel:
-      IntelligenceCapability[] = [
+    const ollamaClient = new HttpOllamaExecutionClient(transport);
+    const capabilitiesForModel: IntelligenceCapability[] = [
       "reasoning",
       "planning",
       "coding",
@@ -333,96 +254,57 @@ export class ProjectOwnerMachineServerController
       "recovery",
     ];
 
-    const model =
-      new OllamaIntelligenceModel(
-        ollamaClient,
-        modelId,
-        capabilitiesForModel,
-      );
-
-    const adapter =
-      new GovernedInternalIntelligenceAdapter({
-        async execute(
-          identity,
-          request,
-        ) {
-          return ollamaClient.execute(
-            identity,
-            request,
-          );
-        },
-      });
-
-    adapter.registerModel(
-      model,
+    const model = new OllamaIntelligenceModel(
+      ollamaClient,
+      modelId,
+      capabilitiesForModel,
     );
 
-    const providers =
-      new ProviderAdapterRegistry();
-    providers.register(
-      adapter,
-    );
+    const adapter = new GovernedInternalIntelligenceAdapter({
+      async execute(identity, request) {
+        return ollamaClient.execute(identity, request);
+      },
+    });
+    adapter.registerModel(model);
 
-    const capabilities =
-      new ModelCapabilityRegistry();
+    const providers = new ProviderAdapterRegistry();
+    providers.register(adapter);
 
+    const capabilities = new ModelCapabilityRegistry();
     capabilities.register({
-      model:
-        model.identity,
-      capabilities:
-        capabilitiesForModel.map(
-          (capability) => ({
-            capability,
-            strength:
-              capability === "coding"
-                ? 90
-                : 82,
-            status:
-              "verified" as const,
-            evidenceReferences: [
-              "real-local-1.5b-acceptance",
-            ],
-            verifiedAt:
-              new Date().toISOString(),
-          }),
-        ),
+      model: model.identity,
+      capabilities: capabilitiesForModel.map((capability) => ({
+        capability,
+        strength: capability === "coding" ? 90 : 82,
+        status: "verified" as const,
+        evidenceReferences: ["real-local-1.5b-acceptance"],
+        verifiedAt: new Date().toISOString(),
+      })),
     });
 
-    const router =
-      new ModelRouter(
-        capabilities,
-        new Map([
-          [
-            model.identity.modelId,
-            {
-              estimatedCost: 0,
-              latencyMs: 1000,
-              reliability: 85,
-            },
-          ],
-        ]),
-      );
+    const router = new ModelRouter(
+      capabilities,
+      new Map([
+        [
+          model.identity.modelId,
+          { estimatedCost: 0, latencyMs: 1000, reliability: 85 },
+        ],
+      ]),
+    );
 
-    const modelDrivenCoding =
-      new ModelDrivenCodingExecutionAuthority(
-        machine,
-        router,
-        providers,
-      );
+    const modelDrivenCoding = new ModelDrivenCodingExecutionAuthority(
+      machine,
+      router,
+      providers,
+    );
 
-    this.editor =
-      new EngineeringRepairEditor(
-        new ControlledFileEditor({
-          allowedReadPaths: [
-            workspaceRoot,
-          ],
-          allowedWritePaths: [
-            workspaceRoot,
-          ],
-          maxFileBytes:
-            1_048_576,
-        }),
-      );
+    this.editor = new EngineeringRepairEditor(
+      new ControlledFileEditor({
+        allowedReadPaths: [workspaceRoot],
+        allowedWritePaths: [workspaceRoot],
+        maxFileBytes: 1_048_576,
+      }),
+    );
 
     this.buildTestOptions = {
       sandboxPolicy: {
@@ -431,91 +313,49 @@ export class ProjectOwnerMachineServerController
           "/usr/bin/node",
           "node",
         ],
-        allowedWorkingDirectories: [
-          workspaceRoot,
-        ],
-        allowedReadPaths: [
-          workspaceRoot,
-        ],
-        allowedWritePaths: [
-          workspaceRoot,
-        ],
+        allowedWorkingDirectories: [workspaceRoot],
+        allowedReadPaths: [workspaceRoot],
+        allowedWritePaths: [workspaceRoot],
         allowedEnvironmentKeys: [],
-        allowedSideEffects: [
-          "read",
-          "write",
-          "execute",
-        ],
-        timeoutMs:
-          120_000,
-        maxOutputBytes:
-          131_072,
-        maxConcurrentProcesses:
-          1,
-        allowShell:
-          false,
-        allowNetwork:
-          false,
+        allowedSideEffects: ["read", "write", "execute"],
+        timeoutMs: 120_000,
+        maxOutputBytes: 131_072,
+        maxConcurrentProcesses: 1,
+        allowShell: false,
+        allowNetwork: false,
       },
     };
 
-    this.api =
-      new ProjectOwnerMachineApi(
-        machine,
-        missionFactory,
-        modelDrivenCoding,
-        new ProjectOwnerUiController(),
-      );
+    this.api = new ProjectOwnerMachineApi(
+      machine,
+      missionFactory,
+      modelDrivenCoding,
+      executionContext,
+      new ProjectOwnerUiController(),
+    );
   }
 
   handle(
-    request:
-      ProjectOwnerMachineApiRequest,
+    request: ProjectOwnerMachineApiRequest,
   ): Promise<ProjectOwnerMachineApiResponse> {
-    if (
-      request.action !==
-      "execute-next"
-    ) {
-      return this.api.handle(
-        request,
-      );
+    if (request.action !== "execute-next") {
+      return this.api.handle(request);
     }
 
     return this.api.handle({
       ...request,
-      editor:
-        request.editor ??
-        this.editor,
-      buildTestOptions:
-        request.buildTestOptions ??
-        this.buildTestOptions,
+      editor: request.editor ?? this.editor,
+      buildTestOptions: request.buildTestOptions ?? this.buildTestOptions,
     });
   }
 }
 
 export function createProjectOwnerMissionRequest(
-  input:
-    ProjectOwnerDesignInput,
+  input: ProjectOwnerDesignInput,
 ): ProjectOwnerMachineApiRequest {
   return {
-    action:
-      "create-mission",
+    action: "create-mission",
     input,
-  };
-}
-
-export function createProjectOwnerExecuteRequest(
-  missionId: string,
-  executionRequest:
-    NonNullable<
-      ProjectOwnerMachineApiRequest["executionRequest"]
-    >,
-): ProjectOwnerMachineApiRequest {
-  return {
-    action:
-      "execute-next",
-    missionId,
-    executionRequest,
   };
 }
 
@@ -525,11 +365,7 @@ export function createDefaultProjectOwnerMissionFactory(
 ): ProjectOwnerMissionFactory {
   return {
     create(input) {
-      return buildMissionFromVision(
-        input,
-        registry,
-        workUnits,
-      );
+      return buildMissionFromVision(input, registry, workUnits);
     },
   };
 }
