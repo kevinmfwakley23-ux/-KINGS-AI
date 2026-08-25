@@ -17,6 +17,8 @@ export interface EngineeringCommandBuildRequest {
     EngineeringCommand;
   toolchain:
     EngineeringToolchain;
+  executableOverrides?:
+    Record<string, string>;
 }
 
 export interface BuiltEngineeringCommand {
@@ -118,7 +120,9 @@ export class EngineeringCommandBuilder {
       operation:
         request.command.operation,
       executable:
-        definition.command,
+        request.executableOverrides?.[
+          definition.command
+        ] ?? definition.command,
       args: [
         ...definition.args,
       ],
