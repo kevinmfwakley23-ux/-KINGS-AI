@@ -1,7 +1,7 @@
 import type { ID } from "./types";
 import type { EngineeringLanguage, ToolchainOperation } from "./engineering-toolchain";
 import type { CodingCapabilityGateResult } from "./coding-capability-gate";
-import { KnowledgeGapResearchRequestFactory, type KnowledgeGapResearchRequest, type KnowledgeGapResearchRequestInput } from "./knowledge-gap-research-request";
+import { KnowledgeGapResearchRequestFactory, type KnowledgeGapResearchRequest } from "./knowledge-gap-research-request";
 
 export interface CapabilityLearningBlockerInput {
   missionId: ID;
@@ -40,7 +40,7 @@ export class CapabilityLearningBridge {
       throw new Error("K.I.N.G.S. Capability Learning Bridge: cannot create a learning blocker from a ready capability gate");
     }
 
-    const requestInput: KnowledgeGapResearchRequestInput = {
+    const requestInput: Parameters<KnowledgeGapResearchRequestFactory["create"]>[0] = {
       id: `research-${input.taskId}-${Date.now()}`,
       missionId: input.missionId,
       taskId: input.taskId,
