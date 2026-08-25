@@ -8,7 +8,7 @@ import { KingsCodingMachine } from "../../core/workforce/kings-coding-machine";
 import type { ProjectOwnerMissionFactory } from "../../core/workforce/project-owner-machine-api";
 import { ProjectOwnerMachineServerController } from "./server-contract";
 import type { ProjectOwnerDesignInput } from "../../core/workforce/project-owner-ui-contract";
-import type { Mission, MissionStatus } from "../../core/workforce/types";
+import type { Mission, MissionStatus, Task, TaskStatus } from "../../core/workforce/types";
 import type { MissionPlan } from "../../core/workforce/mission-continuity";
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
@@ -16,45 +16,68 @@ const hostname = process.env.KINGS_CODING_MACHINE_HOST ?? "kings.local";
 const workspaceRoot = process.env.KINGS_CODING_MACHINE_WORKSPACE ?? process.cwd();
 const publicFile = join(process.cwd(), "ui/project-owner/index.html");
 
-function buildMission(input: ProjectOwnerDesignInput): { mission: Mission; plan: MissionPlan } {
+function buildMission(input: ProjectOwnerDesignInput): { mission: Mission; plan: MissionPlan; task: Task } {
   const now = new Date().toISOString();
   const missionId = input.id;
+  const taskId = `task-${missionId}-build`;
+  const milestoneId = `milestone-${missionId}`;
   const status: MissionStatus = "planned";
-  return {
-    mission: {
-      id: missionId,
-      name: input.projectName,
-      description: input.objective,
-      status,
-      objectives: [input.objective],
-      sourceReferences: ["project-owner-ui"],
-      createdAt: now,
-      updatedAt: now,
-    },
-    plan: {
-      id: `plan-${missionId}`,
-      missionId,
-      version: 1,
-      objective: input.objective,
-      milestones: [
-        {
-          id: `milestone-${missionId}`,
-          missionId,
-          name: "Build",
-          objective: input.objective,
-          taskIds: [],
-          dependencyIds: [],
-          status,
-        },
-      ],
-      decisionIds: [],
-      acceptanceCriteria: input.acceptanceCriteria,
-      locked: false,
-      approvedByHuman: false,
-      createdAt: now,
-      updatedAt: now,
-    },
+  const taskStatus: TaskStatus = "ready";
+
+  const mission: Mission = {
+    id: missionId,
+    name: input.projectName,
+    description: input.objective,
+    status,
+    objectives: [input.objective],
+    sourceReferences: ["project-owner-ui"],
+    createdAt: now,
+    updatedAt: now,
   };
+
+  const task: Task = {
+    id: taskId,
+    missionId,
+    name: "Build first working implementation",
+    description: input.objective,
+    requiredCapabilities: ["coding", "debugging", "verification"],
+    requiredToolIds: ["tool-execution-sandbox"],
+    status: taskStatus,
+    dependencyIds: [],
+    inputReferences: ["project-owner-ui"],
+    expectedOutputs: [
+      "Working implementation matching the owner objective.",
+      "Build/test verification evidence.",
+    ],
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const plan: MissionPlan = {
+    id: `plan-${missionId}`,
+    missionId,
+    version: 1,
+    objective: input.objective,
+    milestones: [
+      {
+        id: milestoneId,
+        missionId,
+        name: "Build",
+        objective: input.objective,
+        taskIds: [taskId],
+        dependencyIds: [],
+        status: taskStatus,
+      },
+    ],
+    decisionIds: [],
+    acceptanceCriteria: input.acceptanceCriteria,
+    locked: false,
+    approvedByHuman: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  return { mission, plan, task };
 }
 
 async function body(request: import("node:http").IncomingMessage): Promise<unknown> {
@@ -65,9 +88,20 @@ async function body(request: import("node:http").IncomingMessage): Promise<unkno
 }
 
 async function main(): Promise<void> {
-  const taskControl = new TaskControl(new WorkforceRegistry());
+  const registry = new WorkforceRegistry();
+  const taskControl = new TaskControl(registry);
+  const missionFactory: ProjectOwnerMissionFactory = {
+    create(input) {
+      const created = buildMission(input);
+      registry.registerTask(created.task);
+      return {
+        mission: created.mission,
+        plan: created.plan,
+      };
+    },
+  };
+
   const machine = new KingsCodingMachine(undefined, undefined, taskControl);
-  const missionFactory: ProjectOwnerMissionFactory = { create: buildMission };
   const controller = new ProjectOwnerMachineServerController(
     machine,
     missionFactory,
