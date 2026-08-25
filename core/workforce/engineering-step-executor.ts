@@ -4,9 +4,7 @@ import type {
   EngineeringExecutionStep,
 } from "./autonomous-engineering-execution";
 import type { BuiltEngineeringCommand } from "./engineering-command-builder";
-import {
-  EngineeringExecutionLoopAuthority,
-} from "./engineering-execution-loop";
+import { EngineeringExecutionLoopAuthority } from "./engineering-execution-loop";
 import { EngineeringRuntimeExecutor } from "./engineering-runtime-executor";
 
 export interface EngineeringStepExecutionRequest {
@@ -33,13 +31,6 @@ export interface EngineeringStepExecutionResult {
 export class EngineeringStepExecutor {
   constructor(
     private readonly runtime = new EngineeringExecutionLoopAuthority(),
-    private readonly executor = new EngineeringRuntimeExecutor({
-      sandboxPolicy: {
-        allowedRoots: [],
-        allowedCommands: [],
-        maxDurationMs: 120_000,
-      },
-    }),
   ) {}
 
   async execute(
@@ -56,9 +47,17 @@ export class EngineeringStepExecutor {
 
     const executor = new EngineeringRuntimeExecutor({
       sandboxPolicy: {
-        allowedRoots: [request.command.workingDirectory],
         allowedCommands: [request.command.executable],
-        maxDurationMs: 120_000,
+        allowedWorkingDirectories: [request.command.workingDirectory],
+        allowedReadPaths: [request.command.workingDirectory],
+        allowedWritePaths: [request.command.workingDirectory],
+        allowedEnvironmentKeys: [],
+        allowedSideEffects: ["read", "execute", "write"],
+        timeoutMs: 120_000,
+        maxOutputBytes: 1_048_576,
+        maxConcurrentProcesses: 1,
+        allowShell: false,
+        allowNetwork: false,
       },
     });
 
