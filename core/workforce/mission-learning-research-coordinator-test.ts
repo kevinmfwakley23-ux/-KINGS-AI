@@ -5,7 +5,7 @@ import { CodingCapabilityGate } from "./coding-capability-gate";
 import { EngineeringCapabilityOrchestrator } from "./engineering-capability-orchestrator";
 import { EngineeringToolchainRegistry } from "./engineering-toolchain";
 import { MissionLearningResearchCoordinator } from "./mission-learning-research-coordinator";
-import type { ExternalResearchRequest } from "./external-research";
+import type { ExternalResearchRequest } from "./execution/external-research";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`ASSERTION FAILED: ${message}`);
