@@ -21,23 +21,24 @@ if [[ -z "$NODE_BIN" || ! -x "$NODE_BIN" ]]; then
   exit 1
 fi
 
+chmod +x "$ROOT/ui/project-owner/install-service.sh"
 chmod +x "$ROOT/ui/project-owner/start-local.sh"
 chmod +x "$ROOT/ui/project-owner/start-service.sh"
 
-# Stop systemd first so the old runtime cannot race the clean build.
 systemctl --user stop "$UNIT_NAME" >/dev/null 2>&1 || true
-
-# Stop any interactive/previous compiled server before rebuilding.
 pkill -f "$ROOT/.kings-ui-build/ui/project-owner/local-server.js" >/dev/null 2>&1 || true
-
-# Always remove the compiled artifact and rebuild from the current checkout.
 rm -rf "$ROOT/.kings-ui-build"
 
 "$ROOT/ui/project-owner/start-local.sh" >"$BUILD_LOG" 2>&1 &
 BUILD_PID=$!
 
-# start-local.sh intentionally remains foreground-oriented. Wait until its build
-# either creates the compiled server or exits, without leaving a server behind.
+cleanup() {
+  if kill -0 "$BUILD_PID" >/dev/null 2>&1; then
+    kill "$BUILD_PID" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
 for _ in $(seq 1 120); do
   if [[ -f "$ROOT/.kings-ui-build/ui/project-owner/local-server.js" ]]; then
     break
@@ -55,16 +56,12 @@ done
 if [[ ! -f "$ROOT/.kings-ui-build/ui/project-owner/local-server.js" ]]; then
   echo "KINGS CODING MACHINE: runtime build timed out" >&2
   cat "$BUILD_LOG" >&2 || true
-  kill "$BUILD_PID" >/dev/null 2>&1 || true
   exit 1
 fi
 
-# start-local.sh now has a compiled runtime. Stop the temporary foreground
-# process before giving ownership to systemd.
 kill "$BUILD_PID" >/dev/null 2>&1 || true
 wait "$BUILD_PID" >/dev/null 2>&1 || true
 
-# Materialize the service unit with the exact Node executable available now.
 python3 - "$UNIT_SOURCE" "$UNIT_TARGET" "$NODE_BIN" <<'PY'
 from pathlib import Path
 import sys
@@ -74,8 +71,12 @@ target = Path(sys.argv[2])
 node = sys.argv[3]
 
 source = source.replace(
+    "ExecStart=%h/.config/nvm/versions/node/v24.19.0/bin/node %h/KINGS-AI/ui/project-owner/start-service.js",
+    f"ExecStart={node} %h/KINGS-AI/.kings-ui-build/ui/project-owner/local-server.js",
+)
+source = source.replace(
     "ExecStart=/usr/bin/env node %h/KINGS-AI/ui/project-owner/start-service.js",
-    f"ExecStart={node} %h/KINGS-AI/ui/project-owner/start-service.js",
+    f"ExecStart={node} %h/KINGS-AI/.kings-ui-build/ui/project-owner/local-server.js",
 )
 
 target.write_text(source)
