@@ -5,6 +5,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=%h/KINGS-AI
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:%h/.local/bin:%h/.nvm/versions/node/v24.19.0/bin
 Environment=KINGS_CODING_MACHINE_PORT=8787
 Environment=KINGS_CODING_MACHINE_HOST=kings.local
 Environment=KINGS_CODING_MACHINE_MODEL=qwen2.5-coder:1.5b
