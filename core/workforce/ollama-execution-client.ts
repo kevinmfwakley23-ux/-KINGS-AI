@@ -11,68 +11,52 @@ export interface OllamaExecutionClient {
     request:
       ModelExecutionRequest,
   ):
-    Promise<
-      ModelExecutionResult
-    >;
+    Promise<ModelExecutionResult>;
 }
 
 export interface OllamaHttpTransport {
   post(
-    path:
-      string,
-    body:
-      unknown,
-  ):
-    Promise<unknown>;
+    path: string,
+    body: unknown,
+  ): Promise<unknown>;
 }
 
 export class HttpOllamaExecutionClient
   implements OllamaExecutionClient {
   constructor(
-    private readonly transport:
-      OllamaHttpTransport,
+    private readonly transport: OllamaHttpTransport,
   ) {}
 
   async execute(
-    model:
-      ModelIdentity,
-    request:
-      ModelExecutionRequest,
-  ):
-    Promise<
-      ModelExecutionResult
-    > {
-    const startedAt =
-      new Date();
+    model: ModelIdentity,
+    request: ModelExecutionRequest,
+  ): Promise<ModelExecutionResult> {
+    const startedAt = new Date();
 
     try {
-      const response =
-        await this.transport.post(
-          "/api/generate",
-          {
-            model:
-              model.modelId,
-            prompt:
-              request.messages
-                .map(
-                  (
-                    message,
-                  ) =>
-                    `${message.role}: ${message.content}`,
-                )
-                .join(
-                  "\n",
-                ),
-            stream:
-              false,
-          },
-        );
+      const prompt = request.messages
+        .map((message) => `${message.role}: ${message.content}`)
+        .join("\n");
 
-      if (
-        !response ||
-        typeof response !==
-          "object"
-      ) {
+      const response = await this.transport.post(
+        "/api/generate",
+        {
+          model: model.modelId,
+          prompt,
+          stream: false,
+          ...(request.requireStructuredOutput
+            ? {
+                format: "json",
+              }
+            : {}),
+          options: {
+            temperature: request.temperature ?? 0.2,
+            num_predict: request.maxOutputTokens,
+          },
+        },
+      );
+
+      if (!response || typeof response !== "object") {
         return this.failure(
           request,
           model,
@@ -83,18 +67,12 @@ export class HttpOllamaExecutionClient
         );
       }
 
-      const payload =
-        response as {
-          response?:
-            unknown;
-          done?:
-            unknown;
-        };
+      const payload = response as {
+        response?: unknown;
+        done?: unknown;
+      };
 
-      if (
-        typeof payload.response !==
-        "string"
-      ) {
+      if (typeof payload.response !== "string") {
         return this.failure(
           request,
           model,
@@ -105,104 +83,66 @@ export class HttpOllamaExecutionClient
         );
       }
 
-      const completedAt =
-        new Date();
-
+      const completedAt = new Date();
       return {
-        success:
-          true,
+        success: true,
         response: {
-          requestId:
-            request.id,
+          requestId: request.id,
           model,
-          content:
-            payload.response,
+          content: payload.response,
           toolCallProposals: [],
           usage: {
-            elapsedMs:
-              completedAt.getTime() -
-              startedAt.getTime(),
-            tokensUsed:
-              0,
-            iterationsUsed:
-              1,
-            inputTokens:
-              0,
-            outputTokens:
-              0,
-            estimatedCost:
-              0,
+            elapsedMs: completedAt.getTime() - startedAt.getTime(),
+            tokensUsed: 0,
+            iterationsUsed: 1,
+            inputTokens: 0,
+            outputTokens: 0,
+            estimatedCost: 0,
           },
           metadata: {
-            requestId:
-              request.id,
-            startedAt:
-              startedAt.toISOString(),
-            completedAt:
-              completedAt.toISOString(),
-            latencyMs:
-              completedAt.getTime() -
-              startedAt.getTime(),
+            requestId: request.id,
+            startedAt: startedAt.toISOString(),
+            completedAt: completedAt.toISOString(),
+            latencyMs: completedAt.getTime() - startedAt.getTime(),
           },
         },
       };
-    } catch (
-      error
-    ) {
+    } catch (error) {
       return this.failure(
         request,
         model,
         startedAt,
         "OLLAMA_TRANSPORT_ERROR",
-        error instanceof Error
-          ? error.message
-          : String(error),
+        error instanceof Error ? error.message : String(error),
         true,
       );
     }
   }
 
   private failure(
-    request:
-      ModelExecutionRequest,
-    model:
-      ModelIdentity,
-    startedAt:
-      Date,
-    code:
-      string,
-    message:
-      string,
-    retryable:
-      boolean,
-  ):
-    ModelExecutionResult {
-    const completedAt =
-      new Date();
+    request: ModelExecutionRequest,
+    model: ModelIdentity,
+    startedAt: Date,
+    code: string,
+    message: string,
+    retryable: boolean,
+  ): ModelExecutionResult {
+    const completedAt = new Date();
 
     return {
-      success:
-        false,
+      success: false,
       failure: {
-        requestId:
-          request.id,
-        providerId:
-          model.providerId,
-        modelId:
-          model.modelId,
+        requestId: request.id,
+        providerId: model.providerId,
+        modelId: model.modelId,
         retryable,
         code,
         message,
         metadata: {
-          requestId:
-            request.id,
-          startedAt:
-            startedAt.toISOString(),
-          completedAt:
-            completedAt.toISOString(),
-          latencyMs:
-            completedAt.getTime() -
-            startedAt.getTime(),
+          requestId: request.id,
+          startedAt: startedAt.toISOString(),
+          completedAt: completedAt.toISOString(),
+          latencyMs: completedAt.getTime() - startedAt.getTime(),
         },
       },
     };
