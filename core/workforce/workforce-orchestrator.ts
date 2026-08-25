@@ -31,21 +31,21 @@ export class WorkforceOrchestrator {
       .map((task) => task.id);
 
     const activeTaskIds = tasks
-      .filter((task) => task.status === "active")
+      .filter((task) => task.status === "running")
       .map((task) => task.id);
 
     const runnableTaskIds: ID[] = [];
     const blockedTaskIds: ID[] = [];
 
     for (const task of tasks) {
-      if (task.status === "completed" || task.status === "active") continue;
+      if (task.status === "completed" || task.status === "running") continue;
       const unresolvedDependencies = task.dependencyIds.filter(
         (dependencyId) => !completedTaskIds.includes(dependencyId),
       );
 
       if (unresolvedDependencies.length === 0 && this.isReadyStatus(task.status)) {
         runnableTaskIds.push(task.id);
-      } else {
+      } else if (task.status === "blocked" || unresolvedDependencies.length > 0) {
         blockedTaskIds.push(task.id);
       }
     }
@@ -72,15 +72,15 @@ export class WorkforceOrchestrator {
         reason: `Task "${taskId}" is already completed.`,
       };
     }
-    if (task.status === "active") {
+    if (task.status === "running") {
       return {
         taskId,
         status: "already-active",
-        reason: `Task "${taskId}" is already active.`,
+        reason: `Task "${taskId}" is already running.`,
       };
     }
 
-    this.registry.updateTask(taskId, { status: "active" });
+    this.registry.updateTask(taskId, { status: "running" });
     return {
       taskId,
       status: "dispatched",
@@ -90,8 +90,8 @@ export class WorkforceOrchestrator {
 
   complete(taskId: ID): Task {
     const task = this.registry.requireTask(taskId);
-    if (task.status !== "active") {
-      throw new Error(`K.I.N.G.S. Workforce Orchestrator: task "${taskId}" is not active`);
+    if (task.status !== "running") {
+      throw new Error(`K.I.N.G.S. Workforce Orchestrator: task "${taskId}" is not running`);
     }
     this.registry.updateTask(taskId, { status: "completed" });
     return this.registry.requireTask(taskId);
@@ -104,6 +104,6 @@ export class WorkforceOrchestrator {
   }
 
   private isReadyStatus(status: TaskStatus): boolean {
-    return status === "ready" || status === "queued";
+    return status === "ready";
   }
 }
