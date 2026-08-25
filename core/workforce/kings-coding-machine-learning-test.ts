@@ -16,14 +16,14 @@ async function main(): Promise<void> {
     continuity,
     undefined,
     {
-      validateTask: () => true,
+      validate: () => true,
     },
     new WorkUnitRegistry(),
   );
 
   const missionId = "mission-kings-learning-integration";
   const taskId = "task-rust-build";
-  const stepId = "step-rust-build";
+  const stepId = "execution-rust-build-step-1";
 
   machine.startMission({
     mission: {
@@ -55,8 +55,18 @@ async function main(): Promise<void> {
     id: "execution-rust-build",
     projectId: missionId,
     currentStepId: stepId,
-    status: "running" as const,
-    steps: [],
+    status: "ready" as const,
+    steps: [
+      {
+        id: stepId,
+        language: "rust" as const,
+        operation: "build" as const,
+        capabilityId: "engineering-rust",
+        sequence: 1,
+      },
+    ],
+    completedStepIds: [],
+    blockedReasons: [],
   };
 
   try {
@@ -65,18 +75,14 @@ async function main(): Promise<void> {
         missionId,
         projectId: missionId,
         execution,
-        step: {
-          id: stepId,
-          name: "Build Rust",
-          language: "rust",
-          operation: "build",
-          description: "Build a Rust project.",
-          dependencies: [],
-        },
+        step: execution.steps[0],
         workspace: {
           id: "workspace-learning",
+          projectId: missionId,
           rootPath: "/tmp/kings-learning",
           allowedPaths: ["."],
+          allowedLanguages: ["rust"],
+          allowedOperations: ["build"],
           active: true,
         },
         toolchain: {
