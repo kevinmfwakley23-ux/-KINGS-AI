@@ -243,11 +243,14 @@ async function main(): Promise<void> {
       probes: [
         {
           executable:
-            process.execPath,
+            "node",
           available:
             true,
           version:
             process.version,
+          capabilities: [
+            "runtime:javascript",
+          ],
         },
       ],
     });
