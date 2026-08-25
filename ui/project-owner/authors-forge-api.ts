@@ -3,6 +3,7 @@ import {
   type AuthorForgeProject,
 } from "../../core/workforce/authors-forge";
 import { AuthorsForgeWorkflow } from "../../core/workforce/authors-forge-workflow";
+import { AuthorsForgePublishingService } from "../../core/workforce/authors-forge-publishing";
 
 export type AuthorsForgeAction =
   | "create-project"
@@ -11,7 +12,9 @@ export type AuthorsForgeAction =
   | "add-chapter"
   | "lock-chapter"
   | "draft-chapter"
-  | "edit-chapter";
+  | "edit-chapter"
+  | "import-text"
+  | "publishing-package";
 
 export interface AuthorsForgeRequest {
   action: AuthorsForgeAction;
@@ -30,6 +33,7 @@ export interface AuthorsForgeResponse {
 export class AuthorsForgeApi {
   private readonly engine = new AuthorsForgeEngine();
   private readonly workflow = new AuthorsForgeWorkflow();
+  private readonly publishing = new AuthorsForgePublishingService();
 
   handle(request: AuthorsForgeRequest): AuthorsForgeResponse {
     try {
@@ -76,6 +80,13 @@ export class AuthorsForgeApi {
             String(request.payload?.original ?? ""),
             String(request.payload?.revised ?? ""),
           );
+          break;
+        case "import-text":
+          result = this.publishing.importPlainText(project, String(request.payload?.text ?? ""));
+          project = (result as { project: AuthorForgeProject }).project;
+          break;
+        case "publishing-package":
+          result = this.publishing.createPublishingPackage(project);
           break;
         default:
           return { ok: false, message: `Unsupported Author's Forge action: ${request.action}` };
