@@ -14,9 +14,15 @@ if [[ ! -f "$UNIT_SOURCE" ]]; then
   exit 1
 fi
 
-if [[ ! -x "$ROOT/ui/project-owner/start-server.sh" ]]; then
-  chmod +x "$ROOT/ui/project-owner/start-server.sh"
-fi
+chmod +x "$ROOT/ui/project-owner/start-local.sh"
+chmod +x "$ROOT/ui/project-owner/start-service.sh"
+
+# Build the compiled server artifact before systemd takes ownership of it.
+"$ROOT/ui/project-owner/start-local.sh" >/tmp/kings-coding-machine-build.log 2>&1 || {
+  echo "KINGS CODING MACHINE: runtime build failed" >&2
+  cat /tmp/kings-coding-machine-build.log >&2 || true
+  exit 1
+}
 
 cp "$UNIT_SOURCE" "$UNIT_TARGET"
 systemctl --user daemon-reload
