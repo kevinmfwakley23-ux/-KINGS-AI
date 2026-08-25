@@ -1,7 +1,10 @@
 import type { ID, Mission, Task } from "./types";
 import { WorkforceRegistry } from "./registry";
 import type { MissionPlan } from "./mission-continuity";
-import { ProductBuildDecomposer, type ProductBuildDecomposition } from "./product-build-decomposer";
+import {
+  ApplicationBuildDecomposer,
+  type ApplicationBuildDecomposition,
+} from "./application-build-decomposer";
 
 export interface ProductBuildMissionAssemblyRequest {
   mission: Mission;
@@ -11,7 +14,7 @@ export interface ProductBuildMissionAssemblyRequest {
 
 export interface ProductBuildMissionAssemblyResult {
   missionId: ID;
-  decomposition: ProductBuildDecomposition;
+  decomposition: ApplicationBuildDecomposition;
   tasks: Task[];
   registeredTaskIds: ID[];
 }
@@ -24,7 +27,7 @@ export interface ProductBuildMissionAssemblyResult {
 export class ProductBuildMissionAssembler {
   constructor(
     private readonly registry: WorkforceRegistry,
-    private readonly decomposer: ProductBuildDecomposer = new ProductBuildDecomposer(),
+    private readonly decomposer: ApplicationBuildDecomposer = new ApplicationBuildDecomposer(),
   ) {}
 
   assemble(request: ProductBuildMissionAssemblyRequest): ProductBuildMissionAssemblyResult {
@@ -40,8 +43,10 @@ export class ProductBuildMissionAssembler {
 
     const decomposition = this.decomposer.decompose({
       missionId: request.mission.id,
-      productName: request.mission.name,
-      ownerVision: request.ownerVision,
+      missionPlan: request.plan,
+      objective: request.mission.description,
+      requirements: request.mission.objectives,
+      acceptanceCriteria: request.plan.acceptanceCriteria,
     });
 
     const now = new Date().toISOString();
@@ -52,9 +57,9 @@ export class ProductBuildMissionAssembler {
       description: task.description,
       requiredCapabilities: [...task.requiredCapabilities],
       requiredToolIds: [...task.requiredToolIds],
-      status: "ready",
+      status: task.status,
       dependencyIds: [...task.dependencyIds],
-      inputReferences: [...task.inputReferences],
+      inputReferences: [...task.inputReferences, "project-owner-vision"],
       expectedOutputs: [...task.expectedOutputs],
       createdAt: now,
       updatedAt: now,
