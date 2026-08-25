@@ -65,14 +65,29 @@ function normalizePath(
       "/",
     )
     .replace(
-      /^\.\/+/, 
-      "",
-    )
-    .replace(
       /\/+/g,
       "/",
     )
     .trim();
+}
+
+function hasPathTraversal(
+  value:
+    string,
+): boolean {
+  const normalized =
+    value
+      .replace(
+        /\\/g,
+        "/",
+      );
+
+  return normalized
+    .split("/")
+    .some(
+      (segment) =>
+        segment === "..",
+    );
 }
 
 function isWithinAuthorizedPath(
@@ -144,6 +159,16 @@ export class GovernedLocalCodingProposal {
       const change of
       proposal.changes
     ) {
+      if (
+        hasPathTraversal(
+          change.path,
+        )
+      ) {
+        throw new Error(
+          `K.I.N.G.S. Local Coding Proposal: path traversal is not authorized for "${change.path}".`,
+        );
+      }
+
       const normalizedPath =
         normalizePath(
           change.path,
