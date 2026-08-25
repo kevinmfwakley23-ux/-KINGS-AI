@@ -8,6 +8,7 @@
     "typescript": "^5.9.3"
   },
   "scripts": {
-    "build:owner-ui": "tsc --target ES2022 --module CommonJS --moduleResolution Node --esModuleInterop --skipLibCheck --strict --types node --outDir .kings-ui-build ui/project-owner/local-server.ts"
+    "build:owner-ui": "tsc --target ES2022 --module CommonJS --moduleResolution Node --esModuleInterop --skipLibCheck --strict --types node --outDir .kings-ui-build ui/project-owner/local-server.ts",
+    "start:owner-ui": "npm run build:owner-ui && node .kings-ui-build/ui/project-owner/local-server.js"
   }
 }

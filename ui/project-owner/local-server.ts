@@ -14,8 +14,12 @@ import {
 import { ProjectOwnerMachineApi } from "../../core/workforce/project-owner-machine-api";
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
-const hostname = process.env.KINGS_CODING_MACHINE_HOST ?? "kings.local";
+const bindHost = process.env.KINGS_CODING_MACHINE_BIND ?? "0.0.0.0";
+const publicHost = process.env.KINGS_CODING_MACHINE_HOST ?? "localhost";
 const workspaceRoot = process.env.KINGS_CODING_MACHINE_WORKSPACE ?? process.cwd();
+const ollamaBaseUrl =
+  process.env.KINGS_CODING_MACHINE_OLLAMA_URL ?? "http://127.0.0.1:11434";
+const modelId = process.env.KINGS_CODING_MACHINE_MODEL ?? "qwen2.5-coder:1.5b";
 const publicFile = join(process.cwd(), "ui/project-owner/index.html");
 const runtimeBuild = "vision-task-compiler-v3";
 
@@ -24,6 +28,49 @@ async function body(request: import("node:http").IncomingMessage): Promise<unkno
   for await (const chunk of request) chunks.push(Buffer.from(chunk));
   if (!chunks.length) return undefined;
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+async function checkOllama(): Promise<{
+  ok: boolean;
+  message: string;
+  models?: string[];
+}> {
+  try {
+    const response = await fetch(`${ollamaBaseUrl}/api/tags`);
+    if (!response.ok) {
+      return {
+        ok: false,
+        message: `Ollama HTTP ${response.status}`,
+      };
+    }
+
+    const data = (await response.json()) as {
+      models?: Array<{ name?: string }>;
+    };
+    const models = (data.models ?? [])
+      .map((model) => model.name)
+      .filter((name): name is string => Boolean(name));
+
+    const modelAvailable = models.some(
+      (name) => name === modelId || name.startsWith(`${modelId}:`),
+    );
+
+    return {
+      ok: modelAvailable,
+      message: modelAvailable
+        ? `Ollama connected; ${modelId} is available.`
+        : `Ollama connected, but ${modelId} is not installed.`,
+      models,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof Error
+          ? `Ollama unavailable: ${error.message}`
+          : `Ollama unavailable: ${String(error)}`,
+    };
+  }
 }
 
 async function main(): Promise<void> {
@@ -50,11 +97,9 @@ async function main(): Promise<void> {
     missionFactory,
     executionContext,
     {
-      modelId: "qwen2.5-coder:1.5b",
+      modelId,
       workspaceRoot,
-      ollamaBaseUrl:
-        process.env.KINGS_CODING_MACHINE_OLLAMA_URL ??
-        "http://127.0.0.1:11434",
+      ollamaBaseUrl,
     },
   );
 
@@ -62,16 +107,19 @@ async function main(): Promise<void> {
     try {
       if (req.method === "GET" && (req.url === "/" || req.url === "/health")) {
         if (req.url === "/health") {
+          const ollama = await checkOllama();
           res.writeHead(200, {
             "content-type": "application/json; charset=utf-8",
+            "cache-control": "no-store",
           });
           res.end(
             JSON.stringify({
               ok: true,
               name: "kings.local",
-              model: "qwen2.5-coder:1.5b",
+              model: modelId,
               workspace: workspaceRoot,
               runtimeBuild,
+              ollama,
             }),
           );
           return;
@@ -80,15 +128,13 @@ async function main(): Promise<void> {
         const html = await readFile(publicFile, "utf8");
         res.writeHead(200, {
           "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-store",
         });
         res.end(html);
         return;
       }
 
-      if (
-        req.method === "POST" &&
-        req.url === "/api/project-owner/missions"
-      ) {
+      if (req.method === "POST" && req.url === "/api/project-owner/missions") {
         const request =
           (await body(req)) as Parameters<
             ProjectOwnerMachineApi["handle"]
@@ -96,6 +142,7 @@ async function main(): Promise<void> {
         const result = await controller.handle(request);
         res.writeHead(result.ok ? 200 : 400, {
           "content-type": "application/json; charset=utf-8",
+          "cache-control": "no-store",
         });
         res.end(JSON.stringify(result));
         return;
@@ -108,6 +155,7 @@ async function main(): Promise<void> {
     } catch (error) {
       res.writeHead(500, {
         "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
       });
       res.end(
         JSON.stringify({
@@ -119,11 +167,13 @@ async function main(): Promise<void> {
     }
   });
 
-  server.listen(port, "127.0.0.1", () => {
-    console.log(`KINGS CODING MACHINE UI: http://${hostname}:${port}`);
-    console.log(`Fallback: http://127.0.0.1:${port}`);
+  server.listen(port, bindHost, () => {
+    console.log(`KINGS CODING MACHINE UI: http://${publicHost}:${port}`);
+    console.log(`Health: http://${publicHost}:${port}/health`);
+    console.log(`Bind: ${bindHost}:${port}`);
     console.log(`Workspace: ${workspaceRoot}`);
-    console.log("Model: qwen2.5-coder:1.5b");
+    console.log(`Ollama: ${ollamaBaseUrl}`);
+    console.log(`Model: ${modelId}`);
     console.log(`Runtime build: ${runtimeBuild}`);
   });
 }
