@@ -11,7 +11,6 @@ import {
   ProjectOwnerMachineServerController,
   createDefaultProjectOwnerMissionFactory,
 } from "./server-contract";
-import { ProjectOwnerMachineApi } from "../../core/workforce/project-owner-machine-api";
 import { AuthorsForgeApi, type AuthorsForgeRequest } from "./authors-forge-api";
 
 const root = process.cwd();
@@ -79,7 +78,6 @@ async function buildKingsServer(): Promise<Server> {
     executionContext,
     { modelId, workspaceRoot, ollamaBaseUrl },
   );
-  const machineApi = new ProjectOwnerMachineApi();
   const html = await readFile(join(root, "ui/project-owner/index.html"), "utf8");
   const certificate = await tls(kingsHost);
 
@@ -103,12 +101,11 @@ async function buildKingsServer(): Promise<Server> {
         return;
       }
       if (req.method === "POST" && req.url === "/api/project-owner/missions") {
-        const request = (await parseBody(req)) as Parameters<ProjectOwnerMachineApi["handle"]>[0];
+        const request = (await parseBody(req)) as Parameters<ReturnType<typeof createDefaultProjectOwnerMissionFactory>["handle"]>[0];
         const result = await controller.handle(request);
         sendJson(res, result.ok ? 200 : 400, result);
         return;
       }
-      void machineApi;
       sendJson(res, 404, { ok: false, message: "Not Found" });
     } catch (error) {
       sendJson(res, 500, { ok: false, message: error instanceof Error ? error.message : String(error) });
