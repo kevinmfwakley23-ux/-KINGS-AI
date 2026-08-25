@@ -1,4 +1,9 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -21,7 +26,6 @@ import { TaskControl } from "./task-control";
 import { WorkforceRegistry } from "./registry";
 import { WorkUnitRegistry } from "./work-unit-registry";
 import type { Mission, Task } from "./types";
-import type { IntelligenceCapability, IntelligenceModality } from "./model-interface";
 import type { MissionPlan } from "./mission-continuity";
 import type { WorkUnitContract } from "./work-unit-contract";
 
@@ -61,7 +65,7 @@ function createWorkUnit(): WorkUnitContract {
     budget: {
       maxTimeMs: 30_000,
       maxTokens: 1_000,
-      maxIterations: 1,
+      maxIterations: 2,
     },
     dependencyIds: [],
     acceptanceCriteria: [
@@ -254,7 +258,7 @@ async function main(): Promise<void> {
           allowedWorkingDirectories: [workspace],
           allowedReadPaths: [workspace],
           allowedWritePaths: [workspace, src],
-          allowedEnvironmentKeys: [],
+          allowedEnvironmentKeys: ["PATH"],
           allowedSideEffects: ["read", "write", "execute"],
           timeoutMs: 20_000,
           maxOutputBytes: 16_384,
@@ -265,7 +269,7 @@ async function main(): Promise<void> {
       },
     });
 
-    assert(result.ok, result.message);
+    assert(result.ok, `${result.message}${result.diagnostics ? `\n${result.diagnostics}` : ""}`);
     assert(
       result.view?.state.completedTaskIds.includes(taskId),
       "real model coding task must be promoted to completed mission state",
