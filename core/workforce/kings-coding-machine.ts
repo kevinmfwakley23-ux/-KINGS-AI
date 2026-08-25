@@ -89,6 +89,23 @@ import type {
   EngineeringRepairEditor,
 } from "./engineering-repair-editor";
 
+import {
+  CodingCapabilityGate,
+} from "./coding-capability-gate";
+
+import {
+  EngineeringCapabilityOrchestrator,
+} from "./engineering-capability-orchestrator";
+
+import {
+  EngineeringToolchainRegistry,
+  createDefaultEngineeringToolchains,
+} from "./engineering-toolchain";
+
+import type {
+  ToolchainProbe,
+} from "./toolchain-verification";
+
 export interface KingsCodingMissionRequest {
   mission: Mission;
   plan: MissionPlan;
@@ -109,6 +126,7 @@ export interface KingsCodingMachineExecutionRequest {
   workspace: EngineeringWorkspace;
   toolchain: EngineeringToolchain;
   completedAt: string;
+  capabilityProbes?: ToolchainProbe[];
 }
 
 export interface KingsCodingMachineModelExecutionRequest {
@@ -130,6 +148,7 @@ export class KingsCodingMachine {
   private readonly commandBuilder: EngineeringCommandBuilder;
   private readonly executionPipeline: EngineeringExecutionPipeline;
   private readonly modelCodingBridge: ModelCodingMachineBridge;
+  private readonly capabilityGate: CodingCapabilityGate;
 
   constructor(
     private readonly continuity: MissionContinuityStore = new MissionContinuityStore(),
@@ -146,6 +165,26 @@ export class KingsCodingMachine {
     this.commandBuilder = new EngineeringCommandBuilder();
     this.executionPipeline = new EngineeringExecutionPipeline();
     this.modelCodingBridge = new ModelCodingMachineBridge();
+
+    const toolchainRegistry = new EngineeringToolchainRegistry();
+    for (const toolchain of createDefaultEngineeringToolchains()) {
+      toolchainRegistry.register(toolchain);
+    }
+
+    const discovery = {
+      async discover(language: EngineeringLanguage): Promise<EngineeringToolchain | undefined> {
+        return createDefaultEngineeringToolchains().find(
+          (candidate) => candidate.language === language,
+        );
+      },
+    };
+
+    this.capabilityGate = new CodingCapabilityGate(
+      new EngineeringCapabilityOrchestrator(
+        toolchainRegistry,
+        discovery,
+      ),
+    );
   }
 
   startMission(request: KingsCodingMissionRequest): KingsCodingMachineSnapshot {
@@ -324,8 +363,28 @@ export class KingsCodingMachine {
       throw new Error("K.I.N.G.S. Coding Machine: requested engineering step is not the current governed step");
     }
 
+    const capability = await this.capabilityGate.check({
+      language: request.step.language as EngineeringLanguage,
+      operations: [request.step.operation],
+      probes: request.capabilityProbes ?? [
+        {
+          executable: request.toolchain.commands.find(
+            (command) => command.operation === request.step.operation,
+          )?.command ?? "",
+          available: true,
+        },
+      ],
+    });
+
+    if (!capability.ready) {
+      throw new Error(
+        `K.I.N.G.S. Coding Machine: coding capability gate blocked execution. ${capability.reason}`,
+      );
+    }
+
+    const toolchain = capability.toolchain ?? request.toolchain;
     const command = this.workspaceAuthority.authorizeStep(request.workspace, request.execution, request.step);
-    const built = this.commandBuilder.build({ command, toolchain: request.toolchain });
+    const built = this.commandBuilder.build({ command, toolchain });
 
     if (!built.authorized) {
       throw new Error(
