@@ -243,7 +243,7 @@ async function main(): Promise<void> {
       probes: [
         {
           executable:
-            "node",
+            process.execPath,
           available:
             true,
           version:
@@ -336,7 +336,6 @@ async function main(): Promise<void> {
     new EngineeringRuntimeExecutor({
       sandboxPolicy: {
         allowedCommands: [
-          "node",
           process.execPath,
         ],
         allowedWorkingDirectories: [
