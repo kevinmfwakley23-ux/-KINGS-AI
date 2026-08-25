@@ -510,11 +510,44 @@ export class KingsCodingMachine {
       ? this.engineeringExecution.completeStep(plannedExecution, governedStep.id)
       : { ...plannedExecution, status: "failed" as const };
 
+    const currentState = this.requireState(request.missionId);
+    const completedTaskId = request.step.id;
+    const evidenceId = `engineering-verification-${completedTaskId}`;
+    const missionState = this.continuity.updateState(request.missionId, {
+      activeTaskIds: currentState.activeTaskIds.filter((id) => id !== completedTaskId),
+      completedTaskIds: pipeline.step.completed && !currentState.completedTaskIds.includes(completedTaskId)
+        ? [...currentState.completedTaskIds, completedTaskId]
+        : currentState.completedTaskIds,
+      failedTaskIds: pipeline.step.completed
+        ? currentState.failedTaskIds.filter((id) => id !== completedTaskId)
+        : currentState.failedTaskIds,
+      evidenceIds: pipeline.step.completed && !currentState.evidenceIds.includes(evidenceId)
+        ? [...currentState.evidenceIds, evidenceId]
+        : currentState.evidenceIds,
+    });
+
+    const planNow = this.continuity.getPlan(request.missionId);
+    if (planNow) {
+      this.projectBrain.create({
+        id: `checkpoint-engineering-${completedTaskId}-${Date.now()}`,
+        missionId: request.missionId,
+        planId: planNow.id,
+        planVersion: planNow.version,
+        state: missionState,
+        summary: pipeline.step.completed
+          ? `Engineering step "${completedTaskId}" completed and verified.`
+          : `Engineering step "${completedTaskId}" failed verification.`,
+        reason: pipeline.step.completed
+          ? "Governed engineering execution completed successfully."
+          : pipeline.step.stderr || "Governed engineering execution failed.",
+        createdAt: new Date().toISOString(),
+      });
+    }
+
     return {
       pipeline,
       execution,
-      missionState: this.continuity.getState(request.missionId) ??
-        (() => { throw new Error(`K.I.N.G.S. Coding Machine: mission "${request.missionId}" has no execution state`); })(),
+      missionState,
     };
   }
 
