@@ -4,7 +4,6 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { join } from "node:path";
 
 import {
   ProjectOwnerMachineApi,
@@ -121,9 +120,9 @@ function createMission(
 
 async function main(): Promise<void> {
   const root = await mkdtemp("/tmp/kings-owner-model-driven-");
-  const workspace = join(root, "workspace");
-  const src = join(workspace, "src");
-  const verify = join(workspace, "verify.cjs");
+  const workspace = `${root}/workspace`;
+  const src = `${workspace}/src`;
+  const verify = `${workspace}/verify.cjs`;
 
   try {
     await mkdir(src, { recursive: true });
@@ -182,12 +181,26 @@ async function main(): Promise<void> {
 
     const capabilityRegistry = new ModelCapabilityRegistry();
     const verificationEvidence = ["owner-model-real"];
+    const verifiedCapabilities = [
+      "reasoning",
+      "planning",
+      "coding",
+      "debugging",
+      "research",
+      "source-inspection",
+      "tool-use",
+      "verification",
+      "recovery",
+    ] as const;
+
     capabilityRegistry.register({
       model: model.identity,
-      capabilities: [
-        { capability: "coding", strength: 90, status: "verified", evidenceReferences: verificationEvidence },
-        { capability: "reasoning", strength: 80, status: "verified", evidenceReferences: verificationEvidence },
-      ],
+      capabilities: verifiedCapabilities.map((capability) => ({
+        capability,
+        strength: capability === "coding" ? 90 : 80,
+        status: "verified" as const,
+        evidenceReferences: verificationEvidence,
+      })),
     });
 
     const router = new ModelRouter(
