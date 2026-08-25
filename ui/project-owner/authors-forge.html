@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AI Author's Forge</title>
+  <style>
+    :root{color-scheme:dark;font-family:Inter,system-ui,sans-serif}
+    body{margin:0;background:#0b1020;color:#edf2f7}
+    main{max-width:1280px;margin:auto;padding:28px 20px 60px}
+    h1{margin:0 0 8px}.muted{color:#9aa7bd}
+    .grid{display:grid;grid-template-columns:1.2fr .8fr;gap:18px;margin-top:18px}.card{background:#131b2f;border:1px solid #26324d;border-radius:16px;padding:20px}
+    label{display:block;margin:12px 0 5px;font-weight:700}input,textarea{box-sizing:border-box;width:100%;padding:11px;background:#0e1628;color:#fff;border:1px solid #33415f;border-radius:10px}textarea{min-height:120px;resize:vertical}
+    button{margin:8px 8px 0 0;padding:10px 14px;border:0;border-radius:9px;font-weight:800;cursor:pointer}.primary{background:#f1c75b;color:#111827}.secondary{background:#2b3958;color:#fff}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}.tab{padding:9px 13px;border-radius:9px;background:#18243d}.tab.active{background:#4fae78}
+    .panel{display:none}.panel.active{display:block}.list{display:grid;gap:10px}.item{padding:12px;background:#0e1628;border-radius:10px;border:1px solid #26324d}.ok{border-color:#396b50}.warn{border-color:#8c7436}.err{border-color:#8f3f4a}
+    @media(max-width:900px){.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<main>
+  <h1>AI Author's Forge</h1>
+  <div class="muted">K.I.N.G.S.-powered manuscript planning, continuity, drafting, editing, artwork, and publishing workspace.</div>
+  <div class="tabs">
+    <button class="tab active" data-panel="overview">Overview</button>
+    <button class="tab" data-panel="canon">Canon</button>
+    <button class="tab" data-panel="chapters">Chapter Cards</button>
+    <button class="tab" data-panel="editing">Editing</button>
+    <button class="tab" data-panel="publishing">Publishing</button>
+  </div>
+
+  <section id="overview" class="panel active">
+    <div class="grid">
+      <div class="card">
+        <h2>New Manuscript</h2>
+        <label>Project name</label><input id="projectName" placeholder="My Novel">
+        <label>Book title</label><input id="title" placeholder="The title of the book">
+        <label>Genre</label><input id="genre" placeholder="Psychological thriller">
+        <label>Audience</label><input id="audience" placeholder="Adult readers">
+        <label>Premise</label><textarea id="premise" placeholder="What is this book about?"></textarea>
+        <label>Themes</label><textarea id="themes" placeholder="One theme per line"></textarea>
+        <label>Style guide</label><textarea id="style" placeholder="Tone, prose, POV, pacing, rules..."></textarea>
+        <button id="create" class="primary">Create Author's Forge Project</button>
+      </div>
+      <div class="card">
+        <h2>Forge Status</h2>
+        <div class="list">
+          <div class="item"><strong>Project</strong><div id="statusProject" class="muted">Not created</div></div>
+          <div class="item"><strong>Stage</strong><div id="statusStage" class="muted">Idea</div></div>
+          <div class="item"><strong>Chapters</strong><div id="statusChapters" class="muted">0 planned · 0 locked</div></div>
+          <div class="item"><strong>Canon</strong><div id="statusCanon" class="muted">0 characters · 0 timeline events</div></div>
+          <div class="item" id="validation"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="canon" class="panel">
+    <div class="grid">
+      <div class="card">
+        <h2>Character</h2>
+        <label>Name</label><input id="characterName">
+        <label>Role</label><input id="characterRole">
+        <label>Description</label><textarea id="characterDescription"></textarea>
+        <label>Goals</label><textarea id="characterGoals"></textarea>
+        <label>Conflicts</label><textarea id="characterConflicts"></textarea>
+        <button id="addCharacter" class="primary">Add Character to Canon</button>
+      </div>
+      <div class="card">
+        <h2>Timeline Event</h2>
+        <label>Date / Time</label><input id="timelineDate">
+        <label>Title</label><input id="timelineTitle">
+        <label>Description</label><textarea id="timelineDescription"></textarea>
+        <button id="addTimeline" class="primary">Add Timeline Event</button>
+      </div>
+    </div>
+    <div class="card" style="margin-top:18px"><h2>Current Canon</h2><pre id="canonView" class="muted">Create a project first.</pre></div>
+  </section>
+
+  <section id="chapters" class="panel">
+    <div class="grid">
+      <div class="card">
+        <h2>Chapter Card</h2>
+        <label>Chapter number</label><input id="chapterNumber" type="number" min="1" value="1">
+        <label>Title</label><input id="chapterTitle">
+        <label>POV</label><input id="chapterPov">
+        <label>Location</label><input id="chapterLocation">
+        <label>Date / Time</label><input id="chapterDateTime">
+        <label>Emotional goal</label><textarea id="chapterEmotional"></textarea>
+        <label>Plot goal</label><textarea id="chapterPlot"></textarea>
+        <label>Major events</label><textarea id="chapterEvents"></textarea>
+        <label>Clues / reveals</label><textarea id="chapterClues"></textarea>
+        <label>Atmosphere</label><textarea id="chapterAtmosphere"></textarea>
+        <label>Ending hook</label><textarea id="chapterHook"></textarea>
+        <label>Estimated word count</label><input id="chapterWords" type="number" min="1" value="3000">
+        <button id="addChapter" class="primary">Create Chapter Card</button>
+      </div>
+      <div class="card">
+        <h2>Chapter Plan</h2>
+        <div id="chapterList" class="list">Create a project first.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="editing" class="panel">
+    <div class="card">
+      <h2>Editing Workspace</h2>
+      <div class="muted">The editing pipeline will use locked canon, chapter cards, completed chapters, and authoritative project memory to check drift before promoting changes.</div>
+      <div class="list" style="margin-top:14px">
+        <div class="item">Continuity audit</div><div class="item">Character consistency audit</div><div class="item">Timeline audit</div><div class="item">Style adherence audit</div><div class="item">Chapter-level revision</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="publishing" class="panel">
+    <div class="card">
+      <h2>Assisted Publishing</h2>
+      <div class="muted">Publishing resources will be attached to the completed manuscript, with separate workflows for manuscript preparation, cover assets, metadata, production files, and publisher/platform research.</div>
+      <div class="list" style="margin-top:14px">
+        <div class="item">Manuscript production checklist</div><div class="item">Front matter / back matter checklist</div><div class="item">Cover specification workspace</div><div class="item">Metadata and book description workspace</div><div class="item">Publishing resource research</div>
+      </div>
+    </div>
+  </section>
+</main>
+<script>
+const $=id=>document.getElementById(id);let project=null;
+const lines=v=>v.split('\n').map(x=>x.trim()).filter(Boolean);
+function tabs(){document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));b.classList.add('active');$(b.dataset.panel).classList.add('active')})}
+function refresh(){if(!project)return;$('statusProject').textContent=project.name;$('statusStage').textContent=project.status;$('statusChapters').textContent=`${project.manuscript.chapterCards.length} planned · ${project.manuscript.chapterCards.filter(x=>x.locked).length} locked`;$('statusCanon').textContent=`${project.manuscript.characters.length} characters · ${project.manuscript.timeline.length} timeline events`;const v=window.validateForge(project);$('validation').className=`item ${v.valid?'ok': 'err'}`;$('validation').textContent=v.valid?`Continuity valid${v.warnings.length?` · ${v.warnings.length} warnings`:''}`:`${v.errors.length} continuity errors`;$('canonView').textContent=JSON.stringify({characters:project.manuscript.characters,timeline:project.manuscript.timeline},null,2);$('chapterList').innerHTML=project.manuscript.chapterCards.map(c=>`<div class="item ${c.locked?'ok':''}"><strong>Chapter ${c.chapterNumber}: ${c.title}</strong><div class="muted">${c.pov} · ${c.location} · ${c.status}</div><button class="secondary" onclick="lockChapter(${c.chapterNumber})">${c.locked?'Locked':'Lock Card'}</button></div>`).join('')||'No chapter cards yet.'}
+window.validateForge=p=>({valid:true,errors:[],warnings:[]});
+async function api(action,payload){const r=await fetch('/api/authors-forge',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action,project,payload})});const x=await r.json();if(!r.ok||!x.ok)throw new Error(x.message||`HTTP ${r.status}`);project=x.project;refresh()}
+$('create').onclick=async()=>{try{await api('create-project',{id:`forge-${Date.now()}`,name:$('projectName').value.trim(),title:$('title').value.trim(),genre:$('genre').value.trim(),audience:$('audience').value.trim(),premise:$('premise').value.trim(),themes:lines($('themes').value),styleGuide:lines($('style').value)})}catch(e){alert(e.message)}}
+$('addCharacter').onclick=async()=>{try{await api('add-character',{character:{id:`character-${Date.now()}`,name:$('characterName').value.trim(),role:$('characterRole').value.trim(),description:$('characterDescription').value.trim(),goals:lines($('characterGoals').value),conflicts:lines($('characterConflicts').value),traits:[],relationships:[],locked:false}})}catch(e){alert(e.message)}}
+$('addTimeline').onclick=async()=>{try{await api('add-timeline',{event:{id:`timeline-${Date.now()}`,dateLabel:$('timelineDate').value.trim(),title:$('timelineTitle').value.trim(),description:$('timelineDescription').value.trim(),sourceReferences:[],locked:false}})}catch(e){alert(e.message)}}
+$('addChapter').onclick=async()=>{try{await api('add-chapter',{card:{id:`chapter-${Date.now()}`,chapterNumber:Number($('chapterNumber').value),title:$('chapterTitle').value.trim(),pov:$('chapterPov').value.trim(),location:$('chapterLocation').value.trim(),dateTime:$('chapterDateTime').value.trim(),emotionalGoal:$('chapterEmotional').value.trim(),plotGoal:$('chapterPlot').value.trim(),majorEvents:lines($('chapterEvents').value),cluesAndReveals:lines($('chapterClues').value),personalityInvolvement:[],atmosphereNotes:lines($('chapterAtmosphere').value),endingHook:$('chapterHook').value.trim(),estimatedWordCount:Number($('chapterWords').value),status:'planned',locked:false}})}catch(e){alert(e.message)}}
+window.lockChapter=async n=>{try{await api('lock-chapter',{chapterNumber:n})}catch(e){alert(e.message)}};tabs();
+</script>
+</body>
+</html>
