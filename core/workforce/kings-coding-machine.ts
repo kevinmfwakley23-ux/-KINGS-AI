@@ -383,7 +383,7 @@ export class KingsCodingMachine {
         id: built.id,
         projectId: request.projectId,
         executionId: plannedExecution.id,
-        stepId: governedStep.id,
+        step: governedStep,
         command: built,
       },
       execution: plannedExecution,
