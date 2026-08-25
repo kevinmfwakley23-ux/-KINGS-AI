@@ -5,22 +5,30 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT="${ROOT}/.kings-ui-build"
 PORT="${KINGS_CODING_MACHINE_PORT:-8787}"
 HOSTNAME="${KINGS_CODING_MACHINE_HOST:-kings.local}"
+NODE_BIN="${KINGS_CODING_MACHINE_NODE:-$(command -v node || true)}"
+NPM_BIN="${KINGS_CODING_MACHINE_NPM:-$(command -v npm || true)}"
 
 cd "$ROOT"
 
-# The interactive launcher is also the one-time bootstrap for the local
-# development toolchain. The background systemd service never invokes npm/tsc.
-if [[ ! -x "$ROOT/node_modules/.bin/tsc" ]]; then
-  command -v npm >/dev/null 2>&1 || {
-    echo "KINGS CODING MACHINE: npm is required to bootstrap the local toolchain." >&2
-    exit 1
-  }
+if [[ -z "$NODE_BIN" || ! -x "$NODE_BIN" ]]; then
+  echo "KINGS CODING MACHINE: node executable not found." >&2
+  exit 1
+fi
 
-  echo "KINGS CODING MACHINE: installing local toolchain..."
-  npm install --no-audit --no-fund
+if [[ -z "$NPM_BIN" || ! -x "$NPM_BIN" ]]; then
+  echo "KINGS CODING MACHINE: npm executable not found." >&2
+  exit 1
+fi
+
+export PATH="$(dirname "$NODE_BIN"):${PATH}"
+
+if [[ ! -x "$ROOT/node_modules/.bin/tsc" ]]; then
+  echo "KINGS CODING MACHINE: bootstrapping repository toolchain..."
+  "$NPM_BIN" install --no-audit --no-fund
 fi
 
 TSC="$ROOT/node_modules/.bin/tsc"
+
 if [[ ! -x "$TSC" ]]; then
   echo "KINGS CODING MACHINE: repository TypeScript compiler unavailable after npm install." >&2
   exit 1
@@ -67,4 +75,4 @@ echo "Fallback: http://127.0.0.1:${PORT}"
 echo "Model: qwen2.5-coder:1.5b"
 echo
 
-exec node "$OUT/ui/project-owner/local-server.js"
+exec "$NODE_BIN" "$OUT/ui/project-owner/local-server.js"
