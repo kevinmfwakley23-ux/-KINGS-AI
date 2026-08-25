@@ -430,7 +430,17 @@ export class KingsCodingMachine {
 
     const toolchain = capability.toolchain ?? request.toolchain;
     const command = this.workspaceAuthority.authorizeStep(request.workspace, request.execution, request.step);
-    const built = this.commandBuilder.build({ command, toolchain });
+    const semanticExecutable = toolchain.commands.find(
+      (candidate) => candidate.operation === request.step.operation,
+    )?.command;
+    const executableOverrides = semanticExecutable === "node"
+      ? { node: process.execPath }
+      : undefined;
+    const built = this.commandBuilder.build({
+      command,
+      toolchain,
+      executableOverrides,
+    });
 
     if (!built.authorized) {
       throw new Error(
