@@ -328,7 +328,7 @@ async function main(): Promise<void> {
         allowedWorkingDirectories: [workspaceRoot],
         allowedReadPaths: [workspaceRoot],
         allowedWritePaths: [workspaceRoot],
-        allowedEnvironmentKeys: [],
+        allowedEnvironmentKeys: ["PATH"],
         allowedSideEffects: ["read", "execute", "write"],
         timeoutMs: 30_000,
         maxOutputBytes: 32_768,
