@@ -62,6 +62,9 @@ async function main(): Promise<void> {
   assert(next?.status === "dispatched", "one runnable task should dispatch");
   assert(next?.taskId === "task-ui" || next?.taskId === "task-tests", "scheduler should select a runnable dependency-free task");
 
+  const afterNext = orchestrator.snapshot(missionId);
+  assert(afterNext.activeTaskIds.length === 1, "scheduler should track exactly one active task");
+
   console.log("WORKFORCE ORCHESTRATOR: SUCCESS");
 }
 
