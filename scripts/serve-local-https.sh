@@ -15,44 +15,55 @@ if ! command -v openssl >/dev/null 2>&1; then
   exit 1
 fi
 
-create_cert() {
+CA_KEY="$CERT_DIR/kings-local-ca.key.pem"
+CA_CERT="$CERT_DIR/kings-local-ca.cert.pem"
+
+if [[ ! -f "$CA_KEY" || ! -f "$CA_CERT" ]]; then
+  openssl req -x509 -newkey rsa:2048 -nodes \
+    -keyout "$CA_KEY" \
+    -out "$CA_CERT" \
+    -days 825 \
+    -subj "/CN=K.I.N.G.S. Local Development CA" \
+    >/dev/null 2>&1
+fi
+
+create_leaf_cert() {
   local host="$1"
   local key="$CERT_DIR/${host}.key.pem"
+  local csr="$CERT_DIR/${host}.csr.pem"
   local cert="$CERT_DIR/${host}.cert.pem"
-  local cnf="$CERT_DIR/${host}.cnf"
+  local ext="$CERT_DIR/${host}.ext.cnf"
 
   if [[ -f "$key" && -f "$cert" ]]; then
     return
   fi
 
-  cat >"$cnf" <<EOF
-[req]
-distinguished_name = req_distinguished_name
-x509_extensions = v3_req
-prompt = no
+  openssl req -new -newkey rsa:2048 -nodes \
+    -keyout "$key" \
+    -out "$csr" \
+    -subj "/CN=${host}" \
+    >/dev/null 2>&1
 
-[req_distinguished_name]
-CN = ${host}
-
-[v3_req]
-subjectAltName = @alt_names
-
-[alt_names]
-DNS.1 = ${host}
-DNS.2 = localhost
-IP.1 = 127.0.0.1
+  cat >"$ext" <<EOF
+basicConstraints=CA:FALSE
+subjectAltName=DNS:${host},DNS:localhost,IP:127.0.0.1
+extendedKeyUsage=serverAuth
 EOF
 
-  openssl req -x509 -nodes -newkey rsa:2048 \
-    -keyout "$key" \
+  openssl x509 -req \
+    -in "$csr" \
+    -CA "$CA_CERT" \
+    -CAkey "$CA_KEY" \
+    -CAcreateserial \
     -out "$cert" \
     -days 825 \
-    -config "$cnf" \
+    -sha256 \
+    -extfile "$ext" \
     >/dev/null 2>&1
 }
 
-create_cert "$KINGS_HOST"
-create_cert "$FORGE_HOST"
+create_leaf_cert "$KINGS_HOST"
+create_leaf_cert "$FORGE_HOST"
 
 HOSTS_FILE="/etc/hosts"
 if [[ -w "$HOSTS_FILE" ]]; then
@@ -63,14 +74,11 @@ if [[ -w "$HOSTS_FILE" ]]; then
   done
 else
   echo "WARNING: cannot modify $HOSTS_FILE as current user."
-  echo "Chrome may still resolve *.localhost automatically; otherwise add both hosts to /etc/hosts manually."
+  echo "The services still bind to 127.0.0.1; use localhost URLs if Chrome resolves them, or add the hostnames manually."
 fi
 
 cat <<EOF
-Local HTTPS setup complete.
-
-Certificates:
-  $CERT_DIR
+Local HTTPS runtime assets are ready.
 
 K.I.N.G.S.:
   https://${KINGS_HOST}:${KINGS_PORT}
@@ -80,6 +88,8 @@ Author's Forge:
   https://${FORGE_HOST}:${FORGE_PORT}
   https://${FORGE_HOST}:${FORGE_PORT}/health
 
-These certificates are local development certificates only.
-Chrome may warn that they are not trusted until the local CA/certificates are explicitly trusted.
+Local CA:
+  $CA_CERT
+
+To make Chrome trust both services, import the local CA certificate into the ChromeOS/Linux trust store as appropriate for your environment.
 EOF
