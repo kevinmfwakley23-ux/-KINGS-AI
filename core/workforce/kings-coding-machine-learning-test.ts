@@ -16,7 +16,7 @@ async function main(): Promise<void> {
     continuity,
     undefined,
     {
-      validate: () => true,
+      validate: () => ({ valid: true, reasons: [] }),
     },
     new WorkUnitRegistry(),
   );
@@ -102,8 +102,10 @@ async function main(): Promise<void> {
         },
         completedAt: now(),
       },
-      async () => {
-        throw new Error("executor should not run when capability is blocked");
+      {
+        async execute() {
+          throw new Error("executor should not run when capability is blocked");
+        },
       },
     );
 
