@@ -2,10 +2,13 @@ import type { AgentDefinition, ID, Task } from "./types";
 import { WorkforceRegistry } from "./registry";
 import { WorkforceOrchestrator, type WorkforceDispatchResult } from "./workforce-orchestrator";
 
+export type WorkforceExecutorKind = "kings-internal";
+
 export interface WorkforceRoleAssignment {
   taskId: ID;
   agentId: ID;
   role: string;
+  executor: WorkforceExecutorKind;
   reason: string;
 }
 
@@ -15,9 +18,11 @@ export interface WorkforceRoleDispatchResult {
 }
 
 /**
- * Selects an eligible workforce agent for a runnable task.
- * This is assignment/orchestration only; tool and write authority remain
- * with the task's governed execution layer.
+ * Selects an eligible K.I.N.G.S.-owned workforce role for a runnable task.
+ *
+ * External models, providers, web research, and other services are treated as
+ * capabilities/tools invoked by K.I.N.G.S.; they are never the architectural
+ * workforce executor.
  */
 export class WorkforceRoleDispatcher {
   constructor(
@@ -39,7 +44,7 @@ export class WorkforceRoleDispatcher {
         dispatch: {
           taskId,
           status: "blocked",
-          reason: `No available workforce agent satisfies the required capabilities for task "${taskId}".`,
+          reason: `No available internal K.I.N.G.S. workforce role satisfies the required capabilities for task "${taskId}".`,
         },
       };
     }
@@ -53,7 +58,8 @@ export class WorkforceRoleDispatcher {
         taskId,
         agentId: agent.id,
         role: agent.role,
-        reason: `Agent "${agent.id}" satisfies the task capabilities required for "${taskId}".`,
+        executor: "kings-internal",
+        reason: `Internal K.I.N.G.S. workforce role "${agent.id}" satisfies the task capabilities required for "${taskId}".`,
       },
     };
   }
