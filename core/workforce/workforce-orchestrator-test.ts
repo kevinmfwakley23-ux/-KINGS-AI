@@ -35,7 +35,7 @@ async function main(): Promise<void> {
   const missionId = "mission-workforce-test";
 
   registry.registerTask(task("task-foundation", missionId, "ready", []));
-  registry.registerTask(task("task-ui", missionId, "queued", ["task-foundation"]));
+  registry.registerTask(task("task-ui", missionId, "ready", ["task-foundation"]));
   registry.registerTask(task("task-tests", missionId, "ready", ["task-foundation"]));
   registry.registerTask(task("task-release", missionId, "ready", ["task-ui", "task-tests"]));
 
@@ -48,8 +48,8 @@ async function main(): Promise<void> {
   assert(dispatch?.status === "dispatched", "foundation should dispatch");
   assert(dispatch?.taskId === "task-foundation", "foundation should be dispatched first");
 
-  const duplicateSnapshot = orchestrator.snapshot(missionId);
-  assert(duplicateSnapshot.activeTaskIds.includes("task-foundation"), "foundation should be active");
+  const runningSnapshot = orchestrator.snapshot(missionId);
+  assert(runningSnapshot.activeTaskIds.includes("task-foundation"), "foundation should be running");
 
   orchestrator.complete("task-foundation");
 
