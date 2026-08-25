@@ -1,11 +1,17 @@
-import { AuthorsForgeEngine, type AuthorForgeProject } from "../../core/workforce/authors-forge";
+import {
+  AuthorsForgeEngine,
+  type AuthorForgeProject,
+} from "../../core/workforce/authors-forge";
+import { AuthorsForgeWorkflow } from "../../core/workforce/authors-forge-workflow";
 
 export type AuthorsForgeAction =
   | "create-project"
   | "add-character"
   | "add-timeline"
   | "add-chapter"
-  | "lock-chapter";
+  | "lock-chapter"
+  | "draft-chapter"
+  | "edit-chapter";
 
 export interface AuthorsForgeRequest {
   action: AuthorsForgeAction;
@@ -18,10 +24,12 @@ export interface AuthorsForgeResponse {
   message: string;
   project?: AuthorForgeProject;
   validation?: ReturnType<AuthorsForgeEngine["validateContinuity"]>;
+  result?: unknown;
 }
 
 export class AuthorsForgeApi {
   private readonly engine = new AuthorsForgeEngine();
+  private readonly workflow = new AuthorsForgeWorkflow();
 
   handle(request: AuthorsForgeRequest): AuthorsForgeResponse {
     try {
@@ -41,6 +49,7 @@ export class AuthorsForgeApi {
       }
 
       let project = request.project;
+      let result: unknown;
       switch (request.action) {
         case "add-character":
           project = this.engine.addCharacter(project, request.payload?.character);
@@ -54,6 +63,20 @@ export class AuthorsForgeApi {
         case "lock-chapter":
           project = this.engine.lockChapterCard(project, Number(request.payload?.chapterNumber));
           break;
+        case "draft-chapter": {
+          const drafted = this.workflow.draftChapter(project, request.payload);
+          project = drafted.project;
+          result = drafted;
+          break;
+        }
+        case "edit-chapter":
+          result = this.workflow.editChapter(
+            project,
+            Number(request.payload?.chapterNumber),
+            String(request.payload?.original ?? ""),
+            String(request.payload?.revised ?? ""),
+          );
+          break;
         default:
           return { ok: false, message: `Unsupported Author's Forge action: ${request.action}` };
       }
@@ -63,6 +86,7 @@ export class AuthorsForgeApi {
         message: `Author's Forge ${request.action.replace(/-/g, " ")} completed.`,
         project,
         validation: this.engine.validateContinuity(project),
+        result,
       };
     } catch (error) {
       return {
