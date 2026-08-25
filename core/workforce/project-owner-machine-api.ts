@@ -1,6 +1,7 @@
 import type {
   ID,
   Mission,
+  Task,
 } from "./types";
 
 import type {
@@ -22,6 +23,26 @@ import {
   validateProjectOwnerDesignInput,
 } from "./project-owner-ui-contract";
 
+import {
+  ModelCodingProposalParser,
+} from "./model-coding-proposal-parser";
+
+import {
+  ModelDrivenCodingExecutionAuthority,
+} from "./model-driven-coding-execution";
+
+import type {
+  ModelExecutionRequest,
+} from "./model-interface";
+
+import type {
+  ModelRoutingRequest,
+} from "./model-routing";
+
+import type {
+  WorkUnitContract,
+} from "./work-unit-contract";
+
 export interface ProjectOwnerMachineApiRequest {
   action:
     | "create-mission"
@@ -37,8 +58,8 @@ export interface ProjectOwnerMachineApiRequest {
     ID;
 
   executionRequest?: {
-    modelRequest: import("./model-interface").ModelExecutionRequest;
-    routing: import("./model-routing").ModelRoutingRequest;
+    modelRequest: ModelExecutionRequest;
+    routing: ModelRoutingRequest;
     machineRequest: Omit<
       import("./kings-coding-machine").KingsCodingMachineModelExecutionRequest,
       "modelResult"
@@ -81,6 +102,16 @@ export interface ProjectOwnerMissionFactory {
     };
 }
 
+export interface ProjectOwnerExecutionContext {
+  getTask(
+    taskId: ID,
+  ): Task | undefined;
+
+  getWorkUnit(
+    taskId: ID,
+  ): WorkUnitContract;
+}
+
 export class ProjectOwnerMachineApi {
   private readonly controller:
     ProjectOwnerUiController;
@@ -91,7 +122,9 @@ export class ProjectOwnerMachineApi {
     private readonly missionFactory:
       ProjectOwnerMissionFactory,
     private readonly modelDrivenCoding:
-      import("./model-driven-coding-execution").ModelDrivenCodingExecutionAuthority,
+      ModelDrivenCodingExecutionAuthority,
+    private readonly executionContext:
+      ProjectOwnerExecutionContext,
     controller:
       ProjectOwnerUiController =
         new ProjectOwnerUiController(),
@@ -103,8 +136,8 @@ export class ProjectOwnerMachineApi {
   async handle(
     request:
       ProjectOwnerMachineApiRequest,
-  ):
-    Promise<ProjectOwnerMachineApiResponse> {
+  )
+    : Promise<ProjectOwnerMachineApiResponse> {
     try {
       if (
         request.action ===
@@ -158,7 +191,7 @@ export class ProjectOwnerMachineApi {
           ok:
             true,
           message:
-            "Mission created. Human approval is required before execution.",
+            "Vision compiled into an executable coding mission. Human approval is required before execution.",
           view: {
             mission:
               snapshot.mission,
@@ -280,53 +313,205 @@ export class ProjectOwnerMachineApi {
         request.action ===
         "execute-next"
       ) {
-        if (!request.executionRequest) {
+        const snapshot =
+          this.machine.snapshot(
+            missionId,
+          );
+
+        if (!snapshot.plan.approvedByHuman || !snapshot.plan.locked) {
           return {
-            ok:
-              false,
-            message:
-              "A model-driven coding execution request is required.",
+            ok: false,
+            message: "Mission must be approved and locked before execution.",
+            view: {
+              mission: snapshot.mission,
+              plan: snapshot.plan,
+              state: snapshot.state,
+            },
           };
         }
 
-        if (
-          request.executionRequest.machineRequest.execution.projectId !==
-          missionId
-        ) {
+        if (snapshot.state.activeTaskIds.length > 1) {
           return {
-            ok:
-              false,
-            message:
-              "Execution request mission does not match the selected owner mission.",
+            ok: false,
+            message: "Mission has more than one active task; execution routing is ambiguous.",
+            view: {
+              mission: snapshot.mission,
+              plan: snapshot.plan,
+              state: snapshot.state,
+            },
           };
         }
 
-        if (!request.editor) {
+        const taskId =
+          snapshot.state.activeTaskIds[0] ??
+          snapshot.plan.milestones
+            .flatMap((milestone) => milestone.taskIds)
+            .find((id) => !snapshot.state.completedTaskIds.includes(id) && !snapshot.state.failedTaskIds.includes(id));
+
+        if (!taskId) {
           return {
-            ok:
-              false,
-            message:
-              "A governed engineering editor is required.",
+            ok: false,
+            message: "No executable coding task is available for this mission.",
+            view: {
+              mission: snapshot.mission,
+              plan: snapshot.plan,
+              state: snapshot.state,
+            },
           };
         }
 
-        if (!request.buildTestOptions) {
+        const task =
+          this.executionContext.getTask(taskId);
+
+        if (!task) {
           return {
-            ok:
-              false,
-            message:
-              "Build/test runtime options are required.",
+            ok: false,
+            message: `Coding task "${taskId}" is not registered in the local workforce runtime.`,
+          };
+        }
+
+        const workUnit =
+          this.executionContext.getWorkUnit(taskId);
+
+        const objective =
+          workUnit.objective;
+
+        const modelRequest: ModelExecutionRequest = {
+          id:
+            `model-request-${taskId}-${Date.now()}`,
+          taskId,
+          missionId,
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are the coding engine inside K.I.N.G.S. Coding Machine. Turn the owner's software vision into working source code. Return only authorized FILE blocks in the format FILE: path [create|replace] followed by the complete file contents. Do not explain the code outside FILE blocks.",
+            },
+            {
+              role: "user",
+              content:
+                objective +
+                `\n\nAcceptance criteria:\n${workUnit.acceptanceCriteria.join("\n")}` +
+                `\n\nAuthorized project root: .` +
+                `\n\nTask: ${task.description}`,
+            },
+          ],
+          requiredCapabilities: [
+            "reasoning",
+            "planning",
+            "coding",
+            "debugging",
+            "source-inspection",
+            "verification",
+            "recovery",
+          ],
+          inputModalities: ["text"],
+          outputModality: "text",
+          maxOutputTokens:
+            workUnit.budget.maxTokens,
+          temperature: 0.1,
+          requireStructuredOutput: false,
+          allowToolProposals: false,
+        };
+
+        const routing: ModelRoutingRequest = {
+          requiredCapabilities: [
+            "reasoning",
+            "planning",
+            "coding",
+            "debugging",
+            "source-inspection",
+            "verification",
+            "recovery",
+          ],
+          minimumCapabilityStrength: 70,
+          requiredInputModality: "text",
+          requiredOutputModality: "text",
+          preferInternal: true,
+          maximumEstimatedCost: 0,
+        };
+
+        const executionRequest: NonNullable<
+          ProjectOwnerMachineApiRequest["executionRequest"]
+        > = {
+          modelRequest,
+          routing,
+          machineRequest: {
+            proposalParser: {
+              expectedTaskId: taskId,
+              expectedMissionId: missionId,
+              allowedPaths:
+                workUnit.allowedPaths,
+              allowMultipleFiles: true,
+            },
+            execution: {
+              taskId,
+              projectId: missionId,
+              workUnit: {
+                ...workUnit,
+                approved: true,
+              },
+              execution: {
+                id: `execution-${taskId}`,
+                projectId: missionId,
+                status: "ready",
+                steps: [
+                  {
+                    id: taskId,
+                    language: "typescript",
+                    operation: "create",
+                    capabilityId: "engineering-typescript",
+                    sequence: 1,
+                  },
+                ],
+                currentStepId: taskId,
+                completedStepIds: [],
+                blockedReasons: [],
+              },
+              step: {
+                id: taskId,
+                language: "typescript",
+                operation: "create",
+                capabilityId: "engineering-typescript",
+                sequence: 1,
+              },
+              workspace: {
+                id: `workspace-${missionId}`,
+                projectId: missionId,
+                rootPath: process.cwd(),
+                allowedPaths: workUnit.allowedPaths,
+                allowedLanguages: ["typescript"],
+                allowedOperations: ["create", "replace"],
+                active: true,
+              },
+              repairStep: {
+                id: `repair-${taskId}`,
+                strategy: "edit",
+                description: "Repair generated application until verification passes.",
+                reason: "Bounded local build/test recovery.",
+                required: true,
+              },
+              buildTestSteps: [],
+              requiredCriteria: workUnit.acceptanceCriteria,
+            },
+          },
+        };
+
+        if (!request.editor || !request.buildTestOptions) {
+          return {
+            ok: false,
+            message: "Local execution runtime is not attached to the owner controller.",
           };
         }
 
         const result =
           await this.modelDrivenCoding.execute(
-            request.executionRequest,
+            executionRequest,
             request.editor,
             request.buildTestOptions,
           );
 
-        const snapshot =
+        const next =
           this.machine.snapshot(
             missionId,
           );
@@ -336,15 +521,15 @@ export class ProjectOwnerMachineApi {
             result.completed,
           message:
             result.completed
-              ? "Coding work unit completed and verified."
-              : "Coding work unit did not satisfy completion criteria.",
+              ? `Coding task "${taskId}" completed and verified.`
+              : `Coding task "${taskId}" did not satisfy completion criteria.`,
           view: {
             mission:
-              snapshot.mission,
+              next.mission,
             plan:
-              snapshot.plan,
+              next.plan,
             state:
-              snapshot.state,
+              next.state,
           },
         };
       }
