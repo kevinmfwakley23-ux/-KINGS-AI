@@ -17,12 +17,18 @@ fi
 chmod +x "$ROOT/ui/project-owner/start-local.sh"
 chmod +x "$ROOT/ui/project-owner/start-service.sh"
 
-# Build the compiled server artifact before systemd takes ownership of it.
+# Bootstrap/build the runtime once using the repository-owned toolchain.
 "$ROOT/ui/project-owner/start-local.sh" >/tmp/kings-coding-machine-build.log 2>&1 || {
   echo "KINGS CODING MACHINE: runtime build failed" >&2
   cat /tmp/kings-coding-machine-build.log >&2 || true
   exit 1
 }
+
+# start-local is a foreground launcher; stop it after the successful build so
+# systemd becomes the sole owner of the long-running server process.
+if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 1 "http://127.0.0.1:8787/health" >/dev/null 2>&1; then
+  pkill -f "$ROOT/.kings-ui-build/ui/project-owner/local-server.js" || true
+fi
 
 cp "$UNIT_SOURCE" "$UNIT_TARGET"
 systemctl --user daemon-reload
