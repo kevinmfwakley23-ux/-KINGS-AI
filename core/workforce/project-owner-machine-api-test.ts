@@ -10,11 +10,16 @@ import {
 
 import type {
   Mission,
+  Task,
 } from "./types";
 
 import type {
   MissionPlan,
 } from "./mission-continuity";
+
+import type {
+  WorkUnitContract,
+} from "./work-unit-contract";
 
 function assert(
   condition: boolean,
@@ -27,14 +32,35 @@ function assert(
   }
 }
 
+const taskId = "task-owner-ui-test";
+
+function createTask(
+  missionId: string,
+): Task {
+  const now = new Date().toISOString();
+  return {
+    id: taskId,
+    missionId,
+    name: "Owner UI test task",
+    description: "Validate owner mission lifecycle.",
+    requiredCapabilities: ["coding"],
+    requiredToolIds: [],
+    status: "ready",
+    dependencyIds: [],
+    inputReferences: [],
+    expectedOutputs: ["mission lifecycle verified"],
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 function createMission(
   input: Parameters<ProjectOwnerMissionFactory["create"]>[0],
 ): {
   mission: Mission;
   plan: MissionPlan;
 } {
-  const now =
-    new Date().toISOString();
+  const now = new Date().toISOString();
 
   return {
     mission: {
@@ -54,7 +80,17 @@ function createMission(
       missionId: input.id,
       version: 1,
       objective: input.objective,
-      milestones: [],
+      milestones: [
+        {
+          id: `milestone-${input.id}`,
+          missionId: input.id,
+          name: "Build",
+          objective: input.objective,
+          taskIds: [taskId],
+          dependencyIds: [],
+          status: "active",
+        },
+      ],
       decisionIds: [],
       acceptanceCriteria:
         input.acceptanceCriteria,
@@ -74,7 +110,7 @@ async function main(): Promise<void> {
         plan: request.plan,
         state: {
           missionId: request.mission.id,
-          activeTaskIds: [],
+          activeTaskIds: [taskId],
           completedTaskIds: [],
           failedTaskIds: [],
           blockedTaskIds: [],
@@ -90,7 +126,17 @@ async function main(): Promise<void> {
         missionId,
         version: 1,
         objective: "Test project",
-        milestones: [],
+        milestones: [
+          {
+            id: `milestone-${missionId}`,
+            missionId,
+            name: "Build",
+            objective: "Test project",
+            taskIds: [taskId],
+            dependencyIds: [],
+            status: "active" as const,
+          },
+        ],
         decisionIds: [],
         acceptanceCriteria: [
           "Project is created.",
@@ -108,7 +154,17 @@ async function main(): Promise<void> {
         missionId,
         version: 1,
         objective: "Test project",
-        milestones: [],
+        milestones: [
+          {
+            id: `milestone-${missionId}`,
+            missionId,
+            name: "Build",
+            objective: "Test project",
+            taskIds: [taskId],
+            dependencyIds: [],
+            status: "active" as const,
+          },
+        ],
         decisionIds: [],
         acceptanceCriteria: [
           "Project is created.",
@@ -141,7 +197,17 @@ async function main(): Promise<void> {
           missionId,
           version: 1,
           objective: "Test project",
-          milestones: [],
+          milestones: [
+            {
+              id: `milestone-${missionId}`,
+              missionId,
+              name: "Build",
+              objective: "Test project",
+              taskIds: [taskId],
+              dependencyIds: [],
+              status: "active" as const,
+            },
+          ],
           decisionIds: [],
           acceptanceCriteria: [
             "Project is created.",
@@ -153,7 +219,7 @@ async function main(): Promise<void> {
         },
         state: {
           missionId,
-          activeTaskIds: [],
+          activeTaskIds: [taskId],
           completedTaskIds: [],
           failedTaskIds: [],
           blockedTaskIds: [],
@@ -164,10 +230,34 @@ async function main(): Promise<void> {
     },
   };
 
+  const task = createTask("owner-ui-test");
+  const workUnit: WorkUnitContract = {
+    id: "work-unit-owner-ui-test",
+    role: "coding-engineer",
+    objective: task.description,
+    capabilityIds: ["coding"],
+    allowedToolIds: [],
+    allowedPaths: ["."],
+    budget: {
+      maxTimeMs: 1_000,
+      maxTokens: 100,
+      maxIterations: 1,
+    },
+    dependencyIds: [],
+    acceptanceCriteria: ["mission lifecycle verified"],
+    requiredEvidenceTypes: ["command"],
+    approved: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
   const executionContext: ProjectOwnerExecutionContext = {
-    getTask: () => undefined,
-    getWorkUnit: () => {
-      throw new Error("Execution context should not be queried for this mission without milestones.");
+    getTask: (id) => id === taskId ? task : undefined,
+    getWorkUnit: (id) => {
+      if (id !== taskId) {
+        throw new Error(`Unknown work unit: ${id}`);
+      }
+      return workUnit;
     },
   };
 
@@ -223,7 +313,7 @@ async function main(): Promise<void> {
 
   assert(
     created.ok,
-    "owner UI must create a mission",
+    created.message,
   );
 
   assert(
@@ -252,7 +342,7 @@ async function main(): Promise<void> {
 
   assert(
     approved.ok,
-    "owner UI must approve the plan",
+    approved.message,
   );
 
   assert(
@@ -271,7 +361,7 @@ async function main(): Promise<void> {
 
   assert(
     locked.ok,
-    "owner UI must lock the plan",
+    locked.message,
   );
 
   assert(
@@ -294,7 +384,7 @@ async function main(): Promise<void> {
 
   assert(
     snapshot.ok,
-    "owner UI must return a mission snapshot",
+    snapshot.message,
   );
 
   assert(
