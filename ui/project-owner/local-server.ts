@@ -12,6 +12,7 @@ import {
   createDefaultProjectOwnerMissionFactory,
 } from "./server-contract";
 import { ProjectOwnerMachineApi } from "../../core/workforce/project-owner-machine-api";
+import { AuthorsForgeApi, type AuthorsForgeRequest } from "./authors-forge-api";
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
 const bindHost = process.env.KINGS_CODING_MACHINE_BIND ?? "0.0.0.0";
@@ -21,7 +22,8 @@ const ollamaBaseUrl =
   process.env.KINGS_CODING_MACHINE_OLLAMA_URL ?? "http://127.0.0.1:11434";
 const modelId = process.env.KINGS_CODING_MACHINE_MODEL ?? "qwen2.5-coder:1.5b";
 const publicFile = join(process.cwd(), "ui/project-owner/index.html");
-const runtimeBuild = "vision-task-compiler-v3";
+const forgeFile = join(process.cwd(), "ui/project-owner/authors-forge.html");
+const runtimeBuild = "authors-forge-v1";
 
 async function body(request: import("node:http").IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -38,23 +40,17 @@ async function checkOllama(): Promise<{
   try {
     const response = await fetch(`${ollamaBaseUrl}/api/tags`);
     if (!response.ok) {
-      return {
-        ok: false,
-        message: `Ollama HTTP ${response.status}`,
-      };
+      return { ok: false, message: `Ollama HTTP ${response.status}` };
     }
-
     const data = (await response.json()) as {
       models?: Array<{ name?: string }>;
     };
     const models = (data.models ?? [])
       .map((model) => model.name)
       .filter((name): name is string => Boolean(name));
-
     const modelAvailable = models.some(
       (name) => name === modelId || name.startsWith(`${modelId}:`),
     );
-
     return {
       ok: modelAvailable,
       message: modelAvailable
@@ -78,10 +74,7 @@ async function main(): Promise<void> {
   const workUnits = new WorkUnitRegistry();
   const taskControl = new TaskControl(registry);
   const machine = new KingsCodingMachine(undefined, undefined, taskControl, workUnits);
-  const missionFactory = createDefaultProjectOwnerMissionFactory(
-    registry,
-    workUnits,
-  );
+  const missionFactory = createDefaultProjectOwnerMissionFactory(registry, workUnits);
 
   const executionContext: ProjectOwnerExecutionContext = {
     getTask(taskId) {
@@ -96,36 +89,33 @@ async function main(): Promise<void> {
     machine,
     missionFactory,
     executionContext,
-    {
-      modelId,
-      workspaceRoot,
-      ollamaBaseUrl,
-    },
+    { modelId, workspaceRoot, ollamaBaseUrl },
   );
+  const forgeApi = new AuthorsForgeApi();
 
   const server = createServer(async (req, res) => {
     try {
-      if (req.method === "GET" && (req.url === "/" || req.url === "/health")) {
+      if (req.method === "GET" && (req.url === "/" || req.url === "/health" || req.url === "/authors-forge")) {
         if (req.url === "/health") {
           const ollama = await checkOllama();
           res.writeHead(200, {
             "content-type": "application/json; charset=utf-8",
             "cache-control": "no-store",
           });
-          res.end(
-            JSON.stringify({
-              ok: true,
-              name: "kings.local",
-              model: modelId,
-              workspace: workspaceRoot,
-              runtimeBuild,
-              ollama,
-            }),
-          );
+          res.end(JSON.stringify({
+            ok: true,
+            name: "kings.local",
+            product: "AI Author's Forge",
+            model: modelId,
+            workspace: workspaceRoot,
+            runtimeBuild,
+            ollama,
+          }));
           return;
         }
 
-        const html = await readFile(publicFile, "utf8");
+        const file = req.url === "/authors-forge" ? forgeFile : publicFile;
+        const html = await readFile(file, "utf8");
         res.writeHead(200, {
           "content-type": "text/html; charset=utf-8",
           "cache-control": "no-store",
@@ -135,10 +125,7 @@ async function main(): Promise<void> {
       }
 
       if (req.method === "POST" && req.url === "/api/project-owner/missions") {
-        const request =
-          (await body(req)) as Parameters<
-            ProjectOwnerMachineApi["handle"]
-          >[0];
+        const request = (await body(req)) as Parameters<ProjectOwnerMachineApi["handle"]>[0];
         const result = await controller.handle(request);
         res.writeHead(result.ok ? 200 : 400, {
           "content-type": "application/json; charset=utf-8",
@@ -148,27 +135,34 @@ async function main(): Promise<void> {
         return;
       }
 
-      res.writeHead(404, {
-        "content-type": "text/plain; charset=utf-8",
-      });
+      if (req.method === "POST" && req.url === "/api/authors-forge") {
+        const request = (await body(req)) as AuthorsForgeRequest;
+        const result = forgeApi.handle(request);
+        res.writeHead(result.ok ? 200 : 400, {
+          "content-type": "application/json; charset=utf-8",
+          "cache-control": "no-store",
+        });
+        res.end(JSON.stringify(result));
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
       res.end("Not Found");
     } catch (error) {
       res.writeHead(500, {
         "content-type": "application/json; charset=utf-8",
         "cache-control": "no-store",
       });
-      res.end(
-        JSON.stringify({
-          ok: false,
-          message:
-            error instanceof Error ? error.message : String(error),
-        }),
-      );
+      res.end(JSON.stringify({
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      }));
     }
   });
 
   server.listen(port, bindHost, () => {
     console.log(`KINGS CODING MACHINE UI: http://${publicHost}:${port}`);
+    console.log(`Author's Forge: http://${publicHost}:${port}/authors-forge`);
     console.log(`Health: http://${publicHost}:${port}/health`);
     console.log(`Bind: ${bindHost}:${port}`);
     console.log(`Workspace: ${workspaceRoot}`);
