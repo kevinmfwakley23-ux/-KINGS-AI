@@ -10,6 +10,8 @@ KINGS_PORT="${KINGS_CODING_MACHINE_HTTPS_PORT:-8787}"
 FORGE_PORT="${AUTHORS_FORGE_HTTPS_PORT:-8788}"
 KINGS_HOST="${KINGS_CODING_MACHINE_HTTPS_HOST:-kings.localhost}"
 FORGE_HOST="${AUTHORS_FORGE_HTTPS_HOST:-authors-forge.localhost}"
+RUNTIME_TS="$ROOT_DIR/ui/project-owner/https-runtime.ts"
+RUNTIME_JS="$BUILD_DIR/ui/project-owner/https-runtime.js"
 
 cd "$ROOT_DIR"
 
@@ -42,13 +44,24 @@ npx tsc \
   --strict \
   --types node \
   --outDir "$BUILD_DIR" \
-  ui/project-owner/https-runtime.ts
+  "$RUNTIME_TS"
 
-nohup node "$BUILD_DIR/https-runtime.js" >>"$LOG_FILE" 2>&1 &
+if [[ ! -f "$RUNTIME_JS" ]]; then
+  echo "HTTPS runtime compilation succeeded but expected output was not emitted:" >&2
+  echo "  $RUNTIME_JS" >&2
+  echo "--- emitted runtime files ---" >&2
+  find "$BUILD_DIR" -type f -name '*https-runtime*.js' -print >&2 || true
+  exit 1
+fi
+
+: > "$LOG_FILE"
+nohup node "$RUNTIME_JS" >>"$LOG_FILE" 2>&1 &
 pid=$!
 echo "$pid" > "$PID_FILE"
 
 echo "Started K.I.N.G.S. + Author's Forge HTTPS runtime (PID $pid)."
+
+echo "Runtime log: $LOG_FILE"
 
 for _ in {1..30}; do
   kings_ok=0
