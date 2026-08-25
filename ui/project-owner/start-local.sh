@@ -2,20 +2,33 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TSC="${TSC:-/tmp/kings-typescript/node_modules/.bin/tsc}"
+TSC="${TSC:-}"
 OUT="${ROOT}/.kings-ui-build"
 PORT="${KINGS_CODING_MACHINE_PORT:-8787}"
 HOSTNAME="${KINGS_CODING_MACHINE_HOST:-kings.local}"
 
 cd "$ROOT"
 
-if [[ ! -x "$TSC" ]]; then
-  echo "TypeScript compiler not found at $TSC" >&2
+if [[ -z "$TSC" ]]; then
+  for candidate in \
+    "$(command -v tsc 2>/dev/null || true)" \
+    "$ROOT/node_modules/.bin/tsc" \
+    "${HOME}/.local/bin/tsc" \
+    "/usr/local/bin/tsc" \
+    "/usr/bin/tsc"; do
+    if [[ -n "$candidate" && -x "$candidate" ]]; then
+      TSC="$candidate"
+      break
+    fi
+  done
+fi
+
+if [[ -z "$TSC" || ! -x "$TSC" ]]; then
+  echo "KINGS CODING MACHINE: TypeScript compiler not found." >&2
+  echo "Install TypeScript locally or set TSC=/path/to/tsc." >&2
   exit 1
 fi
 
-# Make the friendly local hostname resolve on this Linux environment.
-# This is local-only and does not expose the machine to the network.
 if command -v sudo >/dev/null 2>&1 && [[ "$HOSTNAME" == "kings.local" ]]; then
   if ! grep -qE '^127\.0\.0\.1[[:space:]]+kings\.local([[:space:]]|$)' /etc/hosts 2>/dev/null; then
     echo "Configuring local hostname: kings.local"
@@ -23,7 +36,6 @@ if command -v sudo >/dev/null 2>&1 && [[ "$HOSTNAME" == "kings.local" ]]; then
   fi
 fi
 
-# If the machine is already running on the local port, do not create a second listener.
 if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 2 "http://127.0.0.1:${PORT}/" >/dev/null 2>&1; then
   echo
   echo "KINGS CODING MACHINE UI ALREADY RUNNING"
