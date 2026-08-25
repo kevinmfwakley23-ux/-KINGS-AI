@@ -512,10 +512,7 @@ export class ExecutionSandbox {
       Record<string, string>,
   ): Record<string, string> {
     const result:
-      Record<
-        string,
-        string
-      > = {};
+      Record<string, string> = {};
 
     for (
       const key of
@@ -523,6 +520,15 @@ export class ExecutionSandbox {
           .allowedEnvironmentKeys
     ) {
       if (
+        key === "PATH" &&
+        !result.PATH
+      ) {
+        const requestedPath = requested?.PATH;
+        const inheritedPath = process.env.PATH;
+        if (requestedPath || inheritedPath) {
+          result.PATH = requestedPath ?? inheritedPath!;
+        }
+      } else if (
         requested &&
         key in
           requested
