@@ -3,6 +3,7 @@ import { WorkforceRegistry } from "./registry";
 import type { MissionPlan } from "./mission-continuity";
 import { ProductBuildMissionAssembler, type ProductBuildMissionAssemblyResult } from "./product-build-mission-assembler";
 import { MissionExecutionCoordinator, type MissionExecutionDispatch } from "./mission-execution-coordinator";
+import type { WorkforceExecutorKind } from "./workforce-role-dispatcher";
 
 export interface ProductBuildExecutionGatewayRequest {
   mission: Mission;
@@ -14,14 +15,19 @@ export interface ProductBuildExecutionGatewaySnapshot {
   missionId: ID;
   assembly: ProductBuildMissionAssemblyResult;
   execution: ReturnType<MissionExecutionCoordinator["snapshot"]>;
-  nextDispatch?: MissionExecutionDispatch;
+  nextDispatch?: MissionExecutionDispatch & {
+    executor: WorkforceExecutorKind;
+  };
 }
 
 /**
  * Product-level entrypoint for turning an approved application mission into
- * executable governed workforce work. This gateway assembles the product
- * graph once, then delegates scheduling/assignment/result flow to the existing
- * mission execution coordinator.
+ * executable governed workforce work.
+ *
+ * K.I.N.G.S. is the brains and brawn: all workforce execution is performed by
+ * K.I.N.G.S.-owned internal roles. External models, web research, providers,
+ * and other services are capabilities/tools invoked under K.I.N.G.S. authority,
+ * never external workforce executors.
  */
 export class ProductBuildExecutionGateway {
   private readonly assembler: ProductBuildMissionAssembler;
@@ -44,13 +50,16 @@ export class ProductBuildExecutionGateway {
     this.assembled.set(request.mission.id, assembly);
 
     const execution = this.coordinator.snapshot(request.mission.id);
+    const dispatch = execution.dispatchableTaskIds.length > 0
+      ? this.coordinator.dispatchNext(request.mission.id)
+      : undefined;
 
     return {
       missionId: request.mission.id,
       assembly,
       execution,
-      nextDispatch: execution.dispatchableTaskIds.length > 0
-        ? this.coordinator.dispatchNext(request.mission.id)
+      nextDispatch: dispatch
+        ? { ...dispatch, executor: "kings-internal" }
         : undefined,
     };
   }
@@ -66,13 +75,16 @@ export class ProductBuildExecutionGateway {
     }
 
     const execution = this.coordinator.snapshot(missionId);
+    const dispatch = execution.dispatchableTaskIds.length > 0
+      ? this.coordinator.dispatchNext(missionId)
+      : undefined;
 
     return {
       missionId,
       assembly,
       execution,
-      nextDispatch: execution.dispatchableTaskIds.length > 0
-        ? this.coordinator.dispatchNext(missionId)
+      nextDispatch: dispatch
+        ? { ...dispatch, executor: "kings-internal" }
         : undefined,
     };
   }
