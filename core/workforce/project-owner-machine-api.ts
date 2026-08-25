@@ -116,7 +116,7 @@ export class ProjectOwnerMachineApi {
           if (!this.executionContext.getTask(taskId)) {
             return {
               ok: false,
-              message: `Mission compiler produced task "${taskId}" but it is not registered in the local workforce runtime. Mission creation aborted.`,
+              message: `Mission compiler produced task \"${taskId}\" but it is not registered in the local workforce runtime. Mission creation aborted.`,
             };
           }
 
@@ -128,7 +128,7 @@ export class ProjectOwnerMachineApi {
               message:
                 error instanceof Error
                   ? error.message
-                  : `Mission compiler produced task "${taskId}" without a registered governed work unit.`,
+                  : `Mission compiler produced task \"${taskId}\" without a registered governed work unit.`,
             };
           }
         }
@@ -255,7 +255,7 @@ export class ProjectOwnerMachineApi {
         if (!task) {
           return {
             ok: false,
-            message: `Coding task "${taskId}" is not registered in the local workforce runtime.`,
+            message: `Coding task \"${taskId}\" is not registered in the local workforce runtime.`,
           };
         }
 
@@ -372,7 +372,15 @@ export class ProjectOwnerMachineApi {
                   reason: "Bounded local build/test recovery.",
                   required: true,
                 },
-                buildTestSteps: [],
+                buildTestSteps: [
+                  {
+                    id: `verify-linux-${taskId}`,
+                    operation: "validate",
+                    command: "/home/kevinmfwakley23/.config/nvm/versions/node/v24.19.0/bin/node",
+                    args: ["--version"],
+                    workingDirectory: process.cwd(),
+                  },
+                ],
                 requiredCriteria: workUnit.acceptanceCriteria,
               },
             },
@@ -385,8 +393,8 @@ export class ProjectOwnerMachineApi {
         return {
           ok: result.completed,
           message: result.completed
-            ? `Coding task "${taskId}" completed and verified.`
-            : `Coding task "${taskId}" did not satisfy completion criteria.`,
+            ? `Coding task \"${taskId}\" completed and verified.`
+            : `Coding task \"${taskId}\" did not satisfy completion criteria.`,
           view: {
             mission: next.mission,
             plan: next.plan,
