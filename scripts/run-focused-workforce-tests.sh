@@ -53,18 +53,26 @@ for source_file in "${TESTS[@]}"; do
     continue
   fi
 
-  js_file="$test_build/${test_file%.ts}.js"
-  if [[ ! -f "$js_file" ]]; then
+  mapfile -t emitted_tests < <(find "$test_build" -type f -name "${test_file%.ts}.js" -print | sort)
+
+  if [[ ${#emitted_tests[@]} -ne 1 ]]; then
     failed=$((failed + 1))
     printf 'EMIT FAILURE | %s\n' "$test_file" | tee -a "$REPORT"
-    printf 'Expected: %s\n' "$js_file" | tee -a "$REPORT"
-    printf 'Emitted files:\n' | tee -a "$REPORT"
-    find "$test_build" -maxdepth 3 -type f -name '*.js' -print | sort | tee -a "$REPORT"
+    if [[ ${#emitted_tests[@]} -eq 0 ]]; then
+      printf 'Expected emitted test basename: %s.js\n' "${test_file%.ts}" | tee -a "$REPORT"
+    else
+      printf 'Multiple emitted test matches found:\n' | tee -a "$REPORT"
+      printf '%s\n' "${emitted_tests[@]}" | tee -a "$REPORT"
+    fi
+    printf 'All emitted JavaScript files:\n' | tee -a "$REPORT"
+    find "$test_build" -type f -name '*.js' -print | sort | tee -a "$REPORT"
     echo | tee -a "$REPORT"
     echo "RESULT: EMIT FAILURE"
     echo
     continue
   fi
+
+  js_file="${emitted_tests[0]}"
 
   if node "$js_file" >"$test_log" 2>&1; then
     passed=$((passed + 1))
