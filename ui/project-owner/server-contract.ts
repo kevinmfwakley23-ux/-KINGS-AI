@@ -140,7 +140,7 @@ function createVisionTask(
     objective,
     capabilityIds: ["engineering-typescript"],
     allowedToolIds: ["tool-execution-sandbox"],
-    allowedPaths: ["src", "."],
+    allowedPaths: [".", "src", "generated"],
     budget: {
       maxTimeMs: 120_000,
       maxTokens: 8_000,
