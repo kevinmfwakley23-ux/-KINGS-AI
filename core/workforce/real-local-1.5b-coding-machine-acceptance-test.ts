@@ -359,7 +359,17 @@ async function main(): Promise<void> {
       ],
     });
 
-    assert(buildResult.passed, buildResult.steps[0]?.execution.stderr || "Generated TypeScript verification failed.");
+    const verificationStderr = buildResult.steps[0]?.execution.stderr ?? "";
+    const verificationStdout = buildResult.steps[0]?.execution.stdout ?? "";
+    assert(
+      buildResult.passed,
+      [
+        `command=${buildResult.steps[0]?.step.command ?? tsc}`,
+        `exitCode=${buildResult.steps[0]?.execution.exitCode ?? -1}`,
+        `stdout=${verificationStdout}`,
+        `stderr=${verificationStderr}`,
+      ].join("\n"),
+    );
     console.log("KINGS CODING MACHINE → REAL BUILD/VERIFICATION: SUCCESS");
     console.log("KINGS CODING MACHINE → 1.5B ARTIFACT VERIFICATION: SUCCESS");
     console.log("TREE-KCM-REAL-LOCAL-1.5B-ACCEPTANCE: SUCCESS");
