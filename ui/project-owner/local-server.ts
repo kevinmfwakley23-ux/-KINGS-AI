@@ -6,6 +6,7 @@ import { TaskControl } from "../../core/workforce/task-control";
 import { WorkforceRegistry } from "../../core/workforce/registry";
 import { WorkUnitRegistry } from "../../core/workforce/work-unit-registry";
 import { KingsCodingMachine } from "../../core/workforce/kings-coding-machine";
+import type { ProjectOwnerExecutionContext } from "../../core/workforce/project-owner-machine-api";
 import {
   ProjectOwnerMachineServerController,
   createDefaultProjectOwnerMissionFactory,
@@ -16,7 +17,7 @@ const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
 const hostname = process.env.KINGS_CODING_MACHINE_HOST ?? "kings.local";
 const workspaceRoot = process.env.KINGS_CODING_MACHINE_WORKSPACE ?? process.cwd();
 const publicFile = join(process.cwd(), "ui/project-owner/index.html");
-const runtimeBuild = "vision-task-compiler-v2";
+const runtimeBuild = "vision-task-compiler-v3";
 
 async function body(request: import("node:http").IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -35,9 +36,19 @@ async function main(): Promise<void> {
     workUnits,
   );
 
+  const executionContext: ProjectOwnerExecutionContext = {
+    getTask(taskId) {
+      return registry.getTask(taskId);
+    },
+    getWorkUnit(taskId) {
+      return workUnits.require(taskId);
+    },
+  };
+
   const controller = new ProjectOwnerMachineServerController(
     machine,
     missionFactory,
+    executionContext,
     {
       modelId: "qwen2.5-coder:1.5b",
       workspaceRoot,
