@@ -257,10 +257,12 @@ async function main(): Promise<void> {
         firstVerification.steps[0]?.execution.stdout ?? "",
         firstVerification.steps[0]?.execution.stderr ?? "",
       ].filter(Boolean).join("\n");
-      await editor.execute(
+      const repairWorkspacePath = targetAbsolute;
+      const repaired = await editor.execute(
         { ...repair, id: "repair-1.5b-acceptance-retry", description: "Repair malformed generated TypeScript after verification failure.", reason: `Bounded recovery from governed verification failure: ${diagnostics}` },
-        { stepId: "repair-1.5b-acceptance-retry", projectId: request.missionId, path: targetPath, content: "export const generatedValue = 42;\n" },
+        { stepId: "repair-1.5b-acceptance-retry", projectId: request.missionId, path: repairWorkspacePath, content: "export const generatedValue = 42;\n" },
       );
+      assert(repaired.success, "Governed repair editor must report successful recovery edit.");
       const secondVerification = await verify();
       const secondDiagnostics = [
         secondVerification.steps[0]?.execution.stdout ?? "",
