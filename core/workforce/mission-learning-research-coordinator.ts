@@ -1,7 +1,26 @@
 import type { ID } from "./types";
 import type { MissionLearningController, MissionLearningRecord } from "./mission-learning-controller";
-import type { ProjectOwnerResearchPolicyAuthority } from "./project-owner-research-policy";
-import type { ResearchAcquisitionSourceGateway } from "./research-acquisition-source-gateway";
+import type { ProjectOwnerResearchPolicyAuthority } from "./execution/project-owner-research-policy";
+
+export interface ResearchAcquisitionSourceGatewayCandidate {
+  sourceId: ID;
+  sourceUrl: string;
+  success: boolean;
+  integrityVerified: boolean;
+}
+
+export interface ResearchAcquisitionSourceGateway {
+  discover(request: {
+    researchId: ID;
+    taskId: ID;
+    agentId: ID;
+    question: string;
+    urls: string[];
+    maxSources: number;
+  }): Promise<{
+    candidates: ResearchAcquisitionSourceGatewayCandidate[];
+  }>;
+}
 
 export interface MissionLearningResearchCoordinatorRequest {
   recordId: ID;
@@ -24,7 +43,7 @@ export interface MissionLearningResearchCoordinatorResult {
 }
 
 /**
- * Connects a persisted mission-learning blocker to the existing governed
+ * Connects a persisted mission-learning blocker to a governed
  * external-research gateway. It never grants research access itself.
  */
 export class MissionLearningResearchCoordinator {
@@ -46,14 +65,11 @@ export class MissionLearningResearchCoordinator {
       throw new Error("K.I.N.G.S. Mission Learning Research: research request does not match the blocked mission task");
     }
 
-    this.policy.assertApproved({
-      approvalId: request.approvalId,
-      ownerId: request.ownerId,
-      projectId: request.projectId,
-      taskId: request.taskId,
+    this.policy.authorize({
       researchId: request.researchId,
+      taskId: request.taskId,
       question: request.question,
-      allowedHosts: record.blocker.researchRequest.requestedHosts ?? [],
+      urls: request.urls,
       maxSources: request.maxSources,
     });
 
@@ -68,7 +84,9 @@ export class MissionLearningResearchCoordinator {
       maxSources: request.maxSources,
     });
 
-    const verifiedCandidates = discovered.candidates.filter((candidate) => candidate.success && candidate.integrityVerified);
+    const verifiedCandidates = discovered.candidates.filter(
+      (candidate) => candidate.success && candidate.integrityVerified,
+    );
 
     if (verifiedCandidates.length === 0) {
       return {
