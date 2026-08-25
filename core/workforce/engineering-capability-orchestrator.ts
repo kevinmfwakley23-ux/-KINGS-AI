@@ -9,7 +9,7 @@ import {
 } from "./engineering-toolchain";
 
 import {
-  ToolchainVerification,
+  ToolchainVerificationAuthority,
   type ToolchainVerificationRequest,
 } from "./toolchain-verification";
 
@@ -24,6 +24,12 @@ export interface ToolchainDiscovery {
 export interface EngineeringCapabilityRequirement {
   language: EngineeringLanguage;
   operations: ToolchainOperation[];
+  probes: {
+    executable: string;
+    available: boolean;
+    version?: string;
+    capabilities?: string[];
+  }[];
 }
 
 export interface EngineeringCapabilityResolution {
@@ -35,21 +41,21 @@ export interface EngineeringCapabilityResolution {
 }
 
 /**
- * Governs the existing toolchain discovery/verification/registration pieces
- * as a single mission-facing capability-resolution operation.
+ * Mission-facing bridge across the existing engineering toolchain registry,
+ * discovery, verification, and registration authorities.
  *
- * This does not grant terminal or filesystem authority. It only answers
- * whether a verified toolchain capable of the requested operations exists.
+ * This resolver does not grant terminal or filesystem authority. It only
+ * determines whether a verified toolchain can satisfy a bounded requirement.
  */
 export class EngineeringCapabilityOrchestrator {
-  private readonly verification: ToolchainVerification;
+  private readonly verification: ToolchainVerificationAuthority;
   private readonly registration: DynamicToolchainRegistrationAuthority;
 
   constructor(
     private readonly registry: EngineeringToolchainRegistry,
     private readonly discovery: ToolchainDiscovery,
   ) {
-    this.verification = new ToolchainVerification();
+    this.verification = new ToolchainVerificationAuthority(registry);
     this.registration = new DynamicToolchainRegistrationAuthority(registry);
   }
 
@@ -64,13 +70,21 @@ export class EngineeringCapabilityOrchestrator {
       );
 
       if (missing.length === 0) {
-        return {
+        const verificationRequest: ToolchainVerificationRequest = {
           language: requirement.language,
-          available: true,
-          toolchainId: existing.id,
-          supportedOperations: supported,
-          reason: "A registered toolchain already satisfies the requested operations.",
+          requiredOperations: requirement.operations,
+          probes: requirement.probes,
         };
+        const verification = this.verification.verify(verificationRequest);
+        if (verification.verified) {
+          return {
+            language: requirement.language,
+            available: true,
+            toolchainId: existing.id,
+            supportedOperations: supported,
+            reason: "A registered toolchain already satisfies the requested operations and passed executable verification.",
+          };
+        }
       }
     }
 
@@ -84,25 +98,33 @@ export class EngineeringCapabilityOrchestrator {
       };
     }
 
+    const verificationRegistry = new EngineeringToolchainRegistry();
+    verificationRegistry.register(discovered);
+    const verifier = new ToolchainVerificationAuthority(verificationRegistry);
     const verificationRequest: ToolchainVerificationRequest = {
-      toolchain: discovered,
+      language: requirement.language,
       requiredOperations: requirement.operations,
+      probes: requirement.probes,
     };
+    const verification = verifier.verify(verificationRequest);
 
-    const verification = await this.verification.verify(verificationRequest);
     if (!verification.verified) {
       return {
         language: requirement.language,
         available: false,
         toolchainId: discovered.id,
         supportedOperations: [],
-        reason: verification.reason,
+        reason: `Discovered toolchain failed verification. Missing executables/capabilities: ${verification.missingExecutables.join(", ") || "none"}. Unsupported operations: ${verification.unsupportedOperations.join(", ") || "none"}.`,
       };
     }
 
-    const registered = this.registration.register({
+    const registration = new DynamicToolchainRegistrationAuthority(this.registry);
+    const registered = registration.register({
       toolchain: discovered,
-      verification,
+      verification: {
+        ...verification,
+        toolchain: discovered,
+      },
       requiredOperations: requirement.operations,
     });
 
