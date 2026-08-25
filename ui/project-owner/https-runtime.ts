@@ -6,7 +6,10 @@ import { TaskControl } from "../../core/workforce/task-control";
 import { WorkforceRegistry } from "../../core/workforce/registry";
 import { WorkUnitRegistry } from "../../core/workforce/work-unit-registry";
 import { KingsCodingMachine } from "../../core/workforce/kings-coding-machine";
-import type { ProjectOwnerExecutionContext } from "../../core/workforce/project-owner-machine-api";
+import type {
+  ProjectOwnerExecutionContext,
+  ProjectOwnerMachineApiRequest,
+} from "../../core/workforce/project-owner-machine-api";
 import {
   ProjectOwnerMachineServerController,
   createDefaultProjectOwnerMissionFactory,
@@ -101,7 +104,7 @@ async function buildKingsServer(): Promise<Server> {
         return;
       }
       if (req.method === "POST" && req.url === "/api/project-owner/missions") {
-        const request = (await parseBody(req)) as Parameters<ReturnType<typeof createDefaultProjectOwnerMissionFactory>["handle"]>[0];
+        const request = (await parseBody(req)) as ProjectOwnerMachineApiRequest;
         const result = await controller.handle(request);
         sendJson(res, result.ok ? 200 : 400, result);
         return;
