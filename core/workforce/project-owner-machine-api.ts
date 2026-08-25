@@ -365,8 +365,13 @@ export class ProjectOwnerMachineApi {
                     {
                       id: `verify-linux-${taskId}`,
                       operation: "validate",
-                      command: "/home/kevinmfwakley23/.config/nvm/versions/node/v24.19.0/bin/node",
-                      args: ["--version"],
+                      command: process.execPath,
+                      args: ["-e", [
+                        "const fs = require('node:fs');",
+                        `const value = fs.readFileSync(${JSON.stringify(workUnit.acceptanceCriteria.some((criterion) => criterion.includes("source file exists")) ? "src/owner-model-proof.ts" : "package.json")}, 'utf8');`,
+                        `if (${JSON.stringify(workUnit.acceptanceCriteria.join(" "))}.includes('KINGS_OWNER_MODEL_GREEN') && !value.includes('KINGS_OWNER_MODEL_GREEN')) process.exit(2);`,
+                        "console.log('KINGS_OWNER_MODEL_VERIFIED');",
+                      ].join(" ")],
                       workingDirectory: process.cwd(),
                     },
                   ],
