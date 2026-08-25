@@ -4,6 +4,7 @@ import {
   rm,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 
 import type {
   IntelligenceCapability,
@@ -32,6 +33,47 @@ function assert(condition: boolean, message: string): void {
   if (!condition) {
     throw new Error(`ASSERTION FAILED: ${message}`);
   }
+}
+
+function resolveTypeScriptCompiler(): string {
+  try {
+    const resolved = execFileSync(
+      process.execPath,
+      [
+        "-e",
+        'process.stdout.write(require.resolve("typescript/bin/tsc"))',
+      ],
+      {
+        encoding: "utf8",
+      },
+    ).trim();
+
+    if (resolved) {
+      return resolved;
+    }
+  } catch {
+    // Fall through to PATH-based resolution below.
+  }
+
+  try {
+    const resolved = execFileSync(
+      "bash",
+      ["-lc", "command -v tsc"],
+      {
+        encoding: "utf8",
+      },
+    ).trim();
+
+    if (resolved) {
+      return resolved;
+    }
+  } catch {
+    // No compiler resolution available.
+  }
+
+  throw new Error(
+    "TypeScript compiler could not be resolved from the running Node environment or PATH.",
+  );
 }
 
 async function main(): Promise<void> {
@@ -278,9 +320,11 @@ async function main(): Promise<void> {
       updatedAt: new Date().toISOString(),
     };
 
+    const tsc = resolveTypeScriptCompiler();
+
     const buildTest = new BuildTestExecutor({
       sandboxPolicy: {
-        allowedCommands: ["/tmp/kings-typescript/node_modules/.bin/tsc", "node"],
+        allowedCommands: [tsc],
         allowedWorkingDirectories: [workspaceRoot],
         allowedReadPaths: [workspaceRoot],
         allowedWritePaths: [workspaceRoot],
@@ -301,14 +345,14 @@ async function main(): Promise<void> {
         {
           id: "verify-generated-typescript",
           operation: "validate",
-          command: "/tmp/kings-typescript/node_modules/.bin/tsc",
+          command: tsc,
           args: [
             "--target", "ES2022",
             "--module", "CommonJS",
             "--moduleResolution", "Node",
             "--strict",
             "--noEmit",
-            "src/generated.ts",
+            targetPath,
           ],
           workingDirectory: workspaceRoot,
         },
