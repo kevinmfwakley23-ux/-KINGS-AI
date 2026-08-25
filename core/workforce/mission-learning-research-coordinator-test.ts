@@ -5,6 +5,7 @@ import { CodingCapabilityGate } from "./coding-capability-gate";
 import { EngineeringCapabilityOrchestrator } from "./engineering-capability-orchestrator";
 import { EngineeringToolchainRegistry } from "./engineering-toolchain";
 import { MissionLearningResearchCoordinator } from "./mission-learning-research-coordinator";
+import type { ExternalResearchRequest } from "./external-research";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`ASSERTION FAILED: ${message}`);
@@ -65,7 +66,7 @@ async function main(): Promise<void> {
   assert(record.status === "blocked", "learning record should start blocked");
 
   const policy = {
-    authorize(request: { researchId: string; taskId: string; question: string; urls: string[]; maxSources: number }) {
+    authorize(request: ExternalResearchRequest): void {
       if (request.researchId !== "research-learning-research-test") {
         throw new Error("research id mismatch");
       }
@@ -78,6 +79,9 @@ async function main(): Promise<void> {
       if (request.maxSources !== 1) {
         throw new Error("source limit mismatch");
       }
+      if (request.urls.length !== 1) {
+        throw new Error("research URL count mismatch");
+      }
       const host = new URL(request.urls[0]).hostname;
       if (host !== "rust-lang.org") {
         throw new Error("research host mismatch");
@@ -86,7 +90,17 @@ async function main(): Promise<void> {
   };
 
   const gateway = {
-    async discover() {
+    async discover(request: {
+      researchId: string;
+      taskId: string;
+      agentId: string;
+      question: string;
+      urls: string[];
+      maxSources: number;
+    }) {
+      assert(request.researchId === "research-learning-research-test", "gateway research id mismatch");
+      assert(request.taskId === "task-learning-research-test", "gateway task id mismatch");
+      assert(request.agentId === "agent-learning-research-test", "gateway agent id mismatch");
       return {
         candidates: [
           {
