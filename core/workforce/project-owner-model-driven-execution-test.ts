@@ -19,12 +19,61 @@ import { ControlledFileEditor } from "./file-editor";
 import { EngineeringRepairEditor } from "./engineering-repair-editor";
 import { TaskControl } from "./task-control";
 import { WorkforceRegistry } from "./registry";
-import type { Mission } from "./types";
+import { WorkUnitRegistry } from "./work-unit-registry";
+import type { Mission, Task } from "./types";
 import type { IntelligenceCapability, IntelligenceModality } from "./model-interface";
 import type { MissionPlan } from "./mission-continuity";
+import type { WorkUnitContract } from "./work-unit-contract";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`ASSERTION FAILED: ${message}`);
+}
+
+const taskId = "task-owner-model-driven";
+
+function createTask(missionId: string): Task {
+  const now = new Date().toISOString();
+  return {
+    id: taskId,
+    missionId,
+    name: "Owner model-driven build",
+    description: "Create and verify the owner model-driven source file.",
+    requiredCapabilities: ["coding"],
+    requiredToolIds: ["tool-execution-sandbox"],
+    status: "ready",
+    dependencyIds: [],
+    inputReferences: [],
+    expectedOutputs: ["verified source file", "verification evidence"],
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function createWorkUnit(): WorkUnitContract {
+  const now = new Date().toISOString();
+  return {
+    id: "work-unit-owner-model-driven",
+    role: "coding-engineer",
+    objective: "Create and verify the owner model-driven source file.",
+    capabilityIds: ["coding"],
+    allowedToolIds: ["tool-execution-sandbox"],
+    allowedPaths: ["."],
+    budget: {
+      maxTimeMs: 30_000,
+      maxTokens: 1_000,
+      maxIterations: 1,
+    },
+    dependencyIds: [],
+    acceptanceCriteria: [
+      "The source file exists.",
+      "The source contains KINGS_OWNER_MODEL_GREEN.",
+      "The verification command succeeds.",
+    ],
+    requiredEvidenceTypes: ["command"],
+    approved: true,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 function createMission(
@@ -52,7 +101,7 @@ function createMission(
         missionId: input.id,
         name: "Build",
         objective: input.objective,
-        taskIds: ["task-owner-model-driven"],
+        taskIds: [taskId],
         dependencyIds: [],
         status: "active",
       }],
@@ -87,8 +136,14 @@ async function main(): Promise<void> {
     );
 
     const registry = new WorkforceRegistry();
+    const workUnitRegistry = new WorkUnitRegistry();
+    const task = createTask("owner-model-real");
+    const workUnit = createWorkUnit();
+    registry.registerTask(task);
+    workUnitRegistry.register(taskId, workUnit);
+
     const taskControl = new TaskControl(registry);
-    const machine = new KingsCodingMachine(undefined, undefined, taskControl);
+    const machine = new KingsCodingMachine(undefined, undefined, taskControl, workUnitRegistry);
 
     const transport: OllamaHttpTransport = {
       async post(path, body) {
@@ -140,12 +195,10 @@ async function main(): Promise<void> {
     const missionFactory: ProjectOwnerMissionFactory = { create: createMission };
 
     const executionContext: ProjectOwnerExecutionContext = {
-      getTask: (taskId) => registry.getTask(taskId),
-      getWorkUnit: (taskId) => {
-        const workUnit = registry.getWorkUnit(taskId);
-        if (!workUnit) throw new Error(`Missing registered work unit: ${taskId}`);
-        return workUnit;
-      },
+      getTask: (id) => registry.getTask(id),
+      getWorkUnit: (id) => workUnitRegistry.get(id) ?? (() => {
+        throw new Error(`Missing registered work unit: ${id}`);
+      })(),
     };
 
     const api = new ProjectOwnerMachineApi(
@@ -177,7 +230,7 @@ async function main(): Promise<void> {
     });
 
     assert(created.ok, "owner UI must create the real mission");
-    assert((created.view?.plan.milestones.flatMap((milestone) => milestone.taskIds) ?? []).includes("task-owner-model-driven"), "real model task must be present in the mission plan");
+    assert((created.view?.plan.milestones.flatMap((milestone) => milestone.taskIds) ?? []).includes(taskId), "real model task must be present in the mission plan");
 
     const approved = await api.handle({ action: "approve-plan", missionId: "owner-model-real" });
     assert(approved.ok, "owner UI must approve the real mission");
@@ -214,7 +267,7 @@ async function main(): Promise<void> {
 
     assert(result.ok, result.message);
     assert(
-      result.view?.state.completedTaskIds.includes("task-owner-model-driven"),
+      result.view?.state.completedTaskIds.includes(taskId),
       "real model coding task must be promoted to completed mission state",
     );
     assert((result.view?.state.evidenceIds.length ?? 0) > 0, "real model coding must produce evidence");
