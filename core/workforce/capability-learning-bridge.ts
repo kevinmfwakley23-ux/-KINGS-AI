@@ -1,7 +1,7 @@
 import type { ID } from "./types";
 import type { EngineeringLanguage, ToolchainOperation } from "./engineering-toolchain";
 import type { CodingCapabilityGateResult } from "./coding-capability-gate";
-import { KnowledgeGapResearchRequestFactory, type KnowledgeGapResearchRequestInput, type KnowledgeGapResearchRequest } from "./knowledge-gap-research-request";
+import { KnowledgeGapResearchRequestFactory, type KnowledgeGapResearchRequest, type KnowledgeGapResearchRequestInput } from "./knowledge-gap-research-request";
 
 export interface CapabilityLearningBlockerInput {
   missionId: ID;
