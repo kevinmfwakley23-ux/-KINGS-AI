@@ -362,7 +362,7 @@ export class ProjectOwnerMachineApi {
                   rootPath: process.cwd(),
                   allowedPaths: workUnit.allowedPaths,
                   allowedLanguages: ["typescript"],
-                  allowedOperations: ["create", "replace"],
+                  allowedOperations: ["create"],
                   active: true,
                 },
                 repairStep: {
