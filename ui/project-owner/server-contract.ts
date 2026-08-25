@@ -55,6 +55,22 @@ import type {
   IntelligenceCapability,
 } from "../../core/workforce/model-interface";
 
+import type {
+  Task,
+} from "../../core/workforce/types";
+
+import type {
+  WorkUnitContract,
+} from "../../core/workforce/work-unit-contract";
+
+import type {
+  MissionPlan,
+} from "../../core/workforce/mission-continuity";
+
+import type {
+  Mission,
+} from "../../core/workforce/types";
+
 export interface ProjectOwnerMachineApiHandler {
   handle(
     request:
@@ -71,6 +87,179 @@ export interface ProjectOwnerRuntimeOptions {
 type BuildTestOptions = ConstructorParameters<
   typeof import("../../core/workforce/coding-work-unit-execution").CodingWorkUnitExecutionAuthority
 >[1];
+
+function createVisionTask(
+  input: ProjectOwnerDesignInput,
+  now: string,
+): {
+  task: Task;
+  workUnit: WorkUnitContract;
+  planObjective: string;
+  taskId: string;
+  milestoneId: string;
+} {
+  const taskId =
+    `task-${input.id}-build`;
+
+  const milestoneId =
+    `milestone-${input.id}`;
+
+  const objective = [
+    `Build the application described by the owner vision: ${input.objective}`,
+    `Requirements: ${input.requirements.join(" | ")}`,
+    input.preferredPlatform
+      ? `Preferred platform: ${input.preferredPlatform}`
+      : "",
+    input.preferredLanguage
+      ? `Preferred language: ${input.preferredLanguage}`
+      : "",
+    input.constraints.length > 0
+      ? `Constraints: ${input.constraints.join(" | ")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const acceptanceCriteria =
+    input.acceptanceCriteria;
+
+  const task: Task = {
+    id: taskId,
+    missionId: input.id,
+    name: `Build ${input.projectName}`,
+    description: objective,
+    requiredCapabilities: [
+      "reasoning",
+      "planning",
+      "coding",
+      "debugging",
+      "source-inspection",
+      "verification",
+      "recovery",
+    ],
+    requiredToolIds: [
+      "tool-execution-sandbox",
+    ],
+    status: "ready",
+    dependencyIds: [],
+    inputReferences: [
+      "project-owner-vision",
+    ],
+    expectedOutputs: [
+      "Working application source code",
+      "Passing build and verification evidence",
+    ],
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const workUnit: WorkUnitContract = {
+    id:
+      `work-unit-${input.id}-build`,
+    role:
+      "coding-engineer",
+    objective,
+    capabilityIds: [
+      "engineering-typescript",
+    ],
+    allowedToolIds: [
+      "tool-execution-sandbox",
+    ],
+    allowedPaths: [
+      "src",
+      ".",
+    ],
+    budget: {
+      maxTimeMs:
+        120_000,
+      maxTokens:
+        8_000,
+      maxIterations:
+        5,
+    },
+    dependencyIds: [],
+    acceptanceCriteria,
+    requiredEvidenceTypes: [
+      "write",
+      "command",
+      "verification",
+    ],
+    approved: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  return {
+    task,
+    workUnit,
+    planObjective: input.objective,
+    taskId,
+    milestoneId,
+  };
+}
+
+function buildMissionFromVision(
+  input: ProjectOwnerDesignInput,
+  registry: import("../../core/workforce/registry").WorkforceRegistry,
+  workUnits: import("../../core/workforce/work-unit-registry").WorkUnitRegistry,
+): {
+  mission: Mission;
+  plan: MissionPlan;
+} {
+  const now = new Date().toISOString();
+  const vision = createVisionTask(input, now);
+
+  registry.registerTask(
+    vision.task,
+  );
+
+  workUnits.register(
+    vision.task.id,
+    vision.workUnit,
+  );
+
+  return {
+    mission: {
+      id: input.id,
+      name: input.projectName,
+      description: input.objective,
+      status: "planned",
+      objectives: [
+        input.objective,
+      ],
+      sourceReferences: [
+        "project-owner-ui",
+      ],
+      createdAt: now,
+      updatedAt: now,
+    },
+    plan: {
+      id: `plan-${input.id}`,
+      missionId: input.id,
+      version: 1,
+      objective: vision.planObjective,
+      milestones: [
+        {
+          id: vision.milestoneId,
+          missionId: input.id,
+          name: "Build",
+          objective: vision.planObjective,
+          taskIds: [
+            vision.taskId,
+          ],
+          dependencyIds: [],
+          status: "planned",
+        },
+      ],
+      decisionIds: [],
+      acceptanceCriteria: input.acceptanceCriteria,
+      locked: false,
+      approvedByHuman: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+  };
+}
 
 export class ProjectOwnerMachineServerController
   implements ProjectOwnerMachineApiHandler {
@@ -133,19 +322,22 @@ export class ProjectOwnerMachineServerController
         transport,
       );
 
+    const capabilitiesForModel:
+      IntelligenceCapability[] = [
+      "reasoning",
+      "planning",
+      "coding",
+      "debugging",
+      "source-inspection",
+      "verification",
+      "recovery",
+    ];
+
     const model =
       new OllamaIntelligenceModel(
         ollamaClient,
         modelId,
-        [
-          "reasoning",
-          "planning",
-          "coding",
-          "debugging",
-          "source-inspection",
-          "verification",
-          "recovery",
-        ],
+        capabilitiesForModel,
       );
 
     const adapter =
@@ -174,26 +366,15 @@ export class ProjectOwnerMachineServerController
     const capabilities =
       new ModelCapabilityRegistry();
 
-    const verifiedCapabilities: IntelligenceCapability[] = [
-      "reasoning",
-      "planning",
-      "coding",
-      "debugging",
-      "source-inspection",
-      "verification",
-      "recovery",
-    ];
-
     capabilities.register({
       model:
         model.identity,
       capabilities:
-        verifiedCapabilities.map(
+        capabilitiesForModel.map(
           (capability) => ({
             capability,
             strength:
-              capability ===
-              "coding"
+              capability === "coding"
                 ? 90
                 : 82,
             status:
@@ -246,8 +427,9 @@ export class ProjectOwnerMachineServerController
     this.buildTestOptions = {
       sandboxPolicy: {
         allowedCommands: [
-          process.execPath,
-          "/tmp/kings-typescript/node_modules/.bin/tsc",
+          "/home/kevinmfwakley23/.config/nvm/versions/node/v24.19.0/bin/node",
+          "/usr/bin/node",
+          "node",
         ],
         allowedWorkingDirectories: [
           workspaceRoot,
@@ -265,7 +447,7 @@ export class ProjectOwnerMachineServerController
           "execute",
         ],
         timeoutMs:
-          60_000,
+          120_000,
         maxOutputBytes:
           131_072,
         maxConcurrentProcesses:
@@ -334,5 +516,20 @@ export function createProjectOwnerExecuteRequest(
       "execute-next",
     missionId,
     executionRequest,
+  };
+}
+
+export function createDefaultProjectOwnerMissionFactory(
+  registry: import("../../core/workforce/registry").WorkforceRegistry,
+  workUnits: import("../../core/workforce/work-unit-registry").WorkUnitRegistry,
+): ProjectOwnerMissionFactory {
+  return {
+    create(input) {
+      return buildMissionFromVision(
+        input,
+        registry,
+        workUnits,
+      );
+    },
   };
 }
