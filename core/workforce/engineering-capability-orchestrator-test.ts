@@ -20,23 +20,28 @@ function assert(condition: boolean, message: string): void {
 function toolchain(
   language: EngineeringLanguage,
   id: string,
-  executable: string,
+  command: string,
 ): EngineeringToolchain {
   return {
     id,
     language,
+    displayName: `${language} test toolchain`,
+    fileExtensions: [],
     commands: [
       {
         operation: "typecheck",
-        executable,
+        command,
         args: [],
+        requiresCompilation: false,
       },
       {
         operation: "test",
-        executable,
+        command,
         args: [],
+        requiresCompilation: false,
       },
     ],
+    enabled: true,
   };
 }
 
@@ -57,9 +62,18 @@ async function main(): Promise<void> {
     discovery,
   );
 
+  const probes = [
+    {
+      executable: "/usr/bin/node",
+      available: true,
+      version: "24.x",
+    },
+  ];
+
   const first = await orchestrator.resolve({
     language: "typescript",
     operations: ["typecheck", "test"],
+    probes,
   });
 
   assert(first.available, "discovered and verified toolchain should be available");
@@ -69,6 +83,7 @@ async function main(): Promise<void> {
   const second = await orchestrator.resolve({
     language: "typescript",
     operations: ["typecheck"],
+    probes,
   });
 
   assert(second.available, "existing registered toolchain should satisfy repeat resolution");
@@ -77,6 +92,7 @@ async function main(): Promise<void> {
   const third = await orchestrator.resolve({
     language: "python",
     operations: ["build"],
+    probes: [],
   });
 
   assert(!third.available, "unsupported discovered language must remain unavailable");
