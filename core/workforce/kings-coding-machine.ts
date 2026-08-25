@@ -67,6 +67,19 @@ import type {
 } from "./engineering-toolchain";
 
 import {
+  EngineeringToolchainRegistry,
+  createDefaultEngineeringToolchains,
+} from "./engineering-toolchain";
+
+import {
+  CodingCapabilityGate,
+} from "./coding-capability-gate";
+
+import {
+  EngineeringCapabilityOrchestrator,
+} from "./engineering-capability-orchestrator";
+
+import {
   CodingWorkUnitExecutionAuthority,
   type CodingWorkUnitExecutionRequest,
   type CodingWorkUnitExecutionResult,
@@ -89,22 +102,14 @@ import type {
   EngineeringRepairEditor,
 } from "./engineering-repair-editor";
 
-import {
-  CodingCapabilityGate,
-} from "./coding-capability-gate";
-
-import {
-  EngineeringCapabilityOrchestrator,
-} from "./engineering-capability-orchestrator";
-
-import {
-  EngineeringToolchainRegistry,
-  createDefaultEngineeringToolchains,
-} from "./engineering-toolchain";
-
 import type {
   ToolchainProbe,
 } from "./toolchain-verification";
+
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 export interface KingsCodingMissionRequest {
   mission: Mission;
@@ -340,6 +345,29 @@ export class KingsCodingMachine {
     return this.executeCodingWorkUnit(bridged.request, editor, buildTestOptions);
   }
 
+  private async probeExecutable(executable: string): Promise<ToolchainProbe> {
+    if (!executable.trim()) {
+      return { executable, available: false };
+    }
+
+    try {
+      const result = await execFileAsync(executable, ["--version"], {
+        timeout: 5_000,
+        maxBuffer: 16 * 1024,
+      });
+      return {
+        executable,
+        available: true,
+        version: `${result.stdout || result.stderr}`.trim(),
+      };
+    } catch {
+      return {
+        executable,
+        available: false,
+      };
+    }
+  }
+
   async executeEngineeringStep(
     request: KingsCodingMachineExecutionRequest,
     executor: EngineeringCommandExecutor,
@@ -363,17 +391,24 @@ export class KingsCodingMachine {
       throw new Error("K.I.N.G.S. Coding Machine: requested engineering step is not the current governed step");
     }
 
+    const commandDefinition = request.toolchain.commands.find(
+      (command) => command.operation === request.step.operation,
+    );
+
+    if (!commandDefinition) {
+      throw new Error(
+        `K.I.N.G.S. Coding Machine: toolchain "${request.toolchain.id}" does not define operation "${request.step.operation}"`,
+      );
+    }
+
+    const probes = request.capabilityProbes ?? [
+      await this.probeExecutable(commandDefinition.command),
+    ];
+
     const capability = await this.capabilityGate.check({
       language: request.step.language as EngineeringLanguage,
       operations: [request.step.operation],
-      probes: request.capabilityProbes ?? [
-        {
-          executable: request.toolchain.commands.find(
-            (command) => command.operation === request.step.operation,
-          )?.command ?? "",
-          available: true,
-        },
-      ],
+      probes,
     });
 
     if (!capability.ready) {
