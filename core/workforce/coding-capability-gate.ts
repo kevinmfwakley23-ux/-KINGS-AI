@@ -1,18 +1,21 @@
 import type {
   EngineeringLanguage,
-  ToolchainOperation,
   EngineeringToolchain,
+  ToolchainOperation,
 } from "./engineering-toolchain";
+
+import type {
+  ToolchainProbe,
+} from "./toolchain-verification";
 
 import {
   EngineeringCapabilityOrchestrator,
-  type ToolchainProbeProvider,
 } from "./engineering-capability-orchestrator";
 
 export interface CodingCapabilityRequirement {
   language: EngineeringLanguage;
   operations: ToolchainOperation[];
-  probes: ToolchainProbeProvider;
+  probes: ToolchainProbe[];
 }
 
 export interface CodingCapabilityGateResult {
@@ -20,6 +23,7 @@ export interface CodingCapabilityGateResult {
   language: EngineeringLanguage;
   toolchain?: EngineeringToolchain;
   missingOperations: ToolchainOperation[];
+  missingExecutables: string[];
   reason: string;
 }
 
@@ -38,17 +42,14 @@ export class CodingCapabilityGate {
   async check(
     requirement: CodingCapabilityRequirement,
   ): Promise<CodingCapabilityGateResult> {
-    const result = await this.orchestrator.resolve({
-      language: requirement.language,
-      operations: requirement.operations,
-      probes: requirement.probes,
-    });
+    const result = await this.orchestrator.resolve(requirement);
 
     if (!result.available) {
       return {
         ready: false,
         language: requirement.language,
-        missingOperations: requirement.operations,
+        missingOperations: result.unsupportedOperations,
+        missingExecutables: result.missingExecutables,
         reason: result.reason,
       };
     }
@@ -57,6 +58,7 @@ export class CodingCapabilityGate {
       ready: true,
       language: requirement.language,
       missingOperations: [],
+      missingExecutables: [],
       reason: result.reason,
     };
   }
