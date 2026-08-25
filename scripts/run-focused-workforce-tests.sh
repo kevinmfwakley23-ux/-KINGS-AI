@@ -7,21 +7,20 @@ OUT="${ROOT}/.kings-focused-test-build"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-mapfile -t TESTS < <(find "$ROOT/core/workforce" -maxdepth 1 -type f -name '*-test.ts' -printf '%f\n' | sort)
+mapfile -t TEST_PATHS < <(find "$ROOT/core/workforce" -maxdepth 1 -type f -name '*-test.ts' -printf '%p\n' | sort)
 
-if [[ ${#TESTS[@]} -eq 0 ]]; then
+if [[ ${#TEST_PATHS[@]} -eq 0 ]]; then
   echo "No focused workforce tests found."
   exit 1
 fi
 
 echo "K.I.N.G.S. focused workforce verification"
-echo "Found ${#TESTS[@]} test files."
-
+echo "Found ${#TEST_PATHS[@]} test files."
 echo
 
-for test_file in "${TESTS[@]}"; do
-  echo "=== $test_file ==="
-  ts_file="core/workforce/$test_file"
+for test_path in "${TEST_PATHS[@]}"; do
+  test_file="${test_path#${ROOT}/}"
+  echo "=== ${test_file} ==="
 
   npx tsc \
     --target ES2022 \
@@ -32,16 +31,21 @@ for test_file in "${TESTS[@]}"; do
     --strict \
     --types node \
     --outDir "$OUT" \
-    "$ts_file"
+    "$test_path"
 
-  js_file="$OUT/core/workforce/${test_file%.ts}.js"
+  relative_ts="${test_path#${ROOT}/}"
+  relative_js="${relative_ts%.ts}.js"
+  js_file="$OUT/$relative_js"
+
   if [[ ! -f "$js_file" ]]; then
     echo "Compiled test not found: $js_file"
+    echo "Emitted files under $OUT:"
+    find "$OUT" -type f | sort | head -50
     exit 1
   fi
 
   node "$js_file"
   echo
- done
+done
 
 echo "K.I.N.G.S. FOCUSED WORKFORCE TESTS: SUCCESS"
