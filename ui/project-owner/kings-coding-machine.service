@@ -9,7 +9,8 @@ Environment=KINGS_CODING_MACHINE_PORT=8787
 Environment=KINGS_CODING_MACHINE_HOST=kings.local
 Environment=KINGS_CODING_MACHINE_MODEL=qwen2.5-coder:1.5b
 Environment=KINGS_CODING_MACHINE_WORKSPACE=%h/KINGS-AI
-ExecStart=/usr/bin/env node %h/KINGS-AI/ui/project-owner/start-service.js
+Environment=PATH=%h/.config/nvm/versions/node/v24.19.0/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.config/nvm/versions/node/v24.19.0/bin/node %h/KINGS-AI/ui/project-owner/start-service.js
 Restart=on-failure
 RestartSec=2
 
