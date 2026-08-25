@@ -2,13 +2,13 @@ import type { ID, Mission, Task, WorkforceResult } from "./types";
 import { WorkforceRegistry } from "./registry";
 import { WorkforceOrchestrator } from "./workforce-orchestrator";
 import { WorkforceRoleDispatcher } from "./workforce-role-dispatcher";
-import { WorkforceResultHandoffAuthority } from "./workforce-result-handoff";
+import { WorkforceResultHandoff } from "./workforce-result-handoff";
 
 export interface MissionExecutionCoordinatorOptions {
   registry: WorkforceRegistry;
   orchestrator?: WorkforceOrchestrator;
   dispatcher?: WorkforceRoleDispatcher;
-  handoff?: WorkforceResultHandoffAuthority;
+  handoff?: WorkforceResultHandoff;
 }
 
 export interface MissionExecutionCoordinatorSnapshot {
@@ -39,18 +39,27 @@ export class MissionExecutionCoordinator {
   private readonly registry: WorkforceRegistry;
   private readonly orchestrator: WorkforceOrchestrator;
   private readonly dispatcher: WorkforceRoleDispatcher;
-  private readonly handoff: WorkforceResultHandoffAuthority;
+  private readonly handoff: WorkforceResultHandoff;
 
   constructor(options: MissionExecutionCoordinatorOptions) {
     this.registry = options.registry;
     this.orchestrator = options.orchestrator ?? new WorkforceOrchestrator(this.registry);
-    this.dispatcher = options.dispatcher ?? new WorkforceRoleDispatcher(this.registry);
-    this.handoff = options.handoff ?? new WorkforceResultHandoffAuthority(this.orchestrator);
+    this.dispatcher = options.dispatcher ?? new WorkforceRoleDispatcher(this.registry, this.orchestrator);
+    this.handoff = options.handoff ?? new WorkforceResultHandoff(this.registry, this.orchestrator);
   }
 
   snapshot(missionId: ID): MissionExecutionCoordinatorSnapshot {
     const state = this.orchestrator.snapshot(missionId);
-    const dispatchableTaskIds = state.runnableTaskIds.filter((taskId) => this.hasQualifiedWorker(taskId));
+    const dispatchableTaskIds = state.runnableTaskIds.filter((taskId) => {
+      const task = this.registry.getTask(taskId);
+      if (!task) return false;
+      return this.registry.listAgents().some((agent) =>
+        agent.status === "available" &&
+        task.requiredCapabilities.every((capability) => agent.capabilities.includes(capability)) &&
+        task.requiredToolIds.every((toolId) => agent.toolIds.includes(toolId)),
+      );
+    });
+
     return {
       missionId,
       runnableTaskIds: [...state.runnableTaskIds],
@@ -62,27 +71,20 @@ export class MissionExecutionCoordinator {
   }
 
   dispatchNext(missionId: ID): MissionExecutionDispatch | undefined {
-    const snapshot = this.snapshot(missionId);
-    const taskId = snapshot.dispatchableTaskIds[0];
-    if (!taskId) return undefined;
-
-    const assignment = this.dispatcher.assign(taskId);
-    if (!assignment) return undefined;
-
-    const dispatch = this.orchestrator.dispatchNext(missionId);
-    if (!dispatch || dispatch.status !== "dispatched") {
+    const result = this.dispatcher.dispatchNext(missionId);
+    if (!result?.assignment || result.dispatch.status !== "dispatched") {
       return undefined;
     }
 
     return {
-      taskId,
-      agentId: assignment.agentId,
-      role: assignment.role,
-      reason: `Task "${taskId}" dispatched to ${assignment.role} agent "${assignment.agentId}".` ,
+      taskId: result.assignment.taskId,
+      agentId: result.assignment.agentId,
+      role: result.assignment.role,
+      reason: result.assignment.reason,
     };
   }
 
-  acceptVerifiedResult(result: WorkforceResult): Task[] {
+  acceptVerifiedResult(result: WorkforceResult): ReturnType<WorkforceResultHandoff["accept"]> {
     return this.handoff.accept(result);
   }
 
@@ -92,9 +94,5 @@ export class MissionExecutionCoordinator {
 
   getMission(missionId: ID): Mission | undefined {
     return this.registry.getMission(missionId);
-  }
-
-  private hasQualifiedWorker(taskId: ID): boolean {
-    return Boolean(this.dispatcher.findQualifiedAgent(taskId));
   }
 }
