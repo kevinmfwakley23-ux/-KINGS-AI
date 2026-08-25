@@ -3,6 +3,12 @@ import type {
 } from "./types";
 
 import {
+  resolve,
+  relative,
+  isAbsolute,
+} from "node:path";
+
+import {
   ExecutionSandbox,
   type SandboxExecutionResult,
   type SandboxPolicy,
@@ -65,6 +71,21 @@ export interface BuildTestExecutionResult {
 export interface BuildTestExecutorOptions {
   sandboxPolicy:
     SandboxPolicy;
+}
+
+function isPathWithin(
+  candidate: string,
+  allowedRoot: string,
+): boolean {
+  const relativePath = relative(
+    resolve(allowedRoot),
+    resolve(candidate),
+  );
+
+  return (
+    relativePath === "" ||
+    (!relativePath.startsWith("..") && !isAbsolute(relativePath))
+  );
 }
 
 export class BuildTestExecutor {
@@ -203,10 +224,9 @@ export class BuildTestExecutor {
         (step) =>
           !request.workUnit.allowedPaths.some(
             (allowedPath) =>
-              step.workingDirectory ===
-                allowedPath ||
-              step.workingDirectory.startsWith(
-                `${allowedPath}/`,
+              isPathWithin(
+                step.workingDirectory,
+                allowedPath,
               ),
           ),
       );
