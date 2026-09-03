@@ -1,0 +1,39 @@
+name: KINGS Workforce Verify
+
+on:
+  push:
+    branches:
+      - research/adaptive-model-routing-v1
+  pull_request:
+    branches:
+      - kings-coding-machine-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kings-workforce-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused-workforce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install TypeScript toolchain
+        run: npm install --no-audit --no-fund
+
+      - name: Run focused workforce verification
+        run: bash scripts/run-focused-workforce-tests.sh
+
+      - name: Build owner UI
+        run: npm run build:owner-ui
