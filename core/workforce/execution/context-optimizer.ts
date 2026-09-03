@@ -4,6 +4,10 @@ import type {
   MemoryResult,
 } from "../types";
 
+import {
+  ContextTokenBudgetPlanner,
+} from "../context-token-budget";
+
 import type {
   AgentExecutionContext,
 } from "./adapter";
@@ -11,6 +15,8 @@ import type {
 export interface ContextOptimizationLimits {
   maxRecords: number;
   maxEvidence: number;
+  maxEstimatedTokens?: number;
+  charactersPerToken?: number;
 }
 
 export class ExecutionContextOptimizer {
@@ -18,6 +24,8 @@ export class ExecutionContextOptimizer {
     private readonly limits: ContextOptimizationLimits = {
       maxRecords: 20,
       maxEvidence: 40,
+      maxEstimatedTokens: 8_000,
+      charactersPerToken: 4,
     },
   ) {
     if (limits.maxRecords < 1) {
@@ -29,6 +37,24 @@ export class ExecutionContextOptimizer {
     if (limits.maxEvidence < 1) {
       throw new Error(
         "K.I.N.G.S. Context Optimizer: maxEvidence must be at least 1",
+      );
+    }
+
+    if (
+      limits.maxEstimatedTokens !== undefined &&
+      (!Number.isFinite(limits.maxEstimatedTokens) || limits.maxEstimatedTokens < 1)
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Context Optimizer: maxEstimatedTokens must be at least 1",
+      );
+    }
+
+    if (
+      limits.charactersPerToken !== undefined &&
+      (!Number.isFinite(limits.charactersPerToken) || limits.charactersPerToken < 1)
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Context Optimizer: charactersPerToken must be at least 1",
       );
     }
   }
@@ -104,11 +130,24 @@ export class ExecutionContextOptimizer {
       ),
     ];
 
-    return {
+    const optimized: MemoryResult = {
       ...knowledge,
       records: filteredRecords,
       evidence,
       sourceIds,
     };
+
+    if (this.limits.maxEstimatedTokens === undefined) {
+      return optimized;
+    }
+
+    const tokenBudget = new ContextTokenBudgetPlanner({
+      maxEstimatedTokens: this.limits.maxEstimatedTokens,
+      charactersPerToken: this.limits.charactersPerToken ?? 4,
+      recordOverheadTokens: 12,
+      evidenceOverheadTokens: 8,
+    });
+
+    return tokenBudget.plan(optimized).knowledge;
   }
 }
