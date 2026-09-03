@@ -8,10 +8,8 @@ import {
 } from "./dynamic-toolchain-registration";
 
 function assert(
-  condition:
-    boolean,
-  message:
-    string,
+  condition: boolean,
+  message: string,
 ): void {
   if (!condition) {
     throw new Error(
@@ -21,89 +19,51 @@ function assert(
 }
 
 function main(): void {
-  const registry =
-    new EngineeringToolchainRegistry();
+  const registry = new EngineeringToolchainRegistry();
+  const authority = new DynamicToolchainRegistrationAuthority(registry);
 
-  const authority =
-    new DynamicToolchainRegistrationAuthority(
-      registry,
-    );
-
-  const toolchain:
-    EngineeringToolchain = {
-    id:
-      "toolchain-kotlin-runtime",
-    language:
-      "java",
-    displayName:
-      "Kotlin-Compatible JVM Toolchain",
-    fileExtensions: [
-      ".kt",
-      ".kts",
-    ],
+  const toolchain: EngineeringToolchain = {
+    id: "toolchain-kotlin-runtime",
+    language: "kotlin",
+    displayName: "Kotlin JVM Toolchain",
+    fileExtensions: [".kt", ".kts"],
     commands: [
       {
-        operation:
-          "build",
-        command:
-          "gradle",
-        args: [
-          "build",
-        ],
-        requiresCompilation:
-          true,
+        operation: "build",
+        command: "gradle",
+        args: ["build"],
+        requiresCompilation: true,
       },
       {
-        operation:
-          "test",
-        command:
-          "gradle",
-        args: [
-          "test",
-        ],
-        requiresCompilation:
-          true,
+        operation: "test",
+        command: "gradle",
+        args: ["test"],
+        requiresCompilation: true,
       },
       {
-        operation:
-          "run",
-        command:
-          "gradle",
-        args: [
-          "run",
-        ],
-        requiresCompilation:
-          true,
+        operation: "run",
+        command: "gradle",
+        args: ["run"],
+        requiresCompilation: true,
       },
     ],
-    enabled:
-      true,
+    enabled: true,
   };
 
-  const verification =
-    {
-      language:
-        "java" as const,
-      toolchain,
-      verified:
-        true,
-      availableExecutables: [
-        "gradle",
-      ],
-      missingExecutables: [],
-      unsupportedOperations: [],
-    };
+  const verification = {
+    language: "kotlin",
+    toolchain,
+    verified: true,
+    availableExecutables: ["gradle"],
+    missingExecutables: [],
+    unsupportedOperations: [],
+  };
 
-  const result =
-    authority.register({
-      toolchain,
-      verification,
-      requiredOperations: [
-        "build",
-        "test",
-        "run",
-      ],
-    });
+  const result = authority.register({
+    toolchain,
+    verification,
+    requiredOperations: ["build", "test", "run"],
+  });
 
   assert(
     result.registered,
@@ -111,50 +71,59 @@ function main(): void {
   );
 
   assert(
-    registry.get(
-      "java",
-    )?.displayName ===
-      "Kotlin-Compatible JVM Toolchain",
-    "Registered toolchain must be available through the existing registry.",
+    registry.get("kotlin")?.displayName === "Kotlin JVM Toolchain",
+    "A genuinely new language id must be available through the existing toolchain registry without a core type change.",
+  );
+
+  const discovered = registry.discover({
+    language: "kotlin",
+    requiredOperations: ["build", "test", "run"],
+  });
+  assert(
+    discovered.supported && discovered.missingOperations.length === 0,
+    "Dynamically registered language toolchain must participate in ordinary discovery.",
   );
 
   console.log(
-    "08.DYNAMIC verified toolchain registration: SUCCESS",
+    "08.DYNAMIC out-of-tree language registration: SUCCESS",
   );
 
-  let rejected =
-    false;
-
+  let rejected = false;
   try {
     authority.register({
       toolchain: {
         ...toolchain,
-        id:
-          "unverified-toolchain",
+        id: "unverified-toolchain",
+        language: "zig",
       },
       verification: {
         ...verification,
-        verified:
-          false,
+        language: "zig",
+        toolchain: {
+          ...toolchain,
+          id: "unverified-toolchain",
+          language: "zig",
+        },
+        verified: false,
       },
-      requiredOperations: [
-        "build",
-      ],
+      requiredOperations: ["build"],
     });
   } catch {
-    rejected =
-      true;
+    rejected = true;
   }
 
   assert(
     rejected,
     "Unverified toolchains must never register.",
   );
+  assert(
+    registry.get("zig") === undefined,
+    "Rejected dynamic language must not enter the runtime registry.",
+  );
 
   console.log(
     "08.DYNAMIC unverified toolchain protection: SUCCESS",
   );
-
   console.log(
     "TREE-08 DYNAMIC TOOLCHAIN REGISTRATION: SUCCESS",
   );
