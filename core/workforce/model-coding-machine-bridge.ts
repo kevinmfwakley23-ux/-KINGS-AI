@@ -51,6 +51,10 @@ export class ModelCodingMachineBridge {
         input.proposalParser,
       );
 
+    const missionId =
+      input.execution.missionId ??
+      input.execution.projectId;
+
     const proposal =
       this.governedProposal.propose({
         response:
@@ -60,8 +64,7 @@ export class ModelCodingMachineBridge {
             `model-coding-request-${input.execution.taskId}`,
           taskId:
             input.execution.taskId,
-          missionId:
-            input.execution.projectId,
+          missionId,
           messages: [],
           requiredCapabilities: [
             "coding",
