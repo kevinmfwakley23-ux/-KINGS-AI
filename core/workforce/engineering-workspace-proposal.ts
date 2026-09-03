@@ -87,6 +87,42 @@ function normalizePath(
     .trim();
 }
 
+function hasPathTraversal(
+  value:
+    string,
+): boolean {
+  return value
+    .replace(
+      /\\/g,
+      "/",
+    )
+    .split("/")
+    .some(
+      (segment) =>
+        segment === "..",
+    );
+}
+
+function isAbsolutePathLike(
+  value:
+    string,
+): boolean {
+  const normalized =
+    value
+      .replace(
+        /\\/g,
+        "/",
+      )
+      .trim();
+
+  return (
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:\//.test(
+      normalized,
+    )
+  );
+}
+
 function isWithinPath(
   path:
     string,
@@ -103,6 +139,23 @@ function isWithinPath(
     normalizePath(
       allowedPath,
     );
+
+  if (
+    !normalizedPath ||
+    normalizedPath === "." ||
+    isAbsolutePathLike(path) ||
+    hasPathTraversal(path) ||
+    isAbsolutePathLike(allowedPath) ||
+    hasPathTraversal(allowedPath)
+  ) {
+    return false;
+  }
+
+  if (
+    normalizedAllowed === "."
+  ) {
+    return true;
+  }
 
   if (
     normalizedPath ===
@@ -316,13 +369,27 @@ export class EngineeringWorkspaceProposalAuthority {
       EngineeringWorkspaceProposalRequest,
   ):
     AuthorizedEngineeringFileChange {
+    if (
+      hasPathTraversal(
+        change.path,
+      ) ||
+      isAbsolutePathLike(
+        change.path,
+      )
+    ) {
+      throw new Error(
+        `K.I.N.G.S. Engineering Workspace Proposal: path escape is not authorized for "${change.path}".`,
+      );
+    }
+
     const normalizedPath =
       normalizePath(
         change.path,
       );
 
     if (
-      !normalizedPath
+      !normalizedPath ||
+      normalizedPath === "."
     ) {
       throw new Error(
         "K.I.N.G.S. Engineering Workspace Proposal: file path is required.",
