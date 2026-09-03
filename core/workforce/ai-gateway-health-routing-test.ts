@@ -2,6 +2,7 @@ import {
   loadKingsAiGatewayRuntime,
   refreshKingsAiGatewayRuntime,
   registerKingsAiGatewayRuntime,
+  synchronizeKingsAiGatewayRuntime,
 } from "./ai-gateway-runtime";
 import type {
   OpenAiCompatibleGatewayTransport,
@@ -92,6 +93,7 @@ async function main(): Promise<void> {
 
   healthy = true;
   const refreshed = await refreshKingsAiGatewayRuntime(runtime);
+  synchronizeKingsAiGatewayRuntime(refreshed, providers, capabilities, metrics);
 
   assert(refreshed.gateways[0].health.ok, "gateway refresh must observe recovery");
   assert(
@@ -117,8 +119,83 @@ async function main(): Promise<void> {
   assert(recovered.length === 1, "verified auto/coding route must return after gateway recovery");
   assert(healthChecks === 2, "startup and recovery must each perform one live health check");
 
+  let dynamicHealthy = false;
+  const dynamicTransport: OpenAiCompatibleGatewayTransport = {
+    async request(method, path) {
+      assert(method === "GET", "dynamic recovery should only perform model discovery");
+      assert(path === "/models", "dynamic recovery must query the model catalog");
+      if (!dynamicHealthy) {
+        return {
+          status: 503,
+          body: { error: { message: "9Router unavailable" } },
+          text: "9Router unavailable",
+        };
+      }
+      return {
+        status: 200,
+        body: {
+          data: [
+            { id: "provider/coder-large" },
+            { id: "provider/embedding-small" },
+          ],
+        },
+        text: "dynamic catalog",
+      };
+    },
+  };
+
+  const dynamicRuntime = await loadKingsAiGatewayRuntime({
+    env: {
+      KINGS_9ROUTER_URL: "https://9router.invalid",
+    },
+    transportFactory() {
+      return dynamicTransport;
+    },
+  });
+  const dynamicProviders = new ProviderAdapterRegistry();
+  const dynamicCapabilities = new ModelCapabilityRegistry();
+  const dynamicMetrics = new Map<string, ModelRoutingMetrics>();
+  registerKingsAiGatewayRuntime(
+    dynamicRuntime,
+    dynamicProviders,
+    dynamicCapabilities,
+    dynamicMetrics,
+  );
+  assert(
+    dynamicCapabilities.list().length === 0,
+    "a startup-down 9Router with no configured seeds must not invent routable models",
+  );
+
+  dynamicHealthy = true;
+  const dynamicRefreshed = await refreshKingsAiGatewayRuntime(dynamicRuntime);
+  const synchronization = synchronizeKingsAiGatewayRuntime(
+    dynamicRefreshed,
+    dynamicProviders,
+    dynamicCapabilities,
+    dynamicMetrics,
+  );
+
+  assert(
+    synchronization.registeredModels === 1,
+    "runtime synchronization must register the newly discovered coding model",
+  );
+  assert(
+    dynamicCapabilities.discover({
+      providerId: "9router",
+      modelId: "provider/coder-large",
+      availableOnly: true,
+      requiredCapabilities: ["coding"],
+    }).length === 1,
+    "late-discovered 9Router coding models must enter the active capability registry",
+  );
+  assert(
+    dynamicCapabilities.get("9router", "provider/embedding-small") === undefined,
+    "non-coding models must not enter the coding capability registry",
+  );
+
   console.log("K.I.N.G.S. GATEWAY HEALTH → ROUTING EXCLUSION: SUCCESS");
   console.log("K.I.N.G.S. GATEWAY HEALTH → LIVE RECOVERY: SUCCESS");
+  console.log("K.I.N.G.S. GATEWAY REFRESH → LATE MODEL REGISTRATION: SUCCESS");
   console.log("TREE-KCM-GATEWAY-HEALTH-ROUTING: SUCCESS");
 }
 
