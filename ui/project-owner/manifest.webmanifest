@@ -1,0 +1,12 @@
+{
+  "name": "K.I.N.G.S. AI Coding Machine",
+  "short_name": "KINGS AI",
+  "description": "Local-first governed AI coding workstation for Chromebook and Android.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b0a09",
+  "theme_color": "#b98a36",
+  "orientation": "any",
+  "categories": ["developer", "productivity", "utilities"]
+}
