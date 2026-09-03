@@ -519,22 +519,23 @@ export class ExecutionSandbox {
         this.policy
           .allowedEnvironmentKeys
     ) {
+      const requestedValue =
+        requested?.[key];
+      const inheritedValue =
+        process.env[key];
+
       if (
-        key === "PATH" &&
-        !result.PATH
-      ) {
-        const requestedPath = requested?.PATH;
-        const inheritedPath = process.env.PATH;
-        if (requestedPath || inheritedPath) {
-          result.PATH = requestedPath ?? inheritedPath!;
-        }
-      } else if (
-        requested &&
-        key in
-          requested
+        requestedValue !==
+        undefined
       ) {
         result[key] =
-          requested[key];
+          requestedValue;
+      } else if (
+        inheritedValue !==
+        undefined
+      ) {
+        result[key] =
+          inheritedValue;
       }
     }
 
