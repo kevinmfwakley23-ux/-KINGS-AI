@@ -289,6 +289,9 @@ async function main(): Promise<void> {
             ],
             workingDirectory:
               workspace,
+            verifiesCriteria: [
+              "Verification command must pass.",
+            ],
           },
         ],
         requiredCriteria: [
