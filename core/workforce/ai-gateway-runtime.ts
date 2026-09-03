@@ -162,25 +162,20 @@ export function configuredGatewayDefinitions(
   });
 }
 
-export async function loadKingsAiGatewayRuntime(
-  options: KingsGatewayRuntimeOptions = {},
-): Promise<KingsAiGatewayRuntime> {
-  const definitions = configuredGatewayDefinitions(
-    options.env ?? process.env,
-  );
-  const gateways: KingsConfiguredGateway[] = [];
-
-  for (const definition of definitions) {
-    const transport = options.transportFactory?.(definition);
-    const adapter = new OpenAiCompatibleGatewayAdapter(
-      definition,
-      transport,
-    );
-    const health = await adapter.refreshModels();
-    gateways.push({ adapter, health });
+function synchronizeGatewayAvailability(
+  adapter: OpenAiCompatibleGatewayAdapter,
+  health: OpenAiCompatibleGatewayHealth,
+): void {
+  adapter.descriptor.available = health.ok;
+  for (const model of adapter.listModels()) {
+    model.available = health.ok;
   }
+}
 
-  const catalog = gateways
+function buildGatewayCatalog(
+  gateways: readonly KingsConfiguredGateway[],
+): KingsGatewayModelCatalogEntry[] {
+  return gateways
     .flatMap(({ adapter, health }) => {
       const remote = new Set(health.models);
       return adapter.listModels().map((model) => ({
@@ -203,8 +198,51 @@ export async function loadKingsAiGatewayRuntime(
         ? providerOrder
         : left.modelId.localeCompare(right.modelId);
     });
+}
 
-  return { gateways, catalog };
+async function refreshGateway(
+  adapter: OpenAiCompatibleGatewayAdapter,
+): Promise<KingsConfiguredGateway> {
+  const health = await adapter.refreshModels();
+  synchronizeGatewayAvailability(adapter, health);
+  return { adapter, health };
+}
+
+export async function loadKingsAiGatewayRuntime(
+  options: KingsGatewayRuntimeOptions = {},
+): Promise<KingsAiGatewayRuntime> {
+  const definitions = configuredGatewayDefinitions(
+    options.env ?? process.env,
+  );
+  const gateways: KingsConfiguredGateway[] = [];
+
+  for (const definition of definitions) {
+    const transport = options.transportFactory?.(definition);
+    const adapter = new OpenAiCompatibleGatewayAdapter(
+      definition,
+      transport,
+    );
+    gateways.push(await refreshGateway(adapter));
+  }
+
+  return {
+    gateways,
+    catalog: buildGatewayCatalog(gateways),
+  };
+}
+
+export async function refreshKingsAiGatewayRuntime(
+  runtime: KingsAiGatewayRuntime,
+): Promise<KingsAiGatewayRuntime> {
+  const gateways: KingsConfiguredGateway[] = [];
+  for (const configured of runtime.gateways) {
+    gateways.push(await refreshGateway(configured.adapter));
+  }
+
+  return {
+    gateways,
+    catalog: buildGatewayCatalog(gateways),
+  };
 }
 
 export function registerKingsAiGatewayRuntime(
@@ -221,6 +259,7 @@ export function registerKingsAiGatewayRuntime(
   );
 
   for (const { adapter, health } of runtime.gateways) {
+    synchronizeGatewayAvailability(adapter, health);
     providers.register(adapter);
 
     for (const model of adapter.listModels()) {
