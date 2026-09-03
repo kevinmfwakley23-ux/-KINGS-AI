@@ -150,6 +150,7 @@ export class EngineeringToolchainRegistry {
               ...command.args,
             ],
           }),
+        ),
     };
   }
 
