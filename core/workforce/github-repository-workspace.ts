@@ -62,6 +62,11 @@ export interface GitHubRepositoryPrepareResult {
 
 export interface GitHubRepositoryPublishResult {
   managed: boolean;
+  /**
+   * True when the verified repository state is complete from the remote
+   * publication perspective. This includes an already-correct repository
+   * with no diff to commit.
+   */
   published: boolean;
   branch?: string;
   commitSha?: string;
@@ -465,10 +470,11 @@ export class GitHubRepositoryWorkspaceAuthority {
     if (changedFiles.length === 0) {
       return {
         managed: true,
-        published: false,
+        published: true,
         branch: metadata.publishBranch,
         changedFiles: [],
-        message: "Verification passed, but there are no repository changes to publish.",
+        message:
+          "Project-aware verification passed and the repository is already compliant; no new commit or push is required.",
       };
     }
 
