@@ -9,9 +9,11 @@
   },
   "scripts": {
     "build:owner-ui": "tsc --target ES2022 --module CommonJS --moduleResolution Node --esModuleInterop --skipLibCheck --strict --types node --outDir .kings-ui-build ui/project-owner/local-server.ts",
-    "test:workforce": "bash scripts/run-focused-workforce-tests.sh",
+    "test:workforce": "KINGS_SKIP_LIVE_MODEL_TESTS=1 bash scripts/run-focused-workforce-tests.sh",
+    "test:workforce:live": "bash scripts/run-focused-workforce-tests.sh",
     "test": "npm run test:workforce",
     "check": "npm run build:owner-ui && npm run test:workforce",
+    "check:live": "npm run build:owner-ui && npm run test:workforce:live",
     "start:owner-ui": "npm run build:owner-ui && node .kings-ui-build/ui/project-owner/local-server.js"
   }
 }
