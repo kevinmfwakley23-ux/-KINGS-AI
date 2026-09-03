@@ -22,6 +22,7 @@ export type EngineeringLanguage =
 
 export type ToolchainOperation =
   | "create"
+  | "replace"
   | "format"
   | "lint"
   | "typecheck"
