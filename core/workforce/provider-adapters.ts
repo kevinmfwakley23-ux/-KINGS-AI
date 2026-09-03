@@ -32,9 +32,22 @@ export interface ProviderAdapter {
   ): Promise<ModelExecutionResult>;
 }
 
+export type ProviderExecutionObserver = (
+  providerId: ID,
+  modelId: ID,
+  request: ModelExecutionRequest,
+  result: ModelExecutionResult,
+) => Promise<void>;
+
 export class ProviderAdapterRegistry {
   private readonly adapters =
     new Map<ID, ProviderAdapter>();
+
+  private executionObserver?: ProviderExecutionObserver;
+
+  setExecutionObserver(observer?: ProviderExecutionObserver): void {
+    this.executionObserver = observer;
+  }
 
   register(
     adapter: ProviderAdapter,
@@ -86,7 +99,7 @@ export class ProviderAdapterRegistry {
     );
   }
 
-  execute(
+  async execute(
     providerId: ID,
     modelId: ID,
     request: ModelExecutionRequest,
@@ -97,7 +110,7 @@ export class ProviderAdapterRegistry {
       );
 
     if (!adapter) {
-      return Promise.resolve({
+      return {
         success: false,
         failure: {
           requestId:
@@ -119,13 +132,13 @@ export class ProviderAdapterRegistry {
             latencyMs: 0,
           },
         },
-      });
+      };
     }
 
     if (
       !adapter.descriptor.available
     ) {
-      return Promise.resolve({
+      return {
         success: false,
         failure: {
           requestId:
@@ -147,12 +160,49 @@ export class ProviderAdapterRegistry {
             latencyMs: 0,
           },
         },
-      });
+      };
     }
 
-    return adapter.execute(
+    const result = await adapter.execute(
       modelId,
       request,
     );
+
+    if (!this.executionObserver || !result.success || !result.response) {
+      return result;
+    }
+
+    try {
+      await this.executionObserver(
+        providerId,
+        modelId,
+        request,
+        result,
+      );
+      return {
+        ...result,
+        response: {
+          ...result.response,
+          metadata: {
+            ...result.response.metadata,
+            usagePersisted: true,
+            usagePersistenceError: undefined,
+          },
+        },
+      };
+    } catch (error) {
+      return {
+        ...result,
+        response: {
+          ...result.response,
+          metadata: {
+            ...result.response.metadata,
+            usagePersisted: false,
+            usagePersistenceError:
+              error instanceof Error ? error.message : String(error),
+          },
+        },
+      };
+    }
   }
 }
