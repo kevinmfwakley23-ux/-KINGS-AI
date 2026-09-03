@@ -26,6 +26,29 @@ function normalizePath(
     .trim();
 }
 
+function hasPathTraversal(
+  value: string,
+): boolean {
+  return value
+    .replace(/\\/g, "/")
+    .split("/")
+    .some((segment) => segment === "..");
+}
+
+function isAbsolutePathLike(
+  value: string,
+): boolean {
+  const normalized =
+    value
+      .replace(/\\/g, "/")
+      .trim();
+
+  return (
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:\//.test(normalized)
+  );
+}
+
 function isWithinAuthorizedPath(
   candidate: string,
   allowed: string,
@@ -34,6 +57,21 @@ function isWithinAuthorizedPath(
     normalizePath(candidate);
   const normalizedAllowed =
     normalizePath(allowed);
+
+  if (
+    !normalizedCandidate ||
+    normalizedCandidate === "." ||
+    isAbsolutePathLike(candidate) ||
+    hasPathTraversal(candidate) ||
+    isAbsolutePathLike(allowed) ||
+    hasPathTraversal(allowed)
+  ) {
+    return false;
+  }
+
+  if (normalizedAllowed === ".") {
+    return true;
+  }
 
   return (
     normalizedCandidate ===
@@ -151,7 +189,7 @@ export class ModelCodingProposalParser
     const blocks: Array<{
       path: string;
       operation: "create" | "replace";
-      content: string;
+      content: string[];
     }> = [];
 
     const lines =
