@@ -65,6 +65,10 @@ function normalizePath(
       "/",
     )
     .replace(
+      /^\.\/+/,
+      "",
+    )
+    .replace(
       /\/+/g,
       "/",
     )
@@ -90,6 +94,24 @@ function hasPathTraversal(
     );
 }
 
+function isAbsolutePathLike(
+  value:
+    string,
+): boolean {
+  const normalized =
+    value
+      .replace(
+        /\\/g,
+        "/",
+      )
+      .trim();
+
+  return (
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:\//.test(normalized)
+  );
+}
+
 function isWithinAuthorizedPath(
   candidate:
     string,
@@ -105,6 +127,22 @@ function isWithinAuthorizedPath(
     normalizePath(
       allowed,
     );
+
+  if (
+    !normalizedCandidate ||
+    isAbsolutePathLike(candidate) ||
+    hasPathTraversal(candidate) ||
+    isAbsolutePathLike(allowed) ||
+    hasPathTraversal(allowed)
+  ) {
+    return false;
+  }
+
+  if (
+    normalizedAllowed === "."
+  ) {
+    return true;
+  }
 
   return (
     normalizedCandidate ===
@@ -162,10 +200,13 @@ export class GovernedLocalCodingProposal {
       if (
         hasPathTraversal(
           change.path,
+        ) ||
+        isAbsolutePathLike(
+          change.path,
         )
       ) {
         throw new Error(
-          `K.I.N.G.S. Local Coding Proposal: path traversal is not authorized for "${change.path}".`,
+          `K.I.N.G.S. Local Coding Proposal: path escape is not authorized for "${change.path}".`,
         );
       }
 
@@ -175,7 +216,8 @@ export class GovernedLocalCodingProposal {
         );
 
       if (
-        !normalizedPath
+        !normalizedPath ||
+        normalizedPath === "."
       ) {
         throw new Error(
           "K.I.N.G.S. Local Coding Proposal: file path is required.",
