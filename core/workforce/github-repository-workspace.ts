@@ -465,8 +465,7 @@ export class GitHubRepositoryWorkspaceAuthority {
     const changed = await this.git(["status", "--porcelain"], root);
     const changedFiles = changed.stdout
       .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
+      .filter((line) => line.length >= 4)
       .map((line) => line.slice(3).trim())
       .filter((path) => path && !path.startsWith(".git/"));
 
