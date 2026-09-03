@@ -182,22 +182,23 @@ function buildGatewayCatalog(
   gateways: readonly KingsConfiguredGateway[],
 ): KingsGatewayModelCatalogEntry[] {
   return gateways
-    .flatMap(({ adapter, health }) => {
-      const remote = new Set(health.models);
-      return adapter.listModels().map((model) => ({
-        providerId: adapter.descriptor.id,
-        providerName: adapter.descriptor.name,
-        gatewayKind: adapter.gatewayKind,
-        modelId: model.modelId,
-        displayName: model.displayName,
-        codingEligible:
-          health.codingModels.includes(model.modelId) ||
-          !remote.has(model.modelId),
-        verifiedCodingRoute:
+    .flatMap(({ adapter, health }) =>
+      adapter.listModels().map((model) => {
+        const verifiedCodingRoute =
           adapter.gatewayKind === "omniroute" &&
-          (model.modelId === "auto/coding" || model.modelId === "auto"),
-      }));
-    })
+          (model.modelId === "auto/coding" || model.modelId === "auto");
+        return {
+          providerId: adapter.descriptor.id,
+          providerName: adapter.descriptor.name,
+          gatewayKind: adapter.gatewayKind,
+          modelId: model.modelId,
+          displayName: model.displayName,
+          codingEligible:
+            health.codingModels.includes(model.modelId) || verifiedCodingRoute,
+          verifiedCodingRoute,
+        };
+      }),
+    )
     .sort((left, right) => {
       const providerOrder = left.providerId.localeCompare(right.providerId);
       return providerOrder !== 0
