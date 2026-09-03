@@ -2,6 +2,12 @@
 runtimes/*/.venv/
 runtimes/beeai/
 
+# K.I.N.G.S. local runtime state
+.kings/
+.kings-ui-build/
+.kings-focused-test-build/
+.kings-focused-test-report.txt
+
 # Node dependencies
 node_modules/
 **/node_modules/
