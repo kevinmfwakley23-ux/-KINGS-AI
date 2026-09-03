@@ -47,6 +47,14 @@ import type {
   EngineeringLanguage,
 } from "./engineering-toolchain";
 
+import {
+  GitHubRepositoryWorkspaceAuthority,
+} from "./github-repository-workspace";
+
+import {
+  RepositoryCodingContextAuthority,
+} from "./repository-coding-context";
+
 export interface ProjectOwnerMachineApiRequest {
   action:
     | "create-mission"
@@ -72,6 +80,14 @@ export interface ProjectOwnerMachineApiResponse {
   plan?: MissionPlan;
   diagnostics?: string;
   workspacePath?: string;
+  repository?: {
+    repositoryId: string;
+    baseRef: string;
+    publishBranch: string;
+    published?: boolean;
+    commitSha?: string;
+    inspectedFiles?: string[];
+  };
 }
 
 export interface ProjectOwnerMissionFactory {
@@ -136,6 +152,9 @@ export class ProjectOwnerMachineApi {
       ".kings",
       "projects",
     ),
+    private readonly repositoryWorkspace?: GitHubRepositoryWorkspaceAuthority,
+    private readonly repositoryCodingContext: RepositoryCodingContextAuthority =
+      new RepositoryCodingContextAuthority(),
   ) {
     this.controller = controller;
   }
@@ -155,6 +174,31 @@ export class ProjectOwnerMachineApi {
         }
 
         const design = this.controller.createMissionRequest(request.input);
+        const missionWorkspace = join(
+          this.workspaceRoot,
+          safeWorkspaceSegment(design.id),
+        );
+
+        let preparedRepository:
+          Awaited<ReturnType<GitHubRepositoryWorkspaceAuthority["prepare"]>> |
+          undefined;
+
+        if (design.repository) {
+          if (!this.repositoryWorkspace) {
+            return {
+              ok: false,
+              message:
+                "GitHub repository mode is not attached to this K.I.N.G.S. runtime.",
+            };
+          }
+
+          preparedRepository = await this.repositoryWorkspace.prepare({
+            missionId: design.id,
+            workspaceRoot: missionWorkspace,
+            repository: design.repository,
+          });
+        }
+
         const created = this.missionFactory.create(design);
         const taskIds = created.plan.milestones.flatMap((milestone) => milestone.taskIds);
 
@@ -182,12 +226,17 @@ export class ProjectOwnerMachineApi {
 
         return {
           ok: true,
-          message:
-            "Vision compiled into an executable coding mission. Human approval is required before execution.",
-          workspacePath: join(
-            this.workspaceRoot,
-            safeWorkspaceSegment(created.mission.id),
-          ),
+          message: preparedRepository
+            ? `GitHub repository ${preparedRepository.metadata.repositoryId} checked out on ${preparedRepository.metadata.publishBranch}. Vision compiled into an executable coding mission; human approval is required before code changes execute.`
+            : "Vision compiled into an executable coding mission. Human approval is required before execution.",
+          workspacePath: missionWorkspace,
+          repository: preparedRepository
+            ? {
+                repositoryId: preparedRepository.metadata.repositoryId,
+                baseRef: preparedRepository.metadata.baseRef,
+                publishBranch: preparedRepository.metadata.publishBranch,
+              }
+            : undefined,
           view: {
             mission: snapshot.mission,
             plan: snapshot.plan,
@@ -206,6 +255,17 @@ export class ProjectOwnerMachineApi {
         safeWorkspaceSegment(missionId),
       );
 
+      const managedRepository = this.repositoryWorkspace
+        ? await this.repositoryWorkspace.readMetadata(missionWorkspace)
+        : undefined;
+      const repositoryResponse = managedRepository
+        ? {
+            repositoryId: managedRepository.repositoryId,
+            baseRef: managedRepository.baseRef,
+            publishBranch: managedRepository.publishBranch,
+          }
+        : undefined;
+
       if (request.action === "approve-plan") {
         const plan = this.machine.approvePlan(missionId);
         const snapshot = this.machine.snapshot(missionId);
@@ -214,6 +274,7 @@ export class ProjectOwnerMachineApi {
           message: "Mission plan approved.",
           plan,
           workspacePath: missionWorkspace,
+          repository: repositoryResponse,
           view: {
             mission: snapshot.mission,
             plan: snapshot.plan,
@@ -230,6 +291,7 @@ export class ProjectOwnerMachineApi {
           message: "Mission plan locked and ready for governed execution.",
           plan,
           workspacePath: missionWorkspace,
+          repository: repositoryResponse,
           view: {
             mission: snapshot.mission,
             plan: snapshot.plan,
@@ -248,6 +310,7 @@ export class ProjectOwnerMachineApi {
             state: snapshot.state,
           }),
           workspacePath: missionWorkspace,
+          repository: repositoryResponse,
           view: {
             mission: snapshot.mission,
             plan: snapshot.plan,
@@ -267,6 +330,7 @@ export class ProjectOwnerMachineApi {
               ok: false,
               message: "Mission must be approved and locked before execution.",
               workspacePath: missionWorkspace,
+              repository: repositoryResponse,
               view: {
                 mission: snapshot.mission,
                 plan: snapshot.plan,
@@ -280,6 +344,7 @@ export class ProjectOwnerMachineApi {
               ok: false,
               message: "Mission has more than one active task; execution routing is ambiguous.",
               workspacePath: missionWorkspace,
+              repository: repositoryResponse,
               view: {
                 mission: snapshot.mission,
                 plan: snapshot.plan,
@@ -303,6 +368,7 @@ export class ProjectOwnerMachineApi {
               ok: false,
               message: "No executable coding task is available for this mission.",
               workspacePath: missionWorkspace,
+              repository: repositoryResponse,
               view: {
                 mission: snapshot.mission,
                 plan: snapshot.plan,
@@ -323,6 +389,15 @@ export class ProjectOwnerMachineApi {
 
           this.machine.setTaskRunning(missionId, taskId);
 
+          const repositoryContext = managedRepository
+            ? await this.repositoryCodingContext.build({
+                workspaceRoot: missionWorkspace,
+                missionId,
+                objective: workUnit.objective,
+                requirements: [task.description, ...workUnit.acceptanceCriteria],
+              })
+            : undefined;
+
           const numberedCriteria = workUnit.acceptanceCriteria
             .map((criterion, index) => `ACCEPTANCE-${index + 1}: ${criterion}`)
             .join("\n");
@@ -338,6 +413,7 @@ export class ProjectOwnerMachineApi {
                   "You are the production coding engine inside K.I.N.G.S. Coding Machine.",
                   "Generate real runnable software, never placeholder-only, mock-only, TODO-only, pseudocode, or fake-success code.",
                   "Return ONLY FILE blocks. Every file must start exactly with FILE: relative/path [create|replace], followed by complete file contents. No Markdown fences and no explanation outside FILE blocks.",
+                  "For an existing repository, preserve working architecture and make the smallest complete changes supported by inspected source. Never invent the contents of an unseen file.",
                   "Include every manifest, configuration, source file, and automated test required for the project to install, build, run, and verify in a clean project workspace.",
                   "Every acceptance criterion must be exercised by executable tests or a real launch/smoke path. Do not write tests that merely assert true, print a green marker, or duplicate the implementation without exercising behavior.",
                   "For browser applications, include a responsive viewport and layouts usable on Chromebook and Android phone/tablet screens.",
@@ -346,8 +422,21 @@ export class ProjectOwnerMachineApi {
               },
               {
                 role: "user",
-                content:
-                  `${workUnit.objective}\n\nAcceptance criteria:\n${numberedCriteria}\n\nTask: ${task.description}\n\nBuild the complete project in the current isolated workspace.`,
+                content: [
+                  workUnit.objective,
+                  "",
+                  "Acceptance criteria:",
+                  numberedCriteria,
+                  "",
+                  `Task: ${task.description}`,
+                  "",
+                  managedRepository
+                    ? `You are modifying the existing GitHub repository ${managedRepository.repositoryId} from ${managedRepository.baseRef}. Inspect and preserve the existing project; do not replace it with an unrelated scaffold.`
+                    : "Build the complete project in the current isolated workspace.",
+                  repositoryContext
+                    ? `\n${repositoryContext.context}`
+                    : "",
+                ].join("\n"),
               },
             ],
             requiredCapabilities: [
@@ -458,6 +547,60 @@ export class ProjectOwnerMachineApi {
           );
 
           const next = this.machine.snapshot(missionId);
+
+          if (result.completed && managedRepository && this.repositoryWorkspace) {
+            try {
+              const publication = await this.repositoryWorkspace.publishVerified(
+                missionWorkspace,
+                {
+                  missionId,
+                  verified: true,
+                  commitMessage: `K.I.N.G.S. verified build: ${task.name}`,
+                },
+              );
+
+              return {
+                ok: publication.published || !managedRepository.publishVerifiedChanges,
+                message: publication.published
+                  ? `Coding task "${taskId}" completed with project-aware build/test verification and published to GitHub branch "${publication.branch}".`
+                  : `Coding task "${taskId}" completed with project-aware build/test verification. ${publication.message}`,
+                diagnostics: result.failureDiagnostics,
+                workspacePath: missionWorkspace,
+                repository: {
+                  ...repositoryResponse!,
+                  published: publication.published,
+                  commitSha: publication.commitSha,
+                  inspectedFiles: repositoryContext?.inspectedFiles,
+                },
+                view: {
+                  mission: next.mission,
+                  plan: next.plan,
+                  state: next.state,
+                },
+              };
+            } catch (error) {
+              const diagnostics =
+                error instanceof Error ? error.message : String(error);
+              return {
+                ok: false,
+                message:
+                  `Coding task "${taskId}" passed real project verification, but GitHub publication failed. The verified local checkout was preserved for recovery.`,
+                diagnostics,
+                workspacePath: missionWorkspace,
+                repository: {
+                  ...repositoryResponse!,
+                  published: false,
+                  inspectedFiles: repositoryContext?.inspectedFiles,
+                },
+                view: {
+                  mission: next.mission,
+                  plan: next.plan,
+                  state: next.state,
+                },
+              };
+            }
+          }
+
           return {
             ok: result.completed,
             message: result.completed
@@ -465,6 +608,12 @@ export class ProjectOwnerMachineApi {
               : `Coding task "${taskId}" did not satisfy real completion criteria.`,
             diagnostics: result.failureDiagnostics,
             workspacePath: missionWorkspace,
+            repository: repositoryResponse
+              ? {
+                  ...repositoryResponse,
+                  inspectedFiles: repositoryContext?.inspectedFiles,
+                }
+              : undefined,
             view: {
               mission: next.mission,
               plan: next.plan,
@@ -483,6 +632,7 @@ export class ProjectOwnerMachineApi {
             message: `Coding task "${taskId ?? "unknown"}" failed during governed execution.`,
             diagnostics,
             workspacePath: missionWorkspace,
+            repository: repositoryResponse,
             view: {
               mission: failed.mission,
               plan: failed.plan,
