@@ -41,13 +41,14 @@ fi
 echo "K.I.N.G.S. full focused workforce verification"
 echo "Found ${#TESTS[@]} test files."
 if [[ "$SKIP_LIVE_MODEL_TESTS" == "1" ]]; then
-  echo "Live local-Ollama acceptance tests are excluded from this deterministic run."
-  echo "Run without KINGS_SKIP_LIVE_MODEL_TESTS=1 to exercise the installed local model."
+  echo "Live provider/model acceptance tests will be compiled but not executed in this deterministic run."
+  echo "Run without KINGS_SKIP_LIVE_MODEL_TESTS=1 to exercise the configured live provider or local Ollama fallback."
 fi
 echo "Failures will be collected; the suite will continue."
 echo
 
 total=0
+compiled=0
 executed=0
 passed=0
 failed=0
@@ -56,16 +57,12 @@ skipped=0
 for source_file in "${TESTS[@]}"; do
   total=$((total + 1))
   test_file="$(basename "$source_file")"
+  skip_runtime=0
 
   if [[ "$SKIP_LIVE_MODEL_TESTS" == "1" ]] && is_live_model_test "$test_file"; then
-    skipped=$((skipped + 1))
-    echo "=== [$total/${#TESTS[@]}] $test_file ==="
-    echo "RESULT: SKIP (requires local Ollama runtime/model)"
-    echo
-    continue
+    skip_runtime=1
   fi
 
-  executed=$((executed + 1))
   test_build="$OUT/${test_file%.ts}"
   test_log="$test_build.log"
   mkdir -p "$test_build"
@@ -110,6 +107,16 @@ for source_file in "${TESTS[@]}"; do
     continue
   fi
 
+  compiled=$((compiled + 1))
+
+  if [[ "$skip_runtime" == "1" ]]; then
+    skipped=$((skipped + 1))
+    echo "RESULT: COMPILE PASS / RUNTIME SKIP (requires reachable live provider/model)"
+    echo
+    continue
+  fi
+
+  executed=$((executed + 1))
   js_file="${emitted_tests[0]}"
 
   if node "$js_file" >"$test_log" 2>&1; then
@@ -130,10 +137,11 @@ done
 {
   echo "K.I.N.G.S. FOCUSED WORKFORCE TEST SUMMARY"
   echo "Discovered: $total"
+  echo "Compiled: $compiled"
   echo "Executed: $executed"
   echo "Passed: $passed"
   echo "Failed: $failed"
-  echo "Skipped live-model: $skipped"
+  echo "Skipped live runtime: $skipped"
   echo "Report: $REPORT"
 } | tee -a "$REPORT"
 
