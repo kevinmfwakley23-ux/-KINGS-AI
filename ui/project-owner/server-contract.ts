@@ -34,6 +34,9 @@ import {
   registerKingsAiGatewayRuntime,
   type KingsAiGatewayRuntime,
 } from "../../core/workforce/ai-gateway-runtime";
+import {
+  GitHubRepositoryWorkspaceAuthority,
+} from "../../core/workforce/github-repository-workspace";
 
 export interface ProjectOwnerMachineApiHandler {
   handle(
@@ -67,8 +70,11 @@ function createVisionTask(
   const taskId = `task-${input.id}-build`;
   const milestoneId = `milestone-${input.id}`;
   const objective = [
-    `Build the application described by the owner vision: ${input.objective}`,
+    input.repository
+      ? `Inspect and modify the existing GitHub repository ${input.repository.url}: ${input.objective}`
+      : `Build the application described by the owner vision: ${input.objective}`,
     `Requirements: ${input.requirements.join(" | ")}`,
+    input.repository?.baseRef ? `Repository base ref: ${input.repository.baseRef}` : "",
     input.preferredPlatform ? `Preferred platform: ${input.preferredPlatform}` : "",
     input.preferredLanguage ? `Preferred language: ${input.preferredLanguage}` : "",
     input.constraints.length > 0 ? `Constraints: ${input.constraints.join(" | ")}` : "",
@@ -77,7 +83,9 @@ function createVisionTask(
   const task: Task = {
     id: taskId,
     missionId: input.id,
-    name: `Build ${input.projectName}`,
+    name: input.repository
+      ? `Build ${input.projectName} from GitHub repository`
+      : `Build ${input.projectName}`,
     description: objective,
     requiredCapabilities: [
       "reasoning",
@@ -91,12 +99,17 @@ function createVisionTask(
     requiredToolIds: ["tool-execution-sandbox"],
     status: "ready",
     dependencyIds: [],
-    inputReferences: ["project-owner-vision"],
+    inputReferences: input.repository
+      ? ["project-owner-vision", input.repository.url]
+      : ["project-owner-vision"],
     expectedOutputs: [
       "Working application source code",
       "Project manifests and configuration",
       "Executable automated tests or smoke verification",
       "Passing build and verification evidence",
+      ...(input.repository
+        ? ["Verified GitHub work-branch commit"]
+        : []),
     ],
     createdAt: now,
     updatedAt: now,
@@ -148,7 +161,9 @@ function buildMissionFromVision(
       description: input.objective,
       status: "planned",
       objectives: [input.objective],
-      sourceReferences: ["project-owner-ui"],
+      sourceReferences: input.repository
+        ? ["project-owner-ui", input.repository.url]
+        : ["project-owner-ui"],
       createdAt: now,
       updatedAt: now,
     },
@@ -332,6 +347,7 @@ export class ProjectOwnerMachineServerController
       executionContext,
       new ProjectOwnerUiController(),
       workspaceRoot,
+      new GitHubRepositoryWorkspaceAuthority(),
     );
   }
 
