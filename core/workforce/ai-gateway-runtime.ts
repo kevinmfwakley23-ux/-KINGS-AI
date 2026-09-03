@@ -39,6 +39,12 @@ export interface KingsGatewayRuntimeOptions {
   ) => OpenAiCompatibleGatewayTransport | undefined;
 }
 
+export interface KingsGatewayRuntimeSynchronization {
+  registeredProviders: number;
+  registeredModels: number;
+  refreshedRoutes: number;
+}
+
 interface JsonGatewayDefinition {
   id?: string;
   name?: string;
@@ -208,6 +214,51 @@ async function refreshGateway(
   return { adapter, health };
 }
 
+function registerOrRefreshModelRoute(
+  adapter: OpenAiCompatibleGatewayAdapter,
+  health: OpenAiCompatibleGatewayHealth,
+  catalog: KingsGatewayModelCatalogEntry,
+  model: ReturnType<OpenAiCompatibleGatewayAdapter["listModels"]>[number],
+  capabilities: ModelCapabilityRegistry,
+  metrics: Map<string, ModelRoutingMetrics>,
+): boolean {
+  const verified = catalog.verifiedCodingRoute;
+  const existing = capabilities.get(adapter.descriptor.id, model.modelId);
+
+  if (!existing) {
+    capabilities.register({
+      model,
+      capabilities: model.capabilities.map((capability) => ({
+        capability,
+        strength:
+          capability === "coding"
+            ? verified ? 95 : 78
+            : verified ? 90 : 74,
+        status: verified ? "verified" as const : "unverified" as const,
+        evidenceReferences: [
+          verified
+            ? `${adapter.gatewayKind}:documented-auto-coding-route`
+            : `${adapter.gatewayKind}:live-v1-models-catalog`,
+        ],
+        verifiedAt: verified ? new Date().toISOString() : undefined,
+      })),
+    });
+  } else if (existing.model !== model) {
+    existing.model.available = model.available;
+  }
+
+  metrics.set(
+    modelRoutingMetricKey(adapter.descriptor.id, model.modelId),
+    {
+      estimatedCost: 0,
+      latencyMs: verified ? 800 : 1_200,
+      reliability: health.ok ? verified ? 94 : 80 : 25,
+    },
+  );
+
+  return !existing;
+}
+
 export async function loadKingsAiGatewayRuntime(
   options: KingsGatewayRuntimeOptions = {},
 ): Promise<KingsAiGatewayRuntime> {
@@ -245,56 +296,75 @@ export async function refreshKingsAiGatewayRuntime(
   };
 }
 
-export function registerKingsAiGatewayRuntime(
+export function synchronizeKingsAiGatewayRuntime(
   runtime: KingsAiGatewayRuntime,
   providers: ProviderAdapterRegistry,
   capabilities: ModelCapabilityRegistry,
   metrics: Map<string, ModelRoutingMetrics>,
-): void {
+): KingsGatewayRuntimeSynchronization {
   const catalogByRoute = new Map(
     runtime.catalog.map((entry) => [
       `${entry.providerId}::${entry.modelId}`,
       entry,
     ]),
   );
+  let registeredProviders = 0;
+  let registeredModels = 0;
+  let refreshedRoutes = 0;
 
   for (const { adapter, health } of runtime.gateways) {
     synchronizeGatewayAvailability(adapter, health);
-    providers.register(adapter);
+
+    const existingProvider = providers.get(adapter.descriptor.id);
+    if (!existingProvider) {
+      providers.register(adapter);
+      registeredProviders += 1;
+    } else if (existingProvider !== adapter) {
+      throw new Error(
+        `K.I.N.G.S. Gateway Runtime: provider "${adapter.descriptor.id}" is already bound to a different adapter instance`,
+      );
+    }
 
     for (const model of adapter.listModels()) {
       const catalog = catalogByRoute.get(
         `${adapter.descriptor.id}::${model.modelId}`,
       );
-      if (!catalog?.codingEligible) continue;
+      if (!catalog?.codingEligible) {
+        model.available = false;
+        continue;
+      }
 
-      const verified = catalog.verifiedCodingRoute;
-      capabilities.register({
+      if (registerOrRefreshModelRoute(
+        adapter,
+        health,
+        catalog,
         model,
-        capabilities: model.capabilities.map((capability) => ({
-          capability,
-          strength:
-            capability === "coding"
-              ? verified ? 95 : 78
-              : verified ? 90 : 74,
-          status: verified ? "verified" as const : "unverified" as const,
-          evidenceReferences: [
-            verified
-              ? `${adapter.gatewayKind}:documented-auto-coding-route`
-              : `${adapter.gatewayKind}:live-v1-models-catalog`,
-          ],
-          verifiedAt: verified ? new Date().toISOString() : undefined,
-        })),
-      });
-
-      metrics.set(
-        modelRoutingMetricKey(adapter.descriptor.id, model.modelId),
-        {
-          estimatedCost: 0,
-          latencyMs: verified ? 800 : 1_200,
-          reliability: health.ok ? verified ? 94 : 80 : 25,
-        },
-      );
+        capabilities,
+        metrics,
+      )) {
+        registeredModels += 1;
+      }
+      refreshedRoutes += 1;
     }
   }
+
+  return {
+    registeredProviders,
+    registeredModels,
+    refreshedRoutes,
+  };
+}
+
+export function registerKingsAiGatewayRuntime(
+  runtime: KingsAiGatewayRuntime,
+  providers: ProviderAdapterRegistry,
+  capabilities: ModelCapabilityRegistry,
+  metrics: Map<string, ModelRoutingMetrics>,
+): void {
+  synchronizeKingsAiGatewayRuntime(
+    runtime,
+    providers,
+    capabilities,
+    metrics,
+  );
 }
