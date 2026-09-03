@@ -1,18 +1,13 @@
 import {
   access,
+  appendFile,
   mkdir,
   rm,
   writeFile,
 } from "node:fs/promises";
-import {
-  constants,
-} from "node:fs";
-import {
-  spawnSync,
-} from "node:child_process";
-import {
-  join,
-} from "node:path";
+import { constants } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { dirname, join } from "node:path";
 
 const failures = [];
 const warnings = [];
@@ -22,19 +17,17 @@ function pass(message) {
   passes.push(message);
   console.log(`PASS  ${message}`);
 }
-
 function warn(message) {
   warnings.push(message);
   console.warn(`WARN  ${message}`);
 }
-
 function fail(message) {
   failures.push(message);
   console.error(`FAIL  ${message}`);
 }
 
-function command(command, args = []) {
-  const result = spawnSync(command, args, {
+function command(commandName, args = []) {
+  const result = spawnSync(commandName, args, {
     encoding: "utf8",
     shell: false,
     env: process.env,
@@ -81,7 +74,26 @@ async function checkWorkspace() {
   }
 }
 
-async function checkOllama() {
+async function checkUsageLedger() {
+  const stateRoot = process.env.KINGS_STATE_ROOT ?? join(process.cwd(), ".kings");
+  const usageFile = process.env.KINGS_GATEWAY_USAGE_FILE ?? join(stateRoot, "gateway-usage.jsonl");
+  const probe = `${usageFile}.preflight-${process.pid}`;
+  try {
+    await mkdir(dirname(usageFile), { recursive: true });
+    await appendFile(probe, `${JSON.stringify({ probe: true, at: new Date().toISOString() })}\n`, "utf8");
+    await rm(probe, { force: true });
+    pass(`Gateway usage ledger storage is writable: ${usageFile}`);
+  } catch (error) {
+    fail(`Gateway usage ledger storage is not writable: ${usageFile} (${error instanceof Error ? error.message : String(error)})`);
+  }
+}
+
+async function checkOptionalOllamaFallback() {
+  if (process.env.KINGS_ENABLE_OLLAMA_FALLBACK !== "1") {
+    pass("Local Ollama fallback is disabled; production will use gateway AI only.");
+    return false;
+  }
+
   const baseUrl = process.env.KINGS_CODING_MACHINE_OLLAMA_URL ?? "http://127.0.0.1:11434";
   const modelId = process.env.KINGS_CODING_MACHINE_MODEL ?? "qwen2.5-coder:1.5b";
   try {
@@ -89,23 +101,20 @@ async function checkOllama() {
       signal: AbortSignal.timeout(5_000),
     });
     if (!response.ok) {
-      warn(`Ollama responded HTTP ${response.status}; gateway AI can still be used if configured.`);
+      warn(`Optional Ollama fallback responded HTTP ${response.status}. This does not affect gateway-first production readiness.`);
       return false;
     }
     const data = await response.json();
-    const models = (data.models ?? [])
-      .map((model) => model?.name)
-      .filter(Boolean);
+    const models = (data.models ?? []).map((model) => model?.name).filter(Boolean);
     const available = models.some((name) => name === modelId || name.startsWith(`${modelId}:`));
     if (available) {
-      pass(`Local Ollama model is routable: ${modelId}`);
+      pass(`Optional local fallback is routable: ${modelId}`);
       return true;
     }
-
-    warn(`Ollama is reachable but configured model ${modelId} is not installed.`);
+    warn(`Optional Ollama fallback is reachable but configured model ${modelId} is not installed.`);
     return false;
   } catch (error) {
-    warn(`Local Ollama is unavailable (${error instanceof Error ? error.message : String(error)}). A healthy configured gateway is required for AI coding.`);
+    warn(`Optional Ollama fallback is unavailable (${error instanceof Error ? error.message : String(error)}). Gateway-first production can still be ready.`);
     return false;
   }
 }
@@ -115,6 +124,8 @@ function configuredGateways() {
   if (process.env.KINGS_OMNIROUTE_URL?.trim()) {
     gateways.push({
       id: "omniroute",
+      kind: "omniroute",
+      firstClass: true,
       url: process.env.KINGS_OMNIROUTE_URL.trim(),
       key: process.env.KINGS_OMNIROUTE_KEY,
     });
@@ -122,6 +133,8 @@ function configuredGateways() {
   if (process.env.KINGS_9ROUTER_URL?.trim()) {
     gateways.push({
       id: "9router",
+      kind: "9router",
+      firstClass: true,
       url: process.env.KINGS_9ROUTER_URL.trim(),
       key: process.env.KINGS_9ROUTER_KEY,
     });
@@ -132,7 +145,13 @@ function configuredGateways() {
       if (!Array.isArray(parsed)) throw new Error("must be an array");
       for (const item of parsed) {
         if (item?.id && item?.baseUrl) {
-          gateways.push({ id: item.id, url: item.baseUrl, key: item.apiKey });
+          gateways.push({
+            id: item.id,
+            kind: item.gatewayKind ?? "openai-compatible",
+            firstClass: item.gatewayKind === "omniroute" || item.gatewayKind === "9router",
+            url: item.baseUrl,
+            key: item.apiKey,
+          });
         }
       }
     } catch (error) {
@@ -142,14 +161,25 @@ function configuredGateways() {
   return gateways;
 }
 
+function looksLikeNonCodingModel(modelId) {
+  const value = String(modelId).toLowerCase();
+  return [
+    "embedding", "embed-", "/embed", "rerank", "whisper", "tts",
+    "speech", "audio", "music", "video", "image", "flux",
+    "stable-diffusion", "dall-e",
+  ].some((token) => value.includes(token));
+}
+
 async function checkGateways() {
   const gateways = configuredGateways();
   if (gateways.length === 0) {
-    warn("No OmniRoute, 9Router, or custom OpenAI-compatible gateway is configured. Local Ollama must be available for AI coding.");
-    return 0;
+    fail("No AI gateway is configured. K.I.N.G.S. production requires a real OmniRoute or 9Router endpoint; Ollama alone is only an optional fallback.");
+    return { usable: 0, firstClassUsable: 0, discoveredModels: 0 };
   }
 
-  let usableGateways = 0;
+  let usable = 0;
+  let firstClassUsable = 0;
+  let discoveredModels = 0;
   for (const gateway of gateways) {
     try {
       const base = gateway.url.replace(/\/+$/, "").replace(/\/v1$/i, "");
@@ -160,24 +190,29 @@ async function checkGateways() {
         signal: AbortSignal.timeout(8_000),
       });
       if (!response.ok) {
-        warn(`${gateway.id} is configured but model discovery returned HTTP ${response.status}.`);
+        warn(`${gateway.id} is configured but live /v1/models discovery returned HTTP ${response.status}.`);
         continue;
       }
       const data = await response.json();
-      const modelCount = Array.isArray(data?.data) ? data.data.length : 0;
-      if (modelCount < 1) {
-        warn(`${gateway.id} is reachable but returned no routable models.`);
+      const models = Array.isArray(data?.data)
+        ? data.data.map((item) => item?.id).filter(Boolean)
+        : [];
+      const codingModels = models.filter((id) => !looksLikeNonCodingModel(id));
+      if (codingModels.length < 1) {
+        warn(`${gateway.id} is reachable but returned no text/coding model ids.`);
         continue;
       }
 
-      usableGateways += 1;
-      pass(`${gateway.id} is reachable and returned ${modelCount} model${modelCount === 1 ? "" : "s"}.`);
+      usable += 1;
+      if (gateway.firstClass) firstClassUsable += 1;
+      discoveredModels += models.length;
+      pass(`${gateway.id} live API is reachable: ${models.length} total model ids, ${codingModels.length} text/coding candidates.`);
     } catch (error) {
       warn(`${gateway.id} is configured but unreachable (${error instanceof Error ? error.message : String(error)}).`);
     }
   }
 
-  return usableGateways;
+  return { usable, firstClassUsable, discoveredModels };
 }
 
 function checkGitHubAuth() {
@@ -185,18 +220,16 @@ function checkGitHubAuth() {
     pass("Server-side GitHub token is configured for private repository clone/push.");
     return;
   }
-
   const credentialHelper = command("git", ["config", "--global", "--get", "credential.helper"]);
   if (credentialHelper.ok && credentialHelper.stdout) {
     pass(`Git credential helper is configured (${credentialHelper.stdout}).`);
     return;
   }
-
   warn("No KINGS_GITHUB_TOKEN or global Git credential helper was detected. Public repositories work; private HTTPS repositories may require server-side Git authentication or SSH configuration.");
 }
 
 async function main() {
-  console.log("K.I.N.G.S. PRODUCTION PREFLIGHT\n");
+  console.log("K.I.N.G.S. GATEWAY-FIRST PRODUCTION PREFLIGHT\n");
 
   const major = Number(process.versions.node.split(".")[0]);
   if (Number.isInteger(major) && major >= 24) {
@@ -224,31 +257,27 @@ async function main() {
     fail("Bubblewrap is required for real GitHub repository build/test execution. On Debian/Crostini install the bubblewrap package, or set KINGS_BWRAP_PATH to a trusted executable.");
   }
 
-  await checkWorkspace();
+  await Promise.all([checkWorkspace(), checkUsageLedger()]);
   checkGitHubAuth();
-  const [ollamaReady, usableGateways] = await Promise.all([
-    checkOllama(),
+  const [gatewayStatus] = await Promise.all([
     checkGateways(),
+    checkOptionalOllamaFallback(),
   ]);
 
-  if (ollamaReady || usableGateways > 0) {
-    const providers = [
-      ollamaReady ? "local Ollama" : undefined,
-      usableGateways > 0 ? `${usableGateways} gateway${usableGateways === 1 ? "" : "s"}` : undefined,
-    ].filter(Boolean).join(" + ");
-    pass(`AI execution path is ready: ${providers}.`);
+  if (gatewayStatus.usable < 1) {
+    fail("No usable AI gateway execution provider is available. K.I.N.G.S. will not claim production readiness from a local Ollama model alone.");
+  } else if (gatewayStatus.firstClassUsable < 1) {
+    fail("Only custom gateways are usable. Production K.I.N.G.S. requires at least one live first-class OmniRoute or 9Router gateway.");
   } else {
-    fail("No usable AI execution provider is available. Production cannot perform AI coding until the configured Ollama model or at least one OmniRoute, 9Router, or custom gateway returns a routable model.");
+    pass(`Gateway AI fabric is ready: ${gatewayStatus.firstClassUsable} first-class gateway${gatewayStatus.firstClassUsable === 1 ? "" : "s"}, ${gatewayStatus.discoveredModels} live model ids discovered.`);
   }
 
   console.log(`\nSUMMARY  ${passes.length} passed · ${warnings.length} warning${warnings.length === 1 ? "" : "s"} · ${failures.length} failure${failures.length === 1 ? "" : "s"}`);
-
   if (failures.length > 0) {
     console.error("K.I.N.G.S. PRODUCTION PREFLIGHT: NOT READY");
     process.exitCode = 1;
     return;
   }
-
   console.log("K.I.N.G.S. PRODUCTION PREFLIGHT: READY");
 }
 
