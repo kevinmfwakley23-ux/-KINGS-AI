@@ -39,11 +39,19 @@ export type ProviderExecutionObserver = (
   result: ModelExecutionResult,
 ) => Promise<void>;
 
+let defaultExecutionObserver: ProviderExecutionObserver | undefined;
+
+export function setDefaultProviderExecutionObserver(
+  observer?: ProviderExecutionObserver,
+): void {
+  defaultExecutionObserver = observer;
+}
+
 export class ProviderAdapterRegistry {
   private readonly adapters =
     new Map<ID, ProviderAdapter>();
 
-  private executionObserver?: ProviderExecutionObserver;
+  private executionObserver?: ProviderExecutionObserver = defaultExecutionObserver;
 
   setExecutionObserver(observer?: ProviderExecutionObserver): void {
     this.executionObserver = observer;
