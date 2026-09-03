@@ -189,7 +189,7 @@ export class ModelCodingProposalParser
     const blocks: Array<{
       path: string;
       operation: "create" | "replace";
-      content: string[];
+      content: string;
     }> = [];
 
     const lines =
