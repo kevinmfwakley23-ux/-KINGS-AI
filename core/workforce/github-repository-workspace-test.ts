@@ -27,7 +27,10 @@ class FakeGitRunner implements GitCommandRunner {
   private dirty = false;
   private head = "1111111111111111111111111111111111111111";
 
-  constructor(private readonly workspace: string) {}
+  constructor(
+    private readonly workspace: string,
+    private readonly defaultBranch = "main",
+  ) {}
 
   markDirty(): void {
     this.dirty = true;
@@ -51,7 +54,13 @@ class FakeGitRunner implements GitCommandRunner {
     if (command === "status") {
       return this.ok(this.dirty ? " M src/index.ts\n" : "");
     }
+    if (command === "branch" && args.includes("--show-current")) {
+      return this.ok(`${this.defaultBranch}\n`);
+    }
     if (command === "branch") return this.ok("");
+    if (command === "symbolic-ref") {
+      return this.ok(`origin/${this.defaultBranch}\n`);
+    }
     if (command === "switch") return this.ok();
     if (command === "fetch") return this.ok();
     if (command === "add") return this.ok();
@@ -131,6 +140,17 @@ async function runTest(): Promise<void> {
     );
     console.log("GITHUB-WORKSPACE-003 verified commit + non-force branch push: SUCCESS");
 
+    const pushesBeforeNoDiff = runner.calls.filter((args) => args[0] === "push").length;
+    const alreadyCompliant = await authority.publishVerified(workspace, {
+      missionId: "mission-1",
+      verified: true,
+    });
+    const pushesAfterNoDiff = runner.calls.filter((args) => args[0] === "push").length;
+    assert(alreadyCompliant.published, "A verified no-diff repository was not treated as complete.");
+    assert(alreadyCompliant.changedFiles.length === 0, "No-diff completion falsely reported changed files.");
+    assert(pushesAfterNoDiff === pushesBeforeNoDiff, "No-diff completion performed an unnecessary GitHub push.");
+    console.log("GITHUB-WORKSPACE-004 verified already-compliant repository: SUCCESS");
+
     let directMainBlocked = false;
     try {
       await authority.prepare({
@@ -147,7 +167,22 @@ async function runTest(): Promise<void> {
         error.message.includes("main/master");
     }
     assert(directMainBlocked, "Direct publication to main was not rejected.");
-    console.log("GITHUB-WORKSPACE-004 protected default branch policy: SUCCESS");
+    console.log("GITHUB-WORKSPACE-005 protected default branch policy: SUCCESS");
+
+    const defaultWorkspace = join(root, "mission-3");
+    const defaultRunner = new FakeGitRunner(defaultWorkspace, "trunk");
+    const defaultAuthority = new GitHubRepositoryWorkspaceAuthority(defaultRunner);
+    const defaultPrepared = await defaultAuthority.prepare({
+      missionId: "mission-3",
+      workspaceRoot: defaultWorkspace,
+      repository: {
+        url: "https://github.com/example/project",
+      },
+    });
+    const cloneCall = defaultRunner.calls.find((args) => args[0] === "clone");
+    assert(defaultPrepared.metadata.baseRef === "trunk", "Repository default branch was not discovered.");
+    assert(Boolean(cloneCall) && !cloneCall!.includes("--branch"), "Unspecified repository base ref was incorrectly forced to main.");
+    console.log("GITHUB-WORKSPACE-006 repository default branch discovery: SUCCESS");
 
     console.log("K.I.N.G.S. GITHUB REPOSITORY WORKSPACE: SUCCESS");
   } finally {
