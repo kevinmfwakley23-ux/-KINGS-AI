@@ -18,6 +18,7 @@ export interface ModelRoutingRequest {
   preferInternal?: boolean;
   preferredProviderId?: ID;
   preferredModelId?: ID;
+  allowUnverifiedExplicitSelection?: boolean;
   maximumEstimatedCost?: number;
 }
 
@@ -61,10 +62,15 @@ export class ModelRouter {
   route(request: ModelRoutingRequest): ModelRoutingDecision {
     this.validateRequest(request);
 
+    const explicitSelection = Boolean(
+      request.preferredProviderId || request.preferredModelId,
+    );
+
     const matches = this.capabilityRegistry.discover({
       requiredCapabilities: request.requiredCapabilities,
       minimumStrength: request.minimumCapabilityStrength ?? 0,
-      verifiedOnly: true,
+      verifiedOnly:
+        !(explicitSelection && request.allowUnverifiedExplicitSelection),
       availableOnly: true,
       providerId: request.preferredProviderId,
       modelId: request.preferredModelId,
@@ -94,7 +100,7 @@ export class ModelRouter {
         selected: false,
         reason: requested
           ? `Requested model route "${requested}" is unavailable or does not satisfy the routing requirements.`
-          : "No available model satisfies the routing requirements.",
+          : "No available verified model satisfies the routing requirements.",
         candidates: [],
       };
     }
@@ -191,11 +197,14 @@ export class ModelRouter {
     request: ModelRoutingRequest,
   ): string {
     if (request.preferredProviderId || request.preferredModelId) {
-      return `explicit model selection ${candidate.providerId}/${candidate.modelId}; estimated cost ${candidate.estimatedCost}; reliability ${candidate.reliability}; capability strength ${candidate.capabilityStrength}`;
+      const verification = request.allowUnverifiedExplicitSelection
+        ? "explicit catalog selection under post-generation verification"
+        : "explicit verified model selection";
+      return `${verification} ${candidate.providerId}/${candidate.modelId}; estimated cost ${candidate.estimatedCost}; reliability ${candidate.reliability}; capability strength ${candidate.capabilityStrength}`;
     }
     const internalReason = request.preferInternal && candidate.internal
       ? "preferred internal intelligence"
-      : "capable available model";
+      : "capable available verified model";
     return `${internalReason}; estimated cost ${candidate.estimatedCost}; reliability ${candidate.reliability}; capability strength ${candidate.capabilityStrength}`;
   }
 
@@ -217,6 +226,15 @@ export class ModelRouter {
     ) {
       throw new Error(
         "K.I.N.G.S. Model Router: maximum estimated cost cannot be negative",
+      );
+    }
+    if (
+      request.allowUnverifiedExplicitSelection &&
+      !request.preferredProviderId &&
+      !request.preferredModelId
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Model Router: unverified routing is only allowed for an explicit provider/model selection",
       );
     }
   }
