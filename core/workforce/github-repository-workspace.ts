@@ -88,9 +88,10 @@ function safeSegment(value: string, fallback: string): string {
   return normalized || fallback;
 }
 
-function normalizeRef(value: string | undefined): string {
-  const ref = value?.trim() || "main";
+function normalizeRef(value: string): string {
+  const ref = value.trim();
   if (
+    !ref ||
     !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/.test(ref) ||
     ref.includes("..") ||
     ref.includes("//") ||
@@ -284,7 +285,10 @@ export class GitHubRepositoryWorkspaceAuthority {
     }
 
     const repository = normalizeGitHubRepositoryUrl(request.repository.url);
-    const baseRef = normalizeRef(request.repository.baseRef);
+    const requestedBaseRef = request.repository.baseRef?.trim()
+      ? normalizeRef(request.repository.baseRef)
+      : undefined;
+    let baseRef = requestedBaseRef ?? "";
     const publishBranch = normalizePublishBranch(
       request.repository.publishBranch,
       missionId,
@@ -308,7 +312,21 @@ export class GitHubRepositoryWorkspaceAuthority {
           `workspace is already bound to ${existing.repositoryId}, not ${repository.repositoryId}`,
         );
       }
-      await this.git(["fetch", "--prune", "origin", baseRef], workspaceRoot);
+
+      if (requestedBaseRef) {
+        await this.git(["fetch", "--prune", "origin", requestedBaseRef], workspaceRoot);
+        baseRef = requestedBaseRef;
+      } else {
+        await this.git(["fetch", "--prune", "origin"], workspaceRoot);
+        const remoteHead = await this.git(
+          ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+          workspaceRoot,
+        );
+        baseRef = normalizeRef(
+          remoteHead.stdout.trim().replace(/^origin\//, ""),
+        );
+        await this.git(["fetch", "origin", baseRef], workspaceRoot);
+      }
       await this.git(["switch", "--detach", "FETCH_HEAD"], workspaceRoot);
     } else {
       if (await exists(workspaceRoot)) {
@@ -320,10 +338,28 @@ export class GitHubRepositoryWorkspaceAuthority {
         }
       }
       await mkdir(workspaceRoot, { recursive: true });
-      await this.git(
-        ["clone", "--no-tags", "--branch", baseRef, "--single-branch", repository.url, "."],
-        workspaceRoot,
-      );
+      const cloneArgs = requestedBaseRef
+        ? [
+            "clone",
+            "--no-tags",
+            "--branch",
+            requestedBaseRef,
+            "--single-branch",
+            repository.url,
+            ".",
+          ]
+        : ["clone", "--no-tags", repository.url, "."];
+      await this.git(cloneArgs, workspaceRoot);
+
+      if (requestedBaseRef) {
+        baseRef = requestedBaseRef;
+      } else {
+        const currentBranch = await this.git(
+          ["branch", "--show-current"],
+          workspaceRoot,
+        );
+        baseRef = normalizeRef(currentBranch.stdout.trim());
+      }
     }
 
     const dirty = await this.git(["status", "--porcelain"], workspaceRoot);
