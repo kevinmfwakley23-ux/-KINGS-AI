@@ -4,6 +4,28 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${ROOT}/.kings-focused-test-build"
 REPORT="${ROOT}/.kings-focused-test-report.txt"
+SKIP_LIVE_MODEL_TESTS="${KINGS_SKIP_LIVE_MODEL_TESTS:-0}"
+
+LIVE_MODEL_TESTS=(
+  "ollama-real-model-test.ts"
+  "project-owner-model-driven-execution-test.ts"
+  "real-local-1.5b-coding-machine-acceptance-test.ts"
+  "real-local-code-change-loop-test.ts"
+  "real-local-coding-proof-test.ts"
+)
+
+is_live_model_test() {
+  local test_file="$1"
+  local candidate
+
+  for candidate in "${LIVE_MODEL_TESTS[@]}"; do
+    if [[ "$test_file" == "$candidate" ]]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
@@ -18,16 +40,32 @@ fi
 
 echo "K.I.N.G.S. full focused workforce verification"
 echo "Found ${#TESTS[@]} test files."
+if [[ "$SKIP_LIVE_MODEL_TESTS" == "1" ]]; then
+  echo "Live local-Ollama acceptance tests are excluded from this deterministic run."
+  echo "Run without KINGS_SKIP_LIVE_MODEL_TESTS=1 to exercise the installed local model."
+fi
 echo "Failures will be collected; the suite will continue."
 echo
 
 total=0
+executed=0
 passed=0
 failed=0
+skipped=0
 
 for source_file in "${TESTS[@]}"; do
   total=$((total + 1))
   test_file="$(basename "$source_file")"
+
+  if [[ "$SKIP_LIVE_MODEL_TESTS" == "1" ]] && is_live_model_test "$test_file"; then
+    skipped=$((skipped + 1))
+    echo "=== [$total/${#TESTS[@]}] $test_file ==="
+    echo "RESULT: SKIP (requires local Ollama runtime/model)"
+    echo
+    continue
+  fi
+
+  executed=$((executed + 1))
   test_build="$OUT/${test_file%.ts}"
   test_log="$test_build.log"
   mkdir -p "$test_build"
@@ -91,9 +129,11 @@ done
 
 {
   echo "K.I.N.G.S. FOCUSED WORKFORCE TEST SUMMARY"
-  echo "Total: $total"
+  echo "Discovered: $total"
+  echo "Executed: $executed"
   echo "Passed: $passed"
   echo "Failed: $failed"
+  echo "Skipped live-model: $skipped"
   echo "Report: $REPORT"
 } | tee -a "$REPORT"
 
