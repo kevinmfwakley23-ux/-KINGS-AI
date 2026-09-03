@@ -60,7 +60,10 @@ function createEditStep():
   };
 }
 
-function createProposal():
+function createProposal(
+  missionId =
+    "mission-006",
+):
   EngineeringWorkspaceProposalResult {
   return {
     command: {
@@ -81,8 +84,7 @@ function createProposal():
     },
     taskId:
       "repair-step-006",
-    missionId:
-      "project-006",
+    missionId,
     changes: [
       {
         path:
@@ -163,6 +165,12 @@ async function main(): Promise<void> {
     "Exactly one authorized write should occur.",
   );
 
+  assert(
+    result.projectId ===
+      projectId,
+    "Write result must preserve project identity independently of mission provenance.",
+  );
+
   const expectedPath =
     join(
       workspaceRoot,
@@ -197,30 +205,50 @@ async function main(): Promise<void> {
     "06.WRITE workspace-to-editor path resolution: SUCCESS",
   );
 
-  let deniedProject =
+  const distinctMissionResult =
+    await bridge.execute({
+      step,
+      projectId,
+      workspaceRoot,
+      proposal:
+        createProposal(
+          "mission-distinct-from-project-006",
+        ),
+    });
+
+  assert(
+    distinctMissionResult.projectId ===
+      projectId,
+    "Distinct mission provenance must not be conflated with the project workspace identity.",
+  );
+
+  console.log(
+    "06.WRITE mission/project identity separation: SUCCESS",
+  );
+
+  let deniedBlankMission =
     false;
 
   try {
     await bridge.execute({
       step,
-      projectId:
-        "different-project",
+      projectId,
       workspaceRoot,
       proposal:
-        createProposal(),
+        createProposal(""),
     });
   } catch {
-    deniedProject =
+    deniedBlankMission =
       true;
   }
 
   assert(
-    deniedProject,
-    "Project identity mismatch must block the write.",
+    deniedBlankMission,
+    "Missing mission provenance must block the write.",
   );
 
   console.log(
-    "06.WRITE project identity protection: SUCCESS",
+    "06.WRITE mission provenance protection: SUCCESS",
   );
 
   let deniedStrategy =
@@ -258,14 +286,8 @@ async function main(): Promise<void> {
 }
 
 main().catch(
-  (
-    error,
-  ) => {
-    console.error(
-      error,
-    );
-
-    process.exitCode =
-      1;
+  (error) => {
+    console.error(error);
+    process.exitCode = 1;
   },
 );
