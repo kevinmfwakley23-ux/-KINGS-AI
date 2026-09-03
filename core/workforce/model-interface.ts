@@ -85,6 +85,12 @@ export interface ModelExecutionUsage
   extends BudgetUsage {
   inputTokens: number;
   outputTokens: number;
+  /** Provider-reported cache hits. Undefined means the provider did not report it. */
+  cachedTokens?: number;
+  /** Provider-reported tokens removed/saved by compression. Never estimated by K.I.N.G.S. */
+  savedTokens?: number;
+  /** Actual cost reported by the provider/gateway for this response, when exposed. */
+  reportedCostUsd?: number;
 }
 
 export interface ModelExecutionMetadata {
