@@ -30,6 +30,9 @@ import type { IntelligenceCapability } from "../../core/workforce/model-interfac
 import type { Mission, Task } from "../../core/workforce/types";
 import type { WorkUnitContract } from "../../core/workforce/work-unit-contract";
 import type { MissionPlan } from "../../core/workforce/mission-continuity";
+import type {
+  SandboxBubblewrapIsolation,
+} from "../../core/workforce/execution-sandbox";
 import {
   registerKingsAiGatewayRuntime,
   synchronizeKingsAiGatewayRuntime,
@@ -53,6 +56,7 @@ export interface ProjectOwnerRuntimeOptions {
   gatewayRuntime?: KingsAiGatewayRuntime;
   allowBuildNetwork?: boolean;
   localModelAvailable?: boolean;
+  processIsolation?: SandboxBubblewrapIsolation;
 }
 
 type BuildTestOptions = ConstructorParameters<
@@ -370,6 +374,7 @@ export class ProjectOwnerMachineServerController
         maxConcurrentProcesses: 1,
         allowShell: false,
         allowNetwork: allowBuildNetwork,
+        processIsolation: runtime.processIsolation,
       },
     };
 
@@ -408,7 +413,11 @@ export class ProjectOwnerMachineServerController
     );
   }
 
-  handle(
+  hasProcessIsolation(): boolean {
+    return this.buildTestOptions.sandboxPolicy.processIsolation?.kind === "bubblewrap";
+  }
+
+  async handle(
     request: ProjectOwnerMachineApiRequest,
   ): Promise<ProjectOwnerMachineApiResponse> {
     const normalizedRequest =
@@ -421,6 +430,21 @@ export class ProjectOwnerMachineServerController
 
     if (normalizedRequest.action !== "execute-next") {
       return this.api.handle(normalizedRequest);
+    }
+
+    if (!this.hasProcessIsolation() && normalizedRequest.missionId) {
+      const snapshot = await this.api.handle({
+        action: "snapshot",
+        missionId: normalizedRequest.missionId,
+      });
+      if (snapshot.repository) {
+        return {
+          ...snapshot,
+          ok: false,
+          message:
+            "GitHub repository execution is blocked because Linux host process isolation is unavailable. Install/configure Bubblewrap on the Chromebook, then refresh the K.I.N.G.S. runtime; repository build/test code will not run directly against the host filesystem.",
+        };
+      }
     }
 
     return this.api.handle({
