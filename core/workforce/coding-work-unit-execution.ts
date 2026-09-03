@@ -59,48 +59,30 @@ import type {
 export interface CodingWorkUnitExecutionRequest {
   taskId:
     ID;
-
-  /**
-   * Mission continuity identity. Optional only for backwards compatibility
-   * with the original single-id coding path; new callers should provide it.
-   */
   missionId?:
     ID;
-
-  /**
-   * Project/workspace identity. This is intentionally distinct from missionId.
-   */
   projectId:
     ID;
-
   workUnit:
     WorkUnitContract;
-
   proposal:
     LocalCodingChangeProposal;
-
   execution:
     Parameters<
       EngineeringWorkspaceProposalAuthority["authorize"]
     >[0]["execution"];
-
   step:
     Parameters<
       EngineeringWorkspaceProposalAuthority["authorize"]
     >[0]["step"];
-
   workspace:
     EngineeringWorkspace;
-
   repairStep:
     EngineeringRepairStep;
-
   buildTestSteps:
     BuildTestStep[];
-
   requiredCriteria:
     string[];
-
   failureDiagnostics?:
     string;
 }
@@ -108,34 +90,24 @@ export interface CodingWorkUnitExecutionRequest {
 export interface CodingWorkUnitExecutionResult {
   taskId:
     ID;
-
   missionId:
     ID;
-
   projectId:
     ID;
-
   proposal:
     LocalCodingChangeProposal;
-
   authorizedProposal:
     EngineeringWorkspaceProposalResult;
-
   writes:
     LocalCodingWriteResult;
-
   buildTest:
     BuildTestExecutionResult;
-
   verification:
     EngineeringVerificationGateResult;
-
   completion:
     EngineeringCompletionResult;
-
   completed:
     boolean;
-
   failureDiagnostics?:
     string;
 }
@@ -143,16 +115,12 @@ export interface CodingWorkUnitExecutionResult {
 export class CodingWorkUnitExecutionAuthority {
   private readonly workspaceProposal:
     EngineeringWorkspaceProposalAuthority;
-
   private readonly writeBridge:
     LocalCodingWriteBridge;
-
   private readonly buildTest:
     BuildTestExecutor;
-
   private readonly verification:
     EngineeringVerificationGateAuthority;
-
   private readonly completion:
     EngineeringCompletionAuthority;
 
@@ -168,20 +136,16 @@ export class CodingWorkUnitExecutionAuthority {
       new EngineeringWorkspaceProposalAuthority(
         new EngineeringWorkspaceAuthority(),
       );
-
     this.writeBridge =
       new LocalCodingWriteBridge(
         editor,
       );
-
     this.buildTest =
       new BuildTestExecutor(
         buildTestOptions,
       );
-
     this.verification =
       new EngineeringVerificationGateAuthority();
-
     this.completion =
       new EngineeringCompletionAuthority();
   }
@@ -228,6 +192,8 @@ export class CodingWorkUnitExecutionAuthority {
           request.workUnit,
         steps:
           request.buildTestSteps,
+        workspaceRoot:
+          request.workspace.rootPath,
       });
 
     const commandResults:
@@ -336,7 +302,6 @@ export class CodingWorkUnitExecutionAuthority {
         "K.I.N.G.S. Coding Work Unit Execution: task id is required.",
       );
     }
-
     if (
       request.missionId !== undefined &&
       !request.missionId.trim()
@@ -345,13 +310,11 @@ export class CodingWorkUnitExecutionAuthority {
         "K.I.N.G.S. Coding Work Unit Execution: mission id cannot be blank.",
       );
     }
-
     if (!request.projectId.trim()) {
       throw new Error(
         "K.I.N.G.S. Coding Work Unit Execution: project id is required.",
       );
     }
-
     if (
       request.execution.projectId !==
       request.projectId
@@ -360,7 +323,6 @@ export class CodingWorkUnitExecutionAuthority {
         "K.I.N.G.S. Coding Work Unit Execution: execution project does not match request project.",
       );
     }
-
     if (
       request.workspace.projectId !==
       request.projectId
@@ -369,25 +331,21 @@ export class CodingWorkUnitExecutionAuthority {
         "K.I.N.G.S. Coding Work Unit Execution: workspace project does not match request project.",
       );
     }
-
     if (request.workUnit.approved !== true) {
       throw new Error(
         `K.I.N.G.S. Coding Work Unit Execution: Work Unit "${request.workUnit.id}" is not approved.`,
       );
     }
-
     if (request.workUnit.allowedPaths.length === 0) {
       throw new Error(
         "K.I.N.G.S. Coding Work Unit Execution: Work Unit has no authorized paths.",
       );
     }
-
     if (request.proposal.taskId !== request.taskId) {
       throw new Error(
         "K.I.N.G.S. Coding Work Unit Execution: proposal task does not match Work Unit task.",
       );
     }
-
     if (
       request.proposal.missionId !==
       this.resolveMissionId(request)
@@ -396,19 +354,16 @@ export class CodingWorkUnitExecutionAuthority {
         "K.I.N.G.S. Coding Work Unit Execution: proposal mission does not match request mission.",
       );
     }
-
     if (request.proposal.changes.length === 0) {
       throw new Error(
         "K.I.N.G.S. Coding Work Unit Execution: proposal contains no file changes.",
       );
     }
-
     if (request.buildTestSteps.length === 0) {
       throw new Error(
         "K.I.N.G.S. Coding Work Unit Execution: at least one build/test step is required.",
       );
     }
-
     if (request.requiredCriteria.length === 0) {
       throw new Error(
         "K.I.N.G.S. Coding Work Unit Execution: at least one verification criterion is required.",
