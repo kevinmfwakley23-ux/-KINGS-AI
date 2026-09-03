@@ -5,75 +5,31 @@ import {
   type ProjectOwnerMissionFactory,
   type ProjectOwnerExecutionContext,
 } from "../../core/workforce/project-owner-machine-api";
-
 import {
   ProjectOwnerUiController,
   type ProjectOwnerDesignInput,
 } from "../../core/workforce/project-owner-ui-contract";
-
-import {
-  ModelDrivenCodingExecutionAuthority,
-} from "../../core/workforce/model-driven-coding-execution";
-
-import {
-  ModelCapabilityRegistry,
-} from "../../core/workforce/model-capability-registry";
-
+import { ModelDrivenCodingExecutionAuthority } from "../../core/workforce/model-driven-coding-execution";
+import { ModelCapabilityRegistry } from "../../core/workforce/model-capability-registry";
 import {
   ModelRouter,
   modelRoutingMetricKey,
   type ModelRoutingMetrics,
 } from "../../core/workforce/model-routing";
-
-import {
-  ProviderAdapterRegistry,
-} from "../../core/workforce/provider-adapters";
-
-import {
-  GovernedInternalIntelligenceAdapter,
-} from "../../core/workforce/internal-intelligence-adapter";
-
+import { ProviderAdapterRegistry } from "../../core/workforce/provider-adapters";
+import { GovernedInternalIntelligenceAdapter } from "../../core/workforce/internal-intelligence-adapter";
 import {
   HttpOllamaExecutionClient,
   type OllamaHttpTransport,
 } from "../../core/workforce/ollama-execution-client";
-
-import {
-  OllamaIntelligenceModel,
-} from "../../core/workforce/ollama-intelligence-model";
-
-import {
-  ControlledFileEditor,
-} from "../../core/workforce/file-editor";
-
-import {
-  EngineeringRepairEditor,
-} from "../../core/workforce/engineering-repair-editor";
-
-import type {
-  KingsCodingMachine,
-} from "../../core/workforce/kings-coding-machine";
-
-import type {
-  IntelligenceCapability,
-} from "../../core/workforce/model-interface";
-
-import type {
-  Task,
-} from "../../core/workforce/types";
-
-import type {
-  WorkUnitContract,
-} from "../../core/workforce/work-unit-contract";
-
-import type {
-  MissionPlan,
-} from "../../core/workforce/mission-continuity";
-
-import type {
-  Mission,
-} from "../../core/workforce/types";
-
+import { OllamaIntelligenceModel } from "../../core/workforce/ollama-intelligence-model";
+import { ControlledFileEditor } from "../../core/workforce/file-editor";
+import { EngineeringRepairEditor } from "../../core/workforce/engineering-repair-editor";
+import type { KingsCodingMachine } from "../../core/workforce/kings-coding-machine";
+import type { IntelligenceCapability } from "../../core/workforce/model-interface";
+import type { Mission, Task } from "../../core/workforce/types";
+import type { WorkUnitContract } from "../../core/workforce/work-unit-contract";
+import type { MissionPlan } from "../../core/workforce/mission-continuity";
 import {
   registerKingsAiGatewayRuntime,
   type KingsAiGatewayRuntime,
@@ -91,6 +47,7 @@ export interface ProjectOwnerRuntimeOptions {
   workspaceRoot?: string;
   gatewayRuntime?: KingsAiGatewayRuntime;
   allowBuildNetwork?: boolean;
+  localModelAvailable?: boolean;
 }
 
 type BuildTestOptions = ConstructorParameters<
@@ -109,16 +66,13 @@ function createVisionTask(
 } {
   const taskId = `task-${input.id}-build`;
   const milestoneId = `milestone-${input.id}`;
-
   const objective = [
     `Build the application described by the owner vision: ${input.objective}`,
     `Requirements: ${input.requirements.join(" | ")}`,
     input.preferredPlatform ? `Preferred platform: ${input.preferredPlatform}` : "",
     input.preferredLanguage ? `Preferred language: ${input.preferredLanguage}` : "",
     input.constraints.length > 0 ? `Constraints: ${input.constraints.join(" | ")}` : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+  ].filter(Boolean).join(" ");
 
   const task: Task = {
     id: taskId,
@@ -181,13 +135,9 @@ function buildMissionFromVision(
   input: ProjectOwnerDesignInput,
   registry: import("../../core/workforce/registry").WorkforceRegistry,
   workUnits: import("../../core/workforce/work-unit-registry").WorkUnitRegistry,
-): {
-  mission: Mission;
-  plan: MissionPlan;
-} {
+): { mission: Mission; plan: MissionPlan } {
   const now = new Date().toISOString();
   const vision = createVisionTask(input, now);
-
   registry.registerTask(vision.task);
   workUnits.register(vision.task.id, vision.workUnit);
 
@@ -207,17 +157,15 @@ function buildMissionFromVision(
       missionId: input.id,
       version: 1,
       objective: vision.planObjective,
-      milestones: [
-        {
-          id: vision.milestoneId,
-          missionId: input.id,
-          name: "Build",
-          objective: vision.planObjective,
-          taskIds: [vision.taskId],
-          dependencyIds: [],
-          status: "planned",
-        },
-      ],
+      milestones: [{
+        id: vision.milestoneId,
+        missionId: input.id,
+        name: "Build",
+        objective: vision.planObjective,
+        taskIds: [vision.taskId],
+        dependencyIds: [],
+        status: "planned",
+      }],
       decisionIds: [],
       acceptanceCriteria: input.acceptanceCriteria,
       locked: false,
@@ -228,7 +176,8 @@ function buildMissionFromVision(
   };
 }
 
-export class ProjectOwnerMachineServerController implements ProjectOwnerMachineApiHandler {
+export class ProjectOwnerMachineServerController
+  implements ProjectOwnerMachineApiHandler {
   private readonly api: ProjectOwnerMachineApi;
   private readonly editor: EngineeringRepairEditor;
   private readonly buildTestOptions: BuildTestOptions;
@@ -243,6 +192,7 @@ export class ProjectOwnerMachineServerController implements ProjectOwnerMachineA
     const baseUrl = runtime.ollamaBaseUrl ?? "http://127.0.0.1:11434";
     const workspaceRoot = runtime.workspaceRoot ?? process.cwd();
     const allowBuildNetwork = runtime.allowBuildNetwork ?? true;
+    const localModelAvailable = runtime.localModelAvailable ?? true;
 
     const transport: OllamaHttpTransport = {
       async post(path, body) {
@@ -268,13 +218,12 @@ export class ProjectOwnerMachineServerController implements ProjectOwnerMachineA
       "verification",
       "recovery",
     ];
-
     const model = new OllamaIntelligenceModel(
       ollamaClient,
       modelId,
       capabilitiesForModel,
+      localModelAvailable,
     );
-
     const adapter = new GovernedInternalIntelligenceAdapter({
       async execute(identity, request) {
         return ollamaClient.execute(identity, request);
@@ -299,11 +248,8 @@ export class ProjectOwnerMachineServerController implements ProjectOwnerMachineA
 
     const metrics = new Map<string, ModelRoutingMetrics>();
     metrics.set(
-      modelRoutingMetricKey(
-        model.identity.providerId,
-        model.identity.modelId,
-      ),
-      { estimatedCost: 0, latencyMs: 1000, reliability: 85 },
+      modelRoutingMetricKey(model.identity.providerId, model.identity.modelId),
+      { estimatedCost: 0, latencyMs: 1_000, reliability: 85 },
     );
 
     if (runtime.gatewayRuntime) {
@@ -315,11 +261,7 @@ export class ProjectOwnerMachineServerController implements ProjectOwnerMachineA
       );
     }
 
-    const router = new ModelRouter(
-      capabilities,
-      metrics,
-    );
-
+    const router = new ModelRouter(capabilities, metrics);
     const modelDrivenCoding = new ModelDrivenCodingExecutionAuthority(
       machine,
       router,
@@ -339,9 +281,7 @@ export class ProjectOwnerMachineServerController implements ProjectOwnerMachineA
       "write",
       "execute",
     ];
-    if (allowBuildNetwork) {
-      allowedSideEffects.push("network");
-    }
+    if (allowBuildNetwork) allowedSideEffects.push("network");
 
     this.buildTestOptions = {
       sandboxPolicy: {
