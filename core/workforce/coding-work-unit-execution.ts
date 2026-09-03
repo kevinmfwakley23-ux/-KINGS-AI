@@ -260,6 +260,10 @@ export class CodingWorkUnitExecutionAuthority {
             ).getTime(),
           completedAt:
             stepResult.execution.completedAt,
+          verifiesCriteria:
+            stepResult.step.verifiesCriteria
+              ? [...stepResult.step.verifiesCriteria]
+              : [],
         }),
       );
 
@@ -408,6 +412,21 @@ export class CodingWorkUnitExecutionAuthority {
     if (request.requiredCriteria.length === 0) {
       throw new Error(
         "K.I.N.G.S. Coding Work Unit Execution: at least one verification criterion is required.",
+      );
+    }
+
+    const coveredCriteria = new Set(
+      request.buildTestSteps.flatMap(
+        (step) => step.verifiesCriteria ?? [],
+      ),
+    );
+    const uncoveredCriterion = request.requiredCriteria.find(
+      (criterion) => !coveredCriteria.has(criterion),
+    );
+
+    if (uncoveredCriterion) {
+      throw new Error(
+        `K.I.N.G.S. Coding Work Unit Execution: no build/test step explicitly verifies required criterion "${uncoveredCriterion}".`,
       );
     }
   }
