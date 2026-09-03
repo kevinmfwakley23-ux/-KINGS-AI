@@ -24,6 +24,8 @@ export class OllamaIntelligenceModel
       string,
     capabilities:
       ModelIdentity["capabilities"],
+    available =
+      true,
   ) {
     this.client =
       client;
@@ -51,8 +53,7 @@ export class OllamaIntelligenceModel
         true,
       supportsStructuredOutput:
         false,
-      available:
-        true,
+      available,
     };
   }
 
