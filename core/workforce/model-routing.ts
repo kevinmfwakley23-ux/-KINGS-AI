@@ -18,6 +18,7 @@ export type ModelRoutingMode =
   | "cheap"
   | "fast"
   | "quota-first"
+  | "lkgp"
   | "offline";
 
 export interface ModelRoutingRequest {
@@ -63,6 +64,7 @@ export interface ModelRoutingScoreBreakdown {
   context: number;
   subscription: number;
   health: number;
+  freshness: number;
 }
 
 export interface ModelRoutingCandidate {
@@ -78,6 +80,7 @@ export interface ModelRoutingCandidate {
   tokensPerSecond?: number;
   quotaRemainingRatio?: number;
   coveredBySubscription: boolean;
+  zeroMarginalCost: boolean;
   providerHealthy: boolean;
   recentFailureCount: number;
   cooldownUntilEpochMs?: number;
@@ -102,14 +105,15 @@ type ScoreDimension = keyof ModelRoutingScoreBreakdown;
 type ScoreWeights = Record<ScoreDimension, number>;
 
 const SCORE_WEIGHTS: Record<Exclude<ModelRoutingMode, "legacy">, ScoreWeights> = {
-  balanced: { capability: 20, reliability: 20, cost: 15, latency: 10, throughput: 5, quota: 10, context: 10, subscription: 5, health: 5 },
-  auto: { capability: 25, reliability: 20, cost: 12, latency: 8, throughput: 5, quota: 8, context: 10, subscription: 5, health: 7 },
-  smart: { capability: 25, reliability: 20, cost: 12, latency: 8, throughput: 5, quota: 8, context: 10, subscription: 5, health: 7 },
-  coding: { capability: 30, reliability: 20, cost: 10, latency: 5, throughput: 5, quota: 5, context: 10, subscription: 5, health: 10 },
-  cheap: { capability: 10, reliability: 10, cost: 25, latency: 5, throughput: 0, quota: 15, context: 5, subscription: 25, health: 5 },
-  fast: { capability: 10, reliability: 15, cost: 5, latency: 30, throughput: 25, quota: 0, context: 5, subscription: 0, health: 10 },
-  "quota-first": { capability: 5, reliability: 10, cost: 15, latency: 0, throughput: 0, quota: 30, context: 0, subscription: 30, health: 10 },
-  offline: { capability: 30, reliability: 20, cost: 0, latency: 10, throughput: 5, quota: 10, context: 10, subscription: 0, health: 15 },
+  balanced: { capability: 20, reliability: 20, cost: 15, latency: 10, throughput: 5, quota: 10, context: 10, subscription: 5, health: 5, freshness: 0 },
+  auto: { capability: 25, reliability: 20, cost: 12, latency: 8, throughput: 5, quota: 8, context: 10, subscription: 5, health: 7, freshness: 0 },
+  smart: { capability: 25, reliability: 20, cost: 12, latency: 8, throughput: 5, quota: 8, context: 10, subscription: 5, health: 7, freshness: 0 },
+  coding: { capability: 30, reliability: 20, cost: 10, latency: 5, throughput: 5, quota: 5, context: 10, subscription: 5, health: 10, freshness: 0 },
+  cheap: { capability: 10, reliability: 10, cost: 25, latency: 5, throughput: 0, quota: 15, context: 5, subscription: 25, health: 5, freshness: 0 },
+  fast: { capability: 10, reliability: 15, cost: 5, latency: 30, throughput: 25, quota: 0, context: 5, subscription: 0, health: 10, freshness: 0 },
+  "quota-first": { capability: 5, reliability: 10, cost: 15, latency: 0, throughput: 0, quota: 30, context: 0, subscription: 30, health: 10, freshness: 0 },
+  lkgp: { capability: 10, reliability: 15, cost: 5, latency: 5, throughput: 0, quota: 5, context: 5, subscription: 5, health: 10, freshness: 45 },
+  offline: { capability: 30, reliability: 20, cost: 0, latency: 10, throughput: 5, quota: 10, context: 10, subscription: 0, health: 15, freshness: 0 },
 };
 
 export class ModelRouter {
@@ -138,7 +142,7 @@ export class ModelRouter {
     if (mode === "legacy") {
       candidates.sort((left, right) => this.compareLegacyCandidates(left, right, request));
     } else {
-      candidates = this.rankAdaptiveCandidates(candidates, request, mode);
+      candidates = this.rankAdaptiveCandidates(candidates, request, mode, nowEpochMs);
     }
 
     if (candidates.length === 0) {
@@ -172,7 +176,8 @@ export class ModelRouter {
   private toCandidate(match: ModelCapabilityMatch): ModelRoutingCandidate {
     const metric = this.metrics.get(match.model.modelId);
     const internal = match.model.providerKind === "internal-local" || match.model.providerKind === "internal-self-hosted";
-    const coveredBySubscription = internal || match.model.providerKind === "external-free" || metric?.coveredBySubscription === true;
+    const coveredBySubscription = metric?.coveredBySubscription === true;
+    const zeroMarginalCost = internal || match.model.providerKind === "external-free" || coveredBySubscription;
 
     return {
       modelId: match.model.modelId,
@@ -187,6 +192,7 @@ export class ModelRouter {
       tokensPerSecond: metric?.tokensPerSecond,
       quotaRemainingRatio: metric?.quotaRemainingRatio,
       coveredBySubscription,
+      zeroMarginalCost,
       providerHealthy: metric?.providerHealthy ?? true,
       recentFailureCount: metric?.recentFailureCount ?? 0,
       cooldownUntilEpochMs: metric?.cooldownUntilEpochMs,
@@ -217,6 +223,7 @@ export class ModelRouter {
     candidates: ModelRoutingCandidate[],
     request: ModelRoutingRequest,
     mode: Exclude<ModelRoutingMode, "legacy">,
+    nowEpochMs: number,
   ): ModelRoutingCandidate[] {
     if (candidates.length === 0) return [];
 
@@ -236,13 +243,14 @@ export class ModelRouter {
         const scoreBreakdown: ModelRoutingScoreBreakdown = {
           capability: this.clamp(candidate.capabilityStrength),
           reliability: candidate.metricsAvailable ? this.clamp(candidate.reliability) : 50,
-          cost: candidate.coveredBySubscription ? 100 : this.inverseNormalize(candidate.estimatedCost, minCost, maxCost, candidate.metricsAvailable),
+          cost: candidate.zeroMarginalCost ? 100 : this.inverseNormalize(candidate.estimatedCost, minCost, maxCost, candidate.metricsAvailable),
           latency: this.inverseNormalize(candidate.latencyMs, minLatency, maxLatency, candidate.metricsAvailable && candidate.latencyMs !== Number.MAX_SAFE_INTEGER),
           throughput: this.normalize(candidate.tokensPerSecond, minThroughput, maxThroughput),
           quota: candidate.quotaRemainingRatio === undefined ? 50 : this.clamp(candidate.quotaRemainingRatio * 100),
           context: request.requiredContextTokens === undefined ? 50 : 100,
-          subscription: candidate.coveredBySubscription ? 100 : 0,
+          subscription: candidate.coveredBySubscription ? 100 : candidate.internal ? 90 : candidate.providerKind === "external-free" ? 70 : 0,
           health: this.clamp(100 - (candidate.recentFailureCount * 15)),
+          freshness: this.freshness(candidate.lastSuccessEpochMs, nowEpochMs),
         };
 
         let weightedTotal = 0;
@@ -279,6 +287,13 @@ export class ModelRouter {
 
   private clamp(value: number): number {
     return Math.max(0, Math.min(100, value));
+  }
+
+  private freshness(lastSuccessEpochMs: number | undefined, nowEpochMs: number): number {
+    if (lastSuccessEpochMs === undefined || !Number.isFinite(lastSuccessEpochMs)) return 0;
+    const ageMs = Math.max(0, nowEpochMs - lastSuccessEpochMs);
+    const horizonMs = 60 * 60 * 1000;
+    return this.clamp(100 - ((ageMs / horizonMs) * 100));
   }
 
   private applyDeterministicExploration(
