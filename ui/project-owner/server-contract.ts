@@ -309,9 +309,7 @@ export class ProjectOwnerMachineServerController implements ProjectOwnerMachineA
     this.buildTestOptions = {
       sandboxPolicy: {
         allowedCommands: [
-          "/home/kevinmfwakley23/.config/nvm/versions/node/v24.19.0/bin/node",
-          "/usr/bin/node",
-          "node",
+          process.execPath,
         ],
         allowedWorkingDirectories: [workspaceRoot],
         allowedReadPaths: [workspaceRoot],
@@ -332,6 +330,7 @@ export class ProjectOwnerMachineServerController implements ProjectOwnerMachineA
       modelDrivenCoding,
       executionContext,
       new ProjectOwnerUiController(),
+      workspaceRoot,
     );
   }
 
