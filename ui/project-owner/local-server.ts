@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { access, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import { TaskControl } from "../../core/workforce/task-control";
 import { WorkforceRegistry } from "../../core/workforce/registry";
@@ -8,6 +8,7 @@ import { WorkUnitRegistry } from "../../core/workforce/work-unit-registry";
 import { KingsCodingMachine } from "../../core/workforce/kings-coding-machine";
 import { DurableMissionContinuityStore } from "../../core/workforce/durable-mission-continuity-store";
 import type { ProjectOwnerExecutionContext } from "../../core/workforce/project-owner-machine-api";
+import type { SandboxBubblewrapIsolation } from "../../core/workforce/execution-sandbox";
 import {
   ProjectOwnerMachineServerController,
   createDefaultProjectOwnerMissionFactory,
@@ -36,13 +37,57 @@ const publicFile = join(process.cwd(), "ui/project-owner/index.html");
 const forgeFile = join(process.cwd(), "ui/project-owner/authors-forge.html");
 const manifestFile = join(process.cwd(), "ui/project-owner/manifest.webmanifest");
 const serviceWorkerFile = join(process.cwd(), "ui/project-owner/service-worker.js");
-const runtimeBuild = "kings-chief-engineer-v4";
+const runtimeBuild = "kings-chief-engineer-v5";
 
 async function body(request: import("node:http").IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   for await (const chunk of request) chunks.push(Buffer.from(chunk));
   if (!chunks.length) return undefined;
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function detectProcessIsolation(): Promise<SandboxBubblewrapIsolation | undefined> {
+  if (process.env.KINGS_DISABLE_HOST_ISOLATION === "1") return undefined;
+
+  const configured = process.env.KINGS_BWRAP_PATH?.trim();
+  const candidates = configured
+    ? [configured]
+    : ["/usr/bin/bwrap", "/bin/bwrap"];
+  const executable = (await Promise.all(
+    candidates.map(async (candidate) => ({
+      candidate,
+      exists: await exists(candidate),
+    })),
+  )).find((entry) => entry.exists)?.candidate;
+
+  if (!executable) return undefined;
+
+  const home = process.env.HOME?.trim();
+  const nodePrefix = dirname(dirname(process.execPath));
+  const additionalReadOnlyPaths = [
+    nodePrefix,
+    ...(home
+      ? [
+          join(home, ".cargo", "bin"),
+          join(home, ".rustup"),
+        ]
+      : []),
+  ];
+
+  return {
+    kind: "bubblewrap",
+    executable,
+    additionalReadOnlyPaths,
+  };
 }
 
 interface OllamaHealth {
@@ -129,9 +174,10 @@ function automaticCodingRoute(runtime: KingsAiGatewayRuntime) {
 }
 
 async function main(): Promise<void> {
-  const [initialGatewayRuntime, initialOllama] = await Promise.all([
+  const [initialGatewayRuntime, initialOllama, processIsolation] = await Promise.all([
     loadKingsAiGatewayRuntime(),
     checkOllama(),
+    detectProcessIsolation(),
   ]);
   let gatewayRuntime = initialGatewayRuntime;
 
@@ -162,6 +208,7 @@ async function main(): Promise<void> {
       gatewayRuntime,
       allowBuildNetwork,
       localModelAvailable: initialOllama.ok,
+      processIsolation,
     },
   );
   const forgeApi = new AuthorsForgeApi();
@@ -207,6 +254,21 @@ async function main(): Promise<void> {
           projectsRoot: workspaceRoot,
           continuityFile,
           allowBuildNetwork,
+          processIsolation: processIsolation
+            ? {
+                active: true,
+                kind: processIsolation.kind,
+                executable: processIsolation.executable,
+                repositoryExecutionAllowed: true,
+              }
+            : {
+                active: false,
+                kind: null,
+                executable: null,
+                repositoryExecutionAllowed: false,
+                message:
+                  "Bubblewrap was not found. GitHub repository build/test execution is fail-closed until host isolation is installed or configured.",
+              },
           ollama: refreshed.ollama,
           gateways: refreshed.gateways.gateways.map(({ adapter, health }) => ({
             providerId: adapter.descriptor.id,
@@ -343,6 +405,7 @@ async function main(): Promise<void> {
     console.log(`Local model routable: ${initialOllama.ok}`);
     console.log(`AI gateways: ${gatewayRuntime.gateways.length}`);
     console.log(`Gateway model catalog: ${gatewayRuntime.catalog.length}`);
+    console.log(`Host process isolation: ${processIsolation ? `${processIsolation.kind} (${processIsolation.executable})` : "UNAVAILABLE — GitHub execution blocked"}`);
     console.log(`Runtime build: ${runtimeBuild}`);
   });
 }
