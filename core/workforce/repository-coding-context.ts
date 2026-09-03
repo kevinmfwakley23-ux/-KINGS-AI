@@ -13,6 +13,8 @@ export interface RepositoryCodingContextRequest {
   requirements: readonly string[];
   maxContextCharacters?: number;
   maxFiles?: number;
+  maxSearchFiles?: number;
+  maxSearchBytes?: number;
 }
 
 export interface RepositoryCodingContextResult {
@@ -20,6 +22,7 @@ export interface RepositoryCodingContextResult {
   inspectedFiles: string[];
   repositoryFileCount: number;
   excludedSensitiveFiles: number;
+  contentRankedFiles: number;
   truncated: boolean;
 }
 
@@ -136,6 +139,25 @@ function scorePath(
   return score;
 }
 
+function scoreContent(
+  content: string,
+  objectiveTerms: Set<string>,
+): number {
+  if (objectiveTerms.size === 0) return 0;
+  const lower = content.toLowerCase();
+  let matchedTerms = 0;
+  let score = 0;
+  for (const term of objectiveTerms) {
+    const first = lower.indexOf(term);
+    if (first < 0) continue;
+    matchedTerms += 1;
+    score += 22;
+    if (lower.indexOf(term, first + term.length) >= 0) score += 5;
+  }
+  if (matchedTerms >= 2) score += matchedTerms * 8;
+  return Math.min(score, 180);
+}
+
 export class RepositoryCodingContextAuthority {
   async build(
     request: RepositoryCodingContextRequest,
@@ -145,6 +167,14 @@ export class RepositoryCodingContextAuthority {
       Math.min(request.maxContextCharacters ?? 28_000, 80_000),
     );
     const maxFiles = Math.max(1, Math.min(request.maxFiles ?? 18, 50));
+    const maxSearchFiles = Math.max(
+      maxFiles,
+      Math.min(request.maxSearchFiles ?? 500, 1_000),
+    );
+    const maxSearchBytes = Math.max(
+      1_000_000,
+      Math.min(request.maxSearchBytes ?? 24_000_000, 64_000_000),
+    );
     const sourceId = `repository-${request.missionId}`;
     const source: KnowledgeSource = {
       id: sourceId,
@@ -179,11 +209,42 @@ export class RepositoryCodingContextAuthority {
     const objectiveTerms = terms(
       `${request.objective} ${request.requirements.join(" ")}`,
     );
-    const candidates = files
-      .filter(isTextCandidate)
+    const textCandidates = files.filter(isTextCandidate);
+    const contentScores = new Map<string, number>();
+    let searchedBytes = 0;
+    let contentRankedFiles = 0;
+
+    const searchOrder = [...textCandidates].sort((left, right) => {
+      const pathDifference = scorePath(right.relativePath, objectiveTerms) -
+        scorePath(left.relativePath, objectiveTerms);
+      if (pathDifference !== 0) return pathDifference;
+      return left.sizeBytes - right.sizeBytes;
+    });
+
+    for (const file of searchOrder) {
+      if (contentRankedFiles >= maxSearchFiles) break;
+      if (searchedBytes + file.sizeBytes > maxSearchBytes) continue;
+      searchedBytes += file.sizeBytes;
+      try {
+        const content = await inspector.readTextFile(source, file.relativePath);
+        contentScores.set(
+          file.relativePath,
+          scoreContent(content, objectiveTerms),
+        );
+        contentRankedFiles += 1;
+      } catch {
+        // A file that changes or becomes unreadable during inspection is simply
+        // omitted from content ranking; executable verification remains authoritative.
+      }
+    }
+
+    const candidates = [...textCandidates]
       .sort((left, right) => {
-        const score = scorePath(right.relativePath, objectiveTerms) -
-          scorePath(left.relativePath, objectiveTerms);
+        const score =
+          scorePath(right.relativePath, objectiveTerms) +
+          (contentScores.get(right.relativePath) ?? 0) -
+          scorePath(left.relativePath, objectiveTerms) -
+          (contentScores.get(left.relativePath) ?? 0);
         return score !== 0
           ? score
           : left.relativePath.localeCompare(right.relativePath);
@@ -198,12 +259,13 @@ export class RepositoryCodingContextAuthority {
       `Workspace: ${inspection.rootPath}`,
       `Files discovered for safe model context: ${files.length}`,
       `Sensitive files excluded from model context: ${sensitiveFiles.length}`,
+      `Source files content-ranked for this task: ${contentRankedFiles}`,
       "",
       "REPOSITORY INVENTORY:",
       tree,
     ];
     let used = sections.join("\n").length;
-    let truncated = files.length > 700;
+    let truncated = files.length > 700 || contentRankedFiles < textCandidates.length;
     const inspectedFiles: string[] = [];
 
     for (const file of candidates) {
@@ -249,6 +311,7 @@ export class RepositoryCodingContextAuthority {
       inspectedFiles,
       repositoryFileCount: files.length,
       excludedSensitiveFiles: sensitiveFiles.length,
+      contentRankedFiles,
       truncated,
     };
   }
