@@ -57,6 +57,30 @@ type BuildTestOptions = ConstructorParameters<
   typeof import("../../core/workforce/coding-work-unit-execution").CodingWorkUnitExecutionAuthority
 >[1];
 
+function detectGitHubRepository(
+  input: ProjectOwnerDesignInput,
+): ProjectOwnerDesignInput {
+  if (input.repository) return input;
+
+  const searchable = [
+    input.objective,
+    ...input.requirements,
+    ...input.constraints,
+  ].join("\n");
+  const match = searchable.match(
+    /https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?/i,
+  );
+  if (!match) return input;
+
+  return {
+    ...input,
+    repository: {
+      url: match[0],
+      publishVerifiedChanges: true,
+    },
+  };
+}
+
 function createVisionTask(
   input: ProjectOwnerDesignInput,
   now: string,
@@ -354,14 +378,23 @@ export class ProjectOwnerMachineServerController
   handle(
     request: ProjectOwnerMachineApiRequest,
   ): Promise<ProjectOwnerMachineApiResponse> {
-    if (request.action !== "execute-next") {
-      return this.api.handle(request);
+    const normalizedRequest =
+      request.action === "create-mission" && request.input
+        ? {
+            ...request,
+            input: detectGitHubRepository(request.input),
+          }
+        : request;
+
+    if (normalizedRequest.action !== "execute-next") {
+      return this.api.handle(normalizedRequest);
     }
 
     return this.api.handle({
-      ...request,
-      editor: request.editor ?? this.editor,
-      buildTestOptions: request.buildTestOptions ?? this.buildTestOptions,
+      ...normalizedRequest,
+      editor: normalizedRequest.editor ?? this.editor,
+      buildTestOptions:
+        normalizedRequest.buildTestOptions ?? this.buildTestOptions,
     });
   }
 }
