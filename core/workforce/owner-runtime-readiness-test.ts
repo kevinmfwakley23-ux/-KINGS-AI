@@ -55,13 +55,19 @@ async function main(): Promise<void> {
   assert.equal(offline.repositoryExecutionReady, false);
   assert.equal(offline.blockers.length, 2);
 
-  const localReady = assessOwnerRuntimeReadiness({
+  const localOnly = assessOwnerRuntimeReadiness({
     localModelRoutable: true,
     gatewayCodingRouteRoutable: false,
     repositoryExecutionAllowed: true,
   });
-  assert.equal(localReady.ready, true);
-  assert.equal(localReady.blockers.length, 0);
+  assert.equal(
+    localOnly.ready,
+    false,
+    "local Ollama alone must not make gateway-first production ready",
+  );
+  assert.equal(localOnly.localFallbackAvailable, true);
+  assert.equal(localOnly.aiExecutionReady, false);
+  assert.equal(localOnly.blockers.length, 1);
 
   const gatewayReady = assessOwnerRuntimeReadiness({
     localModelRoutable: false,
@@ -70,6 +76,7 @@ async function main(): Promise<void> {
   });
   assert.equal(gatewayReady.ready, true);
   assert.equal(gatewayReady.aiExecutionReady, true);
+  assert.equal(gatewayReady.blockers.length, 0);
 
   assert.equal(
     hasRoutableGatewayCodingModel(runtime()),
@@ -117,62 +124,43 @@ async function main(): Promise<void> {
     join(process.cwd(), "ui", "project-owner", "local-server.ts"),
     "utf8",
   );
+  assert.match(serverSource, /routingMode:\s*"gateway-first"/);
+  assert.match(serverSource, /KINGS_ENABLE_OLLAMA_FALLBACK/);
+  assert.match(serverSource, /DurableGatewayUsageLedger/);
+  assert.match(serverSource, /req\.url === "\/api\/usage"/);
+  assert.match(serverSource, /selectAutomaticCodingRoute/);
+  assert.match(serverSource, /ok:\s*readiness\.ready/);
+  assert.match(serverSource, /req\.url === "\/ready"/);
+  assert.match(serverSource, /readiness\.ready \? 200 : 503/);
+  assert.match(serverSource, /identifiesAsBubblewrap/);
   assert.match(
     serverSource,
-    /assessOwnerRuntimeReadiness/,
-    "owner server must use the shared readiness contract",
+    /preferredProviderId:\s*route\.providerId/,
+    "unselected coding missions must receive the live gateway route",
   );
   assert.match(
     serverSource,
-    /selectAutomaticCodingRoute/,
-    "owner server must use the tested automatic coding route selector",
-  );
-  assert.match(
-    serverSource,
-    /ok:\s*readiness\.ready/,
-    "health payload must not hard-code a green status",
-  );
-  assert.match(
-    serverSource,
-    /req\.url === "\/ready"/,
-    "owner server must expose a readiness probe",
-  );
-  assert.match(
-    serverSource,
-    /readiness\.ready \? 200 : 503/,
-    "readiness probe must return HTTP 503 when production execution is unavailable",
-  );
-  assert.match(
-    serverSource,
-    /identifiesAsBubblewrap/,
-    "owner server must verify Bubblewrap identity rather than path existence alone",
+    /defaultModel:\s*automaticRoute/,
+    "model API must default to gateway route rather than local Ollama",
   );
 
   const statusSource = await readFile(
     join(process.cwd(), "ui", "project-owner", "kings-status.sh"),
     "utf8",
   );
-  assert.match(
-    statusSource,
-    /\/ready/,
-    "status command must query live production readiness",
-  );
-  assert.match(
-    statusSource,
-    /PRODUCTION READINESS: NOT READY/,
-    "status command must distinguish a running process from a working coding runtime",
-  );
+  assert.match(statusSource, /\/ready/);
+  assert.match(statusSource, /PRODUCTION READINESS: NOT READY/);
   assert.doesNotMatch(
     statusSource,
     /^MODEL:\s*qwen2\.5-coder:1\.5b$/m,
-    "status command must not hard-code a model and imply that it is live",
   );
 
   console.log("K.I.N.G.S. OWNER RUNTIME → OFFLINE FAIL-CLOSED: SUCCESS");
-  console.log("K.I.N.G.S. OWNER RUNTIME → LOCAL AI READY: SUCCESS");
+  console.log("K.I.N.G.S. OWNER RUNTIME → LOCAL-ONLY NOT PRODUCTION READY: SUCCESS");
   console.log("K.I.N.G.S. OWNER RUNTIME → 9ROUTER DEFAULT ROUTE: SUCCESS");
   console.log("K.I.N.G.S. OWNER RUNTIME → OMNIROUTE PREFERRED ROUTE: SUCCESS");
-  console.log("K.I.N.G.S. OWNER RUNTIME → HEALTH CONTRACT INTEGRATION: SUCCESS");
+  console.log("K.I.N.G.S. OWNER RUNTIME → GATEWAY-FIRST HEALTH CONTRACT: SUCCESS");
+  console.log("K.I.N.G.S. OWNER RUNTIME → DURABLE USAGE API CONTRACT: SUCCESS");
   console.log("K.I.N.G.S. OWNER STATUS → LIVE READINESS PROBE: SUCCESS");
   console.log("TREE-KCM-OWNER-RUNTIME-READINESS: SUCCESS");
 }
