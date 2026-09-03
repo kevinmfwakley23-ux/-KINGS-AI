@@ -110,6 +110,7 @@ function parseJsonGateways(
       gatewayKind: item.gatewayKind ?? "openai-compatible",
       baseUrl: item.baseUrl,
       apiKey: item.apiKey,
+      providerKind: "external-routed",
       models: (item.models ?? []).map((modelId) => configuredModel(modelId)),
       discoverModels: true,
       allowDynamicModels: true,
@@ -132,6 +133,7 @@ export function configuredGatewayDefinitions(
       gatewayKind: "omniroute",
       baseUrl: omniUrl,
       apiKey: env.KINGS_OMNIROUTE_KEY,
+      providerKind: "external-routed",
       models: seeds.map((modelId) => configuredModel(modelId)),
       discoverModels: true,
       allowDynamicModels: true,
@@ -146,6 +148,7 @@ export function configuredGatewayDefinitions(
       gatewayKind: "9router",
       baseUrl: nineUrl,
       apiKey: env.KINGS_9ROUTER_KEY,
+      providerKind: "external-routed",
       models: csv(env.KINGS_9ROUTER_MODELS).map(
         (modelId) => configuredModel(modelId),
       ),
@@ -248,10 +251,12 @@ function registerOrRefreshModelRoute(
     existing.model.available = model.available;
   }
 
+  // Gateway model price is deliberately unknown unless a later provider response
+  // or verified pricing source supplies it. Unknown is never encoded as $0.
   metrics.set(
     modelRoutingMetricKey(adapter.descriptor.id, model.modelId),
     {
-      estimatedCost: 0,
+      costBasis: "unknown",
       latencyMs: verified ? 800 : 1_200,
       reliability: health.ok ? verified ? 94 : 80 : 25,
     },
