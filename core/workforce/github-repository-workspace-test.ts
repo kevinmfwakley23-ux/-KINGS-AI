@@ -130,6 +130,11 @@ async function runTest(): Promise<void> {
     assert(published.published, "Verified changes were not published.");
     assert(published.branch === "kings/mission-1", "Verified changes targeted the wrong branch.");
     assert(
+      published.changedFiles.length === 1 &&
+      published.changedFiles[0] === "src/index.ts",
+      "Git porcelain evidence did not preserve the exact changed-file path.",
+    );
+    assert(
       runner.calls.some(
         (args) =>
           args[0] === "push" &&
@@ -138,7 +143,7 @@ async function runTest(): Promise<void> {
       ),
       "Verified publication was not a non-force push to the K.I.N.G.S. branch.",
     );
-    console.log("GITHUB-WORKSPACE-003 verified commit + non-force branch push: SUCCESS");
+    console.log("GITHUB-WORKSPACE-003 verified commit + exact diff evidence + non-force branch push: SUCCESS");
 
     const pushesBeforeNoDiff = runner.calls.filter((args) => args[0] === "push").length;
     const alreadyCompliant = await authority.publishVerified(workspace, {
