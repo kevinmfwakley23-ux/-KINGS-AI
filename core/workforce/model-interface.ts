@@ -10,7 +10,8 @@ export type IntelligenceProviderKind =
   | "internal-local"
   | "internal-self-hosted"
   | "external-free"
-  | "external-paid";
+  | "external-paid"
+  | "external-routed";
 
 export type IntelligenceCapability =
   | "reasoning"
