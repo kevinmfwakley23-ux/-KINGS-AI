@@ -94,9 +94,13 @@ export class ModelRouter {
       .map((match) => this.toCandidate(match))
       .filter((candidate) => {
         if (request.maximumEstimatedCost === undefined) return true;
-        // Unknown price is never treated as free or within a numeric budget.
-        return candidate.estimatedCost !== null &&
-          candidate.estimatedCost <= request.maximumEstimatedCost;
+        if (candidate.estimatedCost !== null) {
+          return candidate.estimatedCost <= request.maximumEstimatedCost;
+        }
+        // An explicit live-catalog choice may have unknown KINGS-side pricing
+        // because the gateway itself owns subscription/free-tier accounting.
+        // We allow that explicit route without pretending its cost is zero.
+        return explicitSelection && request.allowUnverifiedExplicitSelection === true;
       })
       .sort((left, right) =>
         this.compareCandidates(left, right, request),
@@ -202,8 +206,6 @@ export class ModelRouter {
     if (leftCostKnown && rightCostKnown && left.estimatedCost !== right.estimatedCost) {
       return (left.estimatedCost as number) - (right.estimatedCost as number);
     }
-    // Known verified-free routes sort ahead of unknown-price routes. Unknown prices
-    // are not assigned an invented numeric value.
     if (left.costBasis === "verified-free" && right.costBasis !== "verified-free") {
       return -1;
     }
