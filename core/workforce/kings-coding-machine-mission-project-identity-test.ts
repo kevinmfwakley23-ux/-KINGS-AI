@@ -247,6 +247,9 @@ async function main(): Promise<void> {
               command: process.execPath,
               args: [verify],
               workingDirectory: workspace,
+              verifiesCriteria: [
+                "identity-proof.ts is created and verified.",
+              ],
             },
           ],
           requiredCriteria: [
