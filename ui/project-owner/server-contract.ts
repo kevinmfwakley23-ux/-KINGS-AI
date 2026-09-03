@@ -21,6 +21,8 @@ import {
 
 import {
   ModelRouter,
+  modelRoutingMetricKey,
+  type ModelRoutingMetrics,
 } from "../../core/workforce/model-routing";
 
 import {
@@ -72,6 +74,11 @@ import type {
   Mission,
 } from "../../core/workforce/types";
 
+import {
+  registerKingsAiGatewayRuntime,
+  type KingsAiGatewayRuntime,
+} from "../../core/workforce/ai-gateway-runtime";
+
 export interface ProjectOwnerMachineApiHandler {
   handle(
     request: ProjectOwnerMachineApiRequest,
@@ -82,6 +89,8 @@ export interface ProjectOwnerRuntimeOptions {
   ollamaBaseUrl?: string;
   modelId?: string;
   workspaceRoot?: string;
+  gatewayRuntime?: KingsAiGatewayRuntime;
+  allowBuildNetwork?: boolean;
 }
 
 type BuildTestOptions = ConstructorParameters<
@@ -129,7 +138,12 @@ function createVisionTask(
     status: "ready",
     dependencyIds: [],
     inputReferences: ["project-owner-vision"],
-    expectedOutputs: ["Working application source code", "Passing build and verification evidence"],
+    expectedOutputs: [
+      "Working application source code",
+      "Project manifests and configuration",
+      "Executable automated tests or smoke verification",
+      "Passing build and verification evidence",
+    ],
     createdAt: now,
     updatedAt: now,
   };
@@ -138,12 +152,12 @@ function createVisionTask(
     id: `work-unit-${input.id}-build`,
     role: "coding-engineer",
     objective,
-    capabilityIds: ["engineering-typescript"],
+    capabilityIds: ["engineering-project"],
     allowedToolIds: ["tool-execution-sandbox"],
-    allowedPaths: [".", "src", "generated"],
+    allowedPaths: ["."],
     budget: {
-      maxTimeMs: 120_000,
-      maxTokens: 8_000,
+      maxTimeMs: 300_000,
+      maxTokens: 16_000,
       maxIterations: 5,
     },
     dependencyIds: [],
@@ -228,6 +242,7 @@ export class ProjectOwnerMachineServerController implements ProjectOwnerMachineA
     const modelId = runtime.modelId ?? "qwen2.5-coder:1.5b";
     const baseUrl = runtime.ollamaBaseUrl ?? "http://127.0.0.1:11434";
     const workspaceRoot = runtime.workspaceRoot ?? process.cwd();
+    const allowBuildNetwork = runtime.allowBuildNetwork ?? true;
 
     const transport: OllamaHttpTransport = {
       async post(path, body) {
@@ -282,14 +297,27 @@ export class ProjectOwnerMachineServerController implements ProjectOwnerMachineA
       })),
     });
 
+    const metrics = new Map<string, ModelRoutingMetrics>();
+    metrics.set(
+      modelRoutingMetricKey(
+        model.identity.providerId,
+        model.identity.modelId,
+      ),
+      { estimatedCost: 0, latencyMs: 1000, reliability: 85 },
+    );
+
+    if (runtime.gatewayRuntime) {
+      registerKingsAiGatewayRuntime(
+        runtime.gatewayRuntime,
+        providers,
+        capabilities,
+        metrics,
+      );
+    }
+
     const router = new ModelRouter(
       capabilities,
-      new Map([
-        [
-          model.identity.modelId,
-          { estimatedCost: 0, latencyMs: 1000, reliability: 85 },
-        ],
-      ]),
+      metrics,
     );
 
     const modelDrivenCoding = new ModelDrivenCodingExecutionAuthority(
@@ -302,25 +330,58 @@ export class ProjectOwnerMachineServerController implements ProjectOwnerMachineA
       new ControlledFileEditor({
         allowedReadPaths: [workspaceRoot],
         allowedWritePaths: [workspaceRoot],
-        maxFileBytes: 1_048_576,
+        maxFileBytes: 5_242_880,
       }),
     );
+
+    const allowedSideEffects: Array<"read" | "write" | "execute" | "network"> = [
+      "read",
+      "write",
+      "execute",
+    ];
+    if (allowBuildNetwork) {
+      allowedSideEffects.push("network");
+    }
 
     this.buildTestOptions = {
       sandboxPolicy: {
         allowedCommands: [
           process.execPath,
+          "node",
+          "npm",
+          "npx",
+          "python3",
+          "cargo",
+          "go",
+          "mvn",
+          "gradle",
+          "javac",
+          "java",
+          "gcc",
+          "g++",
+          "make",
+          "cmake",
+          "bash",
+          "sqlite3",
         ],
         allowedWorkingDirectories: [workspaceRoot],
         allowedReadPaths: [workspaceRoot],
         allowedWritePaths: [workspaceRoot],
-        allowedEnvironmentKeys: [],
-        allowedSideEffects: ["read", "write", "execute"],
-        timeoutMs: 120_000,
-        maxOutputBytes: 131_072,
+        allowedEnvironmentKeys: [
+          "PATH",
+          "HOME",
+          "TMPDIR",
+          "TMP",
+          "TEMP",
+          "CI",
+          "NODE_ENV",
+        ],
+        allowedSideEffects,
+        timeoutMs: 300_000,
+        maxOutputBytes: 524_288,
         maxConcurrentProcesses: 1,
         allowShell: false,
-        allowNetwork: false,
+        allowNetwork: allowBuildNetwork,
       },
     };
 
