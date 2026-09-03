@@ -265,11 +265,10 @@ export class EngineeringWorkspaceProposalAuthority {
     }
 
     if (
-      request.proposal.missionId !==
-      request.execution.projectId
+      !request.proposal.missionId.trim()
     ) {
       throw new Error(
-        "K.I.N.G.S. Engineering Workspace Proposal: proposal mission does not match engineering project.",
+        "K.I.N.G.S. Engineering Workspace Proposal: proposal mission id is required.",
       );
     }
 
@@ -369,6 +368,19 @@ export class EngineeringWorkspaceProposalAuthority {
     ) {
       throw new Error(
         `K.I.N.G.S. Engineering Workspace Proposal: language "${language}" is not authorized for "${normalizedPath}".`,
+      );
+    }
+
+    const operation =
+      change.operation as ToolchainOperation;
+
+    if (
+      !request.workspace.allowedOperations.includes(
+        operation,
+      )
+    ) {
+      throw new Error(
+        `K.I.N.G.S. Engineering Workspace Proposal: operation "${change.operation}" is not authorized for "${normalizedPath}".`,
       );
     }
 
