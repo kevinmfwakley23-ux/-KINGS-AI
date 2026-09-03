@@ -12,6 +12,7 @@ import {
   ExecutionSandbox,
   type SandboxExecutionResult,
   type SandboxPolicy,
+  type SandboxSideEffect,
 } from "./execution-sandbox";
 
 import type {
@@ -37,6 +38,8 @@ export interface BuildTestStep {
     string;
   verifiesCriteria?:
     string[];
+  requiresNetwork?:
+    boolean;
 }
 
 export interface BuildTestExecutionRequest {
@@ -127,6 +130,16 @@ export class BuildTestExecutor {
       const step of
         request.steps
     ) {
+      const sideEffects: SandboxSideEffect[] = [
+        "read",
+        "execute",
+        "write",
+      ];
+
+      if (step.requiresNetwork) {
+        sideEffects.push("network");
+      }
+
       const execution =
         await this.sandbox.execute({
           command:
@@ -135,11 +148,7 @@ export class BuildTestExecutor {
             step.args,
           workingDirectory:
             step.workingDirectory,
-          sideEffects: [
-            "read",
-            "execute",
-            "write",
-          ],
+          sideEffects,
         });
 
       const passed =
