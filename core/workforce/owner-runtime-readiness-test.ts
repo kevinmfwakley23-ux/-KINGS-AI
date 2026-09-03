@@ -144,8 +144,28 @@ async function main(): Promise<void> {
   );
   assert.match(
     serverSource,
-    /\bbubblewrap\b/i,
+    /identifiesAsBubblewrap/,
     "owner server must verify Bubblewrap identity rather than path existence alone",
+  );
+
+  const statusSource = await readFile(
+    join(process.cwd(), "ui", "project-owner", "kings-status.sh"),
+    "utf8",
+  );
+  assert.match(
+    statusSource,
+    /\/ready/,
+    "status command must query live production readiness",
+  );
+  assert.match(
+    statusSource,
+    /PRODUCTION READINESS: NOT READY/,
+    "status command must distinguish a running process from a working coding runtime",
+  );
+  assert.doesNotMatch(
+    statusSource,
+    /^MODEL:\s*qwen2\.5-coder:1\.5b$/m,
+    "status command must not hard-code a model and imply that it is live",
   );
 
   console.log("K.I.N.G.S. OWNER RUNTIME → OFFLINE FAIL-CLOSED: SUCCESS");
@@ -153,6 +173,7 @@ async function main(): Promise<void> {
   console.log("K.I.N.G.S. OWNER RUNTIME → 9ROUTER DEFAULT ROUTE: SUCCESS");
   console.log("K.I.N.G.S. OWNER RUNTIME → OMNIROUTE PREFERRED ROUTE: SUCCESS");
   console.log("K.I.N.G.S. OWNER RUNTIME → HEALTH CONTRACT INTEGRATION: SUCCESS");
+  console.log("K.I.N.G.S. OWNER STATUS → LIVE READINESS PROBE: SUCCESS");
   console.log("TREE-KCM-OWNER-RUNTIME-READINESS: SUCCESS");
 }
 
