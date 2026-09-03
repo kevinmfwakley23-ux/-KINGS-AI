@@ -92,6 +92,8 @@ export interface ModelExecutionMetadata {
   startedAt: string;
   completedAt: string;
   latencyMs: number;
+  usagePersisted?: boolean;
+  usagePersistenceError?: string;
 }
 
 export interface ModelExecutionResponse {
