@@ -5,30 +5,30 @@ import {
 } from "node:fs/promises";
 import {
   basename,
+  extname,
   join,
   relative,
 } from "node:path";
 
 import type {
+  BuildTestOperation,
   BuildTestStep,
 } from "./build-test-executor";
+import type {
+  EngineeringToolchain,
+  ToolchainCommand,
+} from "./engineering-toolchain";
 
 export interface ProjectVerificationPlanRequest {
   workspaceRoot: string;
   requiredCriteria: readonly string[];
   changedPaths: readonly string[];
+  toolchains?: readonly EngineeringToolchain[];
 }
 
 export interface ProjectVerificationPlan {
-  projectKind:
-    | "node"
-    | "python"
-    | "rust"
-    | "go"
-    | "java"
-    | "static-web"
-    | "javascript"
-    | "unknown";
+  /** Built-in project kind or `toolchain:<language>` for an extensible path. */
+  projectKind: string;
   steps: BuildTestStep[];
   discoveredFiles: string[];
   uncoveredCriteria: string[];
@@ -83,6 +83,7 @@ async function walk(
 
   for (const entry of entries) {
     if (output.length >= limit) return;
+    if (entry.isSymbolicLink()) continue;
     if (entry.isDirectory() && EXCLUDED_DIRECTORIES.has(entry.name)) {
       continue;
     }
@@ -91,9 +92,7 @@ async function walk(
     if (entry.isDirectory()) {
       await walk(root, absolute, output, limit);
     } else if (entry.isFile()) {
-      output.push(
-        relative(root, absolute).replaceAll("\\", "/"),
-      );
+      output.push(relative(root, absolute).replaceAll("\\", "/"));
     }
   }
 }
@@ -107,9 +106,7 @@ function classifyCriterion(criterion: string): CriterionKind {
     return "files";
   }
 
-  if (
-    /(build|compile|typecheck|type check|syntax|lint)/.test(value)
-  ) {
+  if (/(build|compile|typecheck|type check|syntax|lint)/.test(value)) {
     return "build";
   }
 
@@ -126,9 +123,7 @@ function criteriaOfKind(
   required: readonly string[],
   ...kinds: CriterionKind[]
 ): string[] {
-  return required.filter(
-    (criterion) => kinds.includes(classifyCriterion(criterion)),
-  );
+  return required.filter((criterion) => kinds.includes(classifyCriterion(criterion)));
 }
 
 function validTestScript(script: string | undefined): boolean {
@@ -175,10 +170,136 @@ function javascriptCheckSteps(
     command: process.execPath,
     args: ["--check", file],
     workingDirectory: workspaceRoot,
-    verifiesCriteria: index === javascriptFiles.length - 1
-      ? [...buildCriteria]
-      : [],
+    verifiesCriteria:
+      index === javascriptFiles.length - 1 ? [...buildCriteria] : [],
   }));
+}
+
+function normalizedExtension(value: string): string {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return "";
+  return trimmed.startsWith(".") ? trimmed : `.${trimmed}`;
+}
+
+function toolchainMatchCount(
+  toolchain: EngineeringToolchain,
+  files: readonly string[],
+): number {
+  const extensions = new Set(
+    toolchain.fileExtensions.map(normalizedExtension).filter(Boolean),
+  );
+  return files.filter((file) => extensions.has(extname(file).toLowerCase())).length;
+}
+
+function selectDynamicToolchain(
+  toolchains: readonly EngineeringToolchain[],
+  files: readonly string[],
+): EngineeringToolchain | undefined {
+  return toolchains
+    .filter((toolchain) => toolchain.enabled && toolchain.fileExtensions.length > 0)
+    .map((toolchain) => ({
+      toolchain,
+      matches: toolchainMatchCount(toolchain, files),
+    }))
+    .filter((entry) => entry.matches > 0)
+    .sort((left, right) =>
+      right.matches - left.matches ||
+      left.toolchain.language.localeCompare(right.toolchain.language),
+    )[0]?.toolchain;
+}
+
+function selectCommand(
+  toolchain: EngineeringToolchain,
+  operations: readonly ToolchainCommand["operation"][],
+): ToolchainCommand | undefined {
+  for (const operation of operations) {
+    const found = toolchain.commands.find((command) => command.operation === operation);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function networkLikelyRequired(command: ToolchainCommand): boolean {
+  if (["npm", "npx", "cargo", "mvn", "gradle"].includes(command.command)) {
+    return true;
+  }
+  if (command.command === "go" && ["build", "test", "run"].includes(command.operation)) {
+    return true;
+  }
+  if (
+    command.command === "python3" &&
+    command.args.includes("-m") &&
+    command.args.includes("pip")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function dynamicToolchainSteps(
+  toolchain: EngineeringToolchain,
+  workspaceRoot: string,
+  buildCriteria: readonly string[],
+  behaviorCriteria: readonly string[],
+  smokeCriteria: readonly string[],
+): {
+  steps: BuildTestStep[];
+  hasBuildEvidence: boolean;
+  hasBehaviorEvidence: boolean;
+  hasSmokeEvidence: boolean;
+} {
+  const steps: BuildTestStep[] = [];
+  const buildCommand = selectCommand(
+    toolchain,
+    ["build", "compile", "typecheck", "lint"],
+  );
+  const testCommand = selectCommand(toolchain, ["test"]);
+  const runCommand = selectCommand(toolchain, ["run"]);
+
+  if (buildCommand) {
+    const operation: BuildTestOperation =
+      buildCommand.operation === "lint" ? "lint" : "build";
+    steps.push({
+      id: `toolchain-${toolchain.language}-build`,
+      operation,
+      command: buildCommand.command,
+      args: [...buildCommand.args],
+      workingDirectory: workspaceRoot,
+      verifiesCriteria: [...buildCriteria],
+      requiresNetwork: networkLikelyRequired(buildCommand),
+    });
+  }
+
+  if (testCommand) {
+    steps.push({
+      id: `toolchain-${toolchain.language}-test`,
+      operation: "test",
+      command: testCommand.command,
+      args: [...testCommand.args],
+      workingDirectory: workspaceRoot,
+      verifiesCriteria: [...behaviorCriteria],
+      requiresNetwork: networkLikelyRequired(testCommand),
+    });
+  }
+
+  if (runCommand && smokeCriteria.length > 0) {
+    steps.push({
+      id: `toolchain-${toolchain.language}-run-smoke`,
+      operation: "test",
+      command: runCommand.command,
+      args: [...runCommand.args],
+      workingDirectory: workspaceRoot,
+      verifiesCriteria: [...smokeCriteria],
+      requiresNetwork: networkLikelyRequired(runCommand),
+    });
+  }
+
+  return {
+    steps,
+    hasBuildEvidence: Boolean(buildCommand),
+    hasBehaviorEvidence: Boolean(testCommand),
+    hasSmokeEvidence: Boolean(runCommand && smokeCriteria.length > 0),
+  };
 }
 
 export async function planProjectVerification(
@@ -189,11 +310,13 @@ export async function planProjectVerification(
   await walk(workspaceRoot, workspaceRoot, files);
   files.sort();
 
-  const changedPaths = Array.from(new Set(
-    request.changedPaths
-      .map((path) => path.replaceAll("\\", "/").replace(/^\.\//, ""))
-      .filter(Boolean),
-  ));
+  const changedPaths = Array.from(
+    new Set(
+      request.changedPaths
+        .map((path) => path.replaceAll("\\", "/").replace(/^\.\//, ""))
+        .filter(Boolean),
+    ),
+  );
 
   const fileCriteria = criteriaOfKind(request.requiredCriteria, "files");
   const buildCriteria = criteriaOfKind(request.requiredCriteria, "build");
@@ -201,7 +324,6 @@ export async function planProjectVerification(
   const behaviorCriteria = criteriaOfKind(request.requiredCriteria, "behavior");
 
   const steps: BuildTestStep[] = [];
-
   steps.push({
     id: "verify-generated-files",
     operation: "validate",
@@ -221,7 +343,7 @@ export async function planProjectVerification(
   const gradleKtsPath = join(workspaceRoot, "build.gradle.kts");
   const indexPath = join(workspaceRoot, "index.html");
 
-  let projectKind: ProjectVerificationPlan["projectKind"] = "unknown";
+  let projectKind = "unknown";
   let hasBuildEvidence = false;
   let hasSmokeEvidence = false;
   let hasBehaviorEvidence = false;
@@ -233,7 +355,9 @@ export async function planProjectVerification(
       manifest = JSON.parse(await readFile(packagePath, "utf8")) as PackageManifest;
     } catch (error) {
       throw new Error(
-        `K.I.N.G.S. Project Verification: package.json is invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+        `K.I.N.G.S. Project Verification: package.json is invalid JSON: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
       );
     }
 
@@ -262,7 +386,7 @@ export async function planProjectVerification(
         command: "npm",
         args: ["run", "build"],
         workingDirectory: workspaceRoot,
-        verifiesCriteria: buildCriteria,
+        verifiesCriteria: [...buildCriteria],
       });
       hasBuildEvidence = true;
     } else if (await exists(join(workspaceRoot, "tsconfig.json"))) {
@@ -272,15 +396,11 @@ export async function planProjectVerification(
         command: "npx",
         args: ["tsc", "-p", "tsconfig.json", "--noEmit"],
         workingDirectory: workspaceRoot,
-        verifiesCriteria: buildCriteria,
+        verifiesCriteria: [...buildCriteria],
       });
       hasBuildEvidence = true;
     } else {
-      const jsChecks = javascriptCheckSteps(
-        workspaceRoot,
-        files,
-        buildCriteria,
-      );
+      const jsChecks = javascriptCheckSteps(workspaceRoot, files, buildCriteria);
       steps.push(...jsChecks);
       hasBuildEvidence = jsChecks.length > 0;
     }
@@ -296,7 +416,11 @@ export async function planProjectVerification(
       });
       hasBehaviorEvidence = true;
     } else if (
-      files.some((file) => /(?:^|\/)(?:test|tests)\//.test(file) || /\.(?:test|spec)\.(?:js|cjs|mjs)$/.test(file))
+      files.some(
+        (file) =>
+          /(?:^|\/)(?:test|tests)\//.test(file) ||
+          /\.(?:test|spec)\.(?:js|cjs|mjs)$/.test(file),
+      )
     ) {
       steps.push({
         id: "test-node-builtin",
@@ -356,7 +480,11 @@ export async function planProjectVerification(
     });
     hasBuildEvidence = true;
     hasBehaviorEvidence = true;
-  } else if (await exists(pyprojectPath) || await exists(requirementsPath) || files.some((file) => file.endsWith(".py"))) {
+  } else if (
+    (await exists(pyprojectPath)) ||
+    (await exists(requirementsPath)) ||
+    files.some((file) => file.endsWith(".py"))
+  ) {
     projectKind = "python";
     if (await exists(requirementsPath)) {
       steps.push({
@@ -379,7 +507,11 @@ export async function planProjectVerification(
     });
     hasBuildEvidence = true;
 
-    if (files.some((file) => /(?:^|\/)test_.*\.py$/.test(file) || /(?:^|\/)tests\//.test(file))) {
+    if (
+      files.some(
+        (file) => /(?:^|\/)test_.*\.py$/.test(file) || /(?:^|\/)tests\//.test(file),
+      )
+    ) {
       steps.push({
         id: "test-python-project",
         operation: "test",
@@ -403,7 +535,7 @@ export async function planProjectVerification(
     });
     hasBuildEvidence = true;
     hasBehaviorEvidence = true;
-  } else if (await exists(gradlePath) || await exists(gradleKtsPath)) {
+  } else if ((await exists(gradlePath)) || (await exists(gradleKtsPath))) {
     projectKind = "java";
     steps.push({
       id: "gradle-test",
@@ -418,11 +550,7 @@ export async function planProjectVerification(
     hasBehaviorEvidence = true;
   } else if (await exists(indexPath)) {
     projectKind = "static-web";
-    const jsChecks = javascriptCheckSteps(
-      workspaceRoot,
-      files,
-      buildCriteria,
-    );
+    const jsChecks = javascriptCheckSteps(workspaceRoot, files, buildCriteria);
     steps.push(...jsChecks);
     hasBuildEvidence = jsChecks.length > 0 || buildCriteria.length === 0;
     steps.push({
@@ -437,13 +565,27 @@ export async function planProjectVerification(
     hasSmokeEvidence = true;
   } else if (files.some((file) => /\.(?:js|cjs|mjs)$/.test(file))) {
     projectKind = "javascript";
-    const jsChecks = javascriptCheckSteps(
-      workspaceRoot,
-      files,
-      buildCriteria,
-    );
+    const jsChecks = javascriptCheckSteps(workspaceRoot, files, buildCriteria);
     steps.push(...jsChecks);
     hasBuildEvidence = jsChecks.length > 0;
+  }
+
+  if (projectKind === "unknown" && request.toolchains?.length) {
+    const toolchain = selectDynamicToolchain(request.toolchains, files);
+    if (toolchain) {
+      projectKind = `toolchain:${toolchain.language}`;
+      const dynamic = dynamicToolchainSteps(
+        toolchain,
+        workspaceRoot,
+        buildCriteria,
+        behaviorCriteria,
+        smokeCriteria,
+      );
+      steps.push(...dynamic.steps);
+      hasBuildEvidence = dynamic.hasBuildEvidence;
+      hasBehaviorEvidence = dynamic.hasBehaviorEvidence;
+      hasSmokeEvidence = dynamic.hasSmokeEvidence;
+    }
   }
 
   const covered = new Set(
