@@ -14,6 +14,8 @@
     "test": "npm run test:workforce",
     "check": "npm run build:owner-ui && npm run test:workforce",
     "check:live": "npm run build:owner-ui && npm run test:workforce:live",
-    "start:owner-ui": "npm run build:owner-ui && node .kings-ui-build/ui/project-owner/local-server.js"
+    "preflight:production": "node scripts/kings-production-preflight.mjs",
+    "start:owner-ui": "npm run build:owner-ui && node .kings-ui-build/ui/project-owner/local-server.js",
+    "start:production": "npm run preflight:production && npm run start:owner-ui"
   }
 }
