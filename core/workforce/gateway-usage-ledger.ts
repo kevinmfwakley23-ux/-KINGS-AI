@@ -1,5 +1,6 @@
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import type { ModelExecutionResult } from "./model-interface";
 
 export type GatewayCostStatus =
   | "provider-reported-free"
@@ -51,6 +52,36 @@ function finiteNonNegative(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
+export function gatewayUsageObservationFromResult(
+  providerId: string,
+  modelId: string,
+  result: ModelExecutionResult,
+): GatewayUsageObservation | undefined {
+  if (!result.success || !result.response) return undefined;
+  const response = result.response;
+  const costUsd = response.usage.reportedCostUsd;
+  return {
+    requestId: response.requestId,
+    providerRequestId: response.metadata.providerRequestId,
+    providerId,
+    modelId,
+    startedAt: response.metadata.startedAt,
+    completedAt: response.metadata.completedAt,
+    inputTokens: response.usage.inputTokens,
+    outputTokens: response.usage.outputTokens,
+    totalTokens: response.usage.tokensUsed,
+    cachedTokens: response.usage.cachedTokens,
+    savedTokens: response.usage.savedTokens,
+    costUsd,
+    costStatus: costUsd === undefined
+      ? "unknown"
+      : costUsd === 0
+        ? "provider-reported-free"
+        : "provider-reported-cost",
+    source: "provider-response",
+  };
+}
+
 export function validateGatewayUsageObservation(
   observation: GatewayUsageObservation,
 ): void {
@@ -96,19 +127,28 @@ export function validateGatewayUsageObservation(
 }
 
 export class DurableGatewayUsageLedger implements GatewayUsageSink {
+  private writeTail: Promise<void> = Promise.resolve();
+
   constructor(private readonly filePath: string) {}
 
   async record(observation: GatewayUsageObservation): Promise<void> {
     validateGatewayUsageObservation(observation);
-    await mkdir(dirname(this.filePath), { recursive: true });
-    await appendFile(
-      this.filePath,
-      `${JSON.stringify(observation)}\n`,
-      "utf8",
-    );
+    const write = this.writeTail
+      .catch(() => undefined)
+      .then(async () => {
+        await mkdir(dirname(this.filePath), { recursive: true });
+        await appendFile(
+          this.filePath,
+          `${JSON.stringify(observation)}\n`,
+          "utf8",
+        );
+      });
+    this.writeTail = write;
+    await write;
   }
 
   async list(): Promise<GatewayUsageObservation[]> {
+    await this.writeTail.catch(() => undefined);
     let text: string;
     try {
       text = await readFile(this.filePath, "utf8");
