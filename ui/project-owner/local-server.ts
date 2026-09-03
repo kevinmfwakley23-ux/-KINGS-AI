@@ -14,20 +14,29 @@ import {
 } from "./server-contract";
 import { ProjectOwnerMachineApi } from "../../core/workforce/project-owner-machine-api";
 import { AuthorsForgeApi, type AuthorsForgeRequest } from "./authors-forge-api";
+import {
+  loadKingsAiGatewayRuntime,
+} from "../../core/workforce/ai-gateway-runtime";
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
 const bindHost = process.env.KINGS_CODING_MACHINE_BIND ?? "0.0.0.0";
 const publicHost = process.env.KINGS_CODING_MACHINE_HOST ?? "localhost";
-const workspaceRoot = process.env.KINGS_CODING_MACHINE_WORKSPACE ?? process.cwd();
+const stateRoot = process.env.KINGS_STATE_ROOT ?? join(process.cwd(), ".kings");
+const workspaceRoot =
+  process.env.KINGS_CODING_MACHINE_WORKSPACE ??
+  join(stateRoot, "projects");
 const continuityFile =
   process.env.KINGS_CODING_MACHINE_STATE ??
-  join(workspaceRoot, ".kings", "mission-continuity.json");
+  join(stateRoot, "mission-continuity.json");
 const ollamaBaseUrl =
   process.env.KINGS_CODING_MACHINE_OLLAMA_URL ?? "http://127.0.0.1:11434";
 const modelId = process.env.KINGS_CODING_MACHINE_MODEL ?? "qwen2.5-coder:1.5b";
+const allowBuildNetwork = process.env.KINGS_BUILD_NETWORK !== "0";
 const publicFile = join(process.cwd(), "ui/project-owner/index.html");
 const forgeFile = join(process.cwd(), "ui/project-owner/authors-forge.html");
-const runtimeBuild = "authors-forge-v1";
+const manifestFile = join(process.cwd(), "ui/project-owner/manifest.webmanifest");
+const serviceWorkerFile = join(process.cwd(), "ui/project-owner/service-worker.js");
+const runtimeBuild = "kings-chief-engineer-v2";
 
 async function body(request: import("node:http").IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -51,7 +60,8 @@ async function checkOllama(): Promise<{
     };
     const models = (data.models ?? [])
       .map((model) => model.name)
-      .filter((name): name is string => Boolean(name));
+      .filter((name): name is string => Boolean(name))
+      .sort();
     const modelAvailable = models.some(
       (name) => name === modelId || name.startsWith(`${modelId}:`),
     );
@@ -73,7 +83,20 @@ async function checkOllama(): Promise<{
   }
 }
 
+function json(
+  res: import("node:http").ServerResponse,
+  status: number,
+  value: unknown,
+): void {
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+  });
+  res.end(JSON.stringify(value));
+}
+
 async function main(): Promise<void> {
+  const gatewayRuntime = await loadKingsAiGatewayRuntime();
   const registry = new WorkforceRegistry();
   const workUnits = new WorkUnitRegistry();
   const taskControl = new TaskControl(registry);
@@ -94,32 +117,100 @@ async function main(): Promise<void> {
     machine,
     missionFactory,
     executionContext,
-    { modelId, workspaceRoot, ollamaBaseUrl },
+    {
+      modelId,
+      workspaceRoot,
+      ollamaBaseUrl,
+      gatewayRuntime,
+      allowBuildNetwork,
+    },
   );
   const forgeApi = new AuthorsForgeApi();
 
   const server = createServer(async (req, res) => {
     try {
-      if (req.method === "GET" && (req.url === "/" || req.url === "/health" || req.url === "/authors-forge")) {
-        if (req.url === "/health") {
-          const ollama = await checkOllama();
-          res.writeHead(200, {
-            "content-type": "application/json; charset=utf-8",
-            "cache-control": "no-store",
-          });
-          res.end(JSON.stringify({
-            ok: true,
-            name: "kings.local",
-            product: "AI Author's Forge",
-            model: modelId,
-            workspace: workspaceRoot,
-            continuityFile,
-            runtimeBuild,
-            ollama,
-          }));
-          return;
-        }
+      if (req.method === "GET" && req.url === "/health") {
+        const ollama = await checkOllama();
+        json(res, 200, {
+          ok: true,
+          name: "kings.local",
+          product: "K.I.N.G.S. AI Coding Machine",
+          runtimeBuild,
+          localModel: modelId,
+          projectsRoot: workspaceRoot,
+          continuityFile,
+          allowBuildNetwork,
+          ollama,
+          gateways: gatewayRuntime.gateways.map(({ adapter, health }) => ({
+            providerId: adapter.descriptor.id,
+            name: adapter.descriptor.name,
+            kind: adapter.gatewayKind,
+            ok: health.ok,
+            message: health.message,
+            totalModels: health.models.length,
+            codingModels: health.codingModels.length,
+          })),
+          discoveredGatewayModels: gatewayRuntime.catalog.length,
+        });
+        return;
+      }
 
+      if (req.method === "GET" && req.url === "/api/models") {
+        const ollama = await checkOllama();
+        const localModels = (ollama.models ?? []).map((id) => ({
+          providerId: "internal-intelligence",
+          providerName: "Local Ollama",
+          gatewayKind: "ollama",
+          modelId: id,
+          displayName: `Local Ollama: ${id}`,
+          codingEligible: true,
+          verifiedCodingRoute:
+            id === modelId || id.startsWith(`${modelId}:`),
+          local: true,
+        }));
+
+        json(res, 200, {
+          ok: true,
+          defaultModel: {
+            providerId: "internal-intelligence",
+            modelId,
+          },
+          automaticRoute: gatewayRuntime.catalog.some(
+            (entry) =>
+              entry.providerId === "omniroute" &&
+              entry.modelId === "auto/coding" &&
+              entry.verifiedCodingRoute,
+          )
+            ? {
+                providerId: "omniroute",
+                modelId: "auto/coding",
+                label: "OmniRoute Auto Coding",
+              }
+            : null,
+          models: [
+            ...localModels,
+            ...gatewayRuntime.catalog.map((entry) => ({
+              ...entry,
+              local: false,
+            })),
+          ],
+          gateways: gatewayRuntime.gateways.map(({ adapter, health }) => ({
+            providerId: adapter.descriptor.id,
+            name: adapter.descriptor.name,
+            kind: adapter.gatewayKind,
+            ok: health.ok,
+            message: health.message,
+            totalModels: health.models.length,
+            codingModels: health.codingModels.length,
+          })),
+        });
+        return;
+      }
+
+      if (
+        req.method === "GET" &&
+        (req.url === "/" || req.url === "/authors-forge")
+      ) {
         const file = req.url === "/authors-forge" ? forgeFile : publicFile;
         const html = await readFile(file, "utf8");
         res.writeHead(200, {
@@ -130,39 +221,48 @@ async function main(): Promise<void> {
         return;
       }
 
+      if (req.method === "GET" && req.url === "/manifest.webmanifest") {
+        const manifest = await readFile(manifestFile, "utf8");
+        res.writeHead(200, {
+          "content-type": "application/manifest+json; charset=utf-8",
+          "cache-control": "no-cache",
+        });
+        res.end(manifest);
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/service-worker.js") {
+        const worker = await readFile(serviceWorkerFile, "utf8");
+        res.writeHead(200, {
+          "content-type": "text/javascript; charset=utf-8",
+          "cache-control": "no-cache",
+          "service-worker-allowed": "/",
+        });
+        res.end(worker);
+        return;
+      }
+
       if (req.method === "POST" && req.url === "/api/project-owner/missions") {
         const request = (await body(req)) as Parameters<ProjectOwnerMachineApi["handle"]>[0];
         const result = await controller.handle(request);
-        res.writeHead(result.ok ? 200 : 400, {
-          "content-type": "application/json; charset=utf-8",
-          "cache-control": "no-store",
-        });
-        res.end(JSON.stringify(result));
+        json(res, result.ok ? 200 : 400, result);
         return;
       }
 
       if (req.method === "POST" && req.url === "/api/authors-forge") {
         const request = (await body(req)) as AuthorsForgeRequest;
         const result = forgeApi.handle(request);
-        res.writeHead(result.ok ? 200 : 400, {
-          "content-type": "application/json; charset=utf-8",
-          "cache-control": "no-store",
-        });
-        res.end(JSON.stringify(result));
+        json(res, result.ok ? 200 : 400, result);
         return;
       }
 
       res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
       res.end("Not Found");
     } catch (error) {
-      res.writeHead(500, {
-        "content-type": "application/json; charset=utf-8",
-        "cache-control": "no-store",
-      });
-      res.end(JSON.stringify({
+      json(res, 500, {
         ok: false,
         message: error instanceof Error ? error.message : String(error),
-      }));
+      });
     }
   });
 
@@ -170,11 +270,14 @@ async function main(): Promise<void> {
     console.log(`KINGS CODING MACHINE UI: http://${publicHost}:${port}`);
     console.log(`Author's Forge: http://${publicHost}:${port}/authors-forge`);
     console.log(`Health: http://${publicHost}:${port}/health`);
+    console.log(`Models: http://${publicHost}:${port}/api/models`);
     console.log(`Bind: ${bindHost}:${port}`);
-    console.log(`Workspace: ${workspaceRoot}`);
+    console.log(`Projects: ${workspaceRoot}`);
     console.log(`Mission state: ${continuityFile}`);
     console.log(`Ollama: ${ollamaBaseUrl}`);
-    console.log(`Model: ${modelId}`);
+    console.log(`Local model: ${modelId}`);
+    console.log(`AI gateways: ${gatewayRuntime.gateways.length}`);
+    console.log(`Gateway model catalog: ${gatewayRuntime.catalog.length}`);
     console.log(`Runtime build: ${runtimeBuild}`);
   });
 }
