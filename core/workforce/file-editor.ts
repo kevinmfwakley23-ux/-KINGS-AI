@@ -1,5 +1,6 @@
 import {
   dirname,
+  join,
   resolve,
   relative,
   isAbsolute,
@@ -9,9 +10,8 @@ import {
   readFile,
   writeFile,
   mkdir,
-} from "node:fs/promises";
-
-import {
+  lstat,
+  realpath,
   access,
 } from "node:fs/promises";
 
@@ -90,6 +90,16 @@ function isPathWithin(
   );
 }
 
+function matchingAllowedRoot(
+  normalizedPath: string,
+  allowedPaths: string[],
+): string | undefined {
+  return allowedPaths
+    .map(normalizePath)
+    .filter((allowedRoot) => isPathWithin(normalizedPath, allowedRoot))
+    .sort((left, right) => right.length - left.length)[0];
+}
+
 function assertPathAllowed(
   path: string,
   allowedPaths: string[],
@@ -109,21 +119,128 @@ function assertPathAllowed(
     );
   }
 
-  if (
-    !allowedPaths.some(
-      (allowedRoot) =>
-        isPathWithin(
-          normalized,
-          allowedRoot,
-        ),
-    )
-  ) {
+  if (!matchingAllowedRoot(normalized, allowedPaths)) {
     throw new FileEditorPolicyError(
       `${operation} path "${normalized}" is not authorized`,
     );
   }
 
   return normalized;
+}
+
+async function assertExistingRealPathAllowed(
+  path: string,
+  allowedPaths: string[],
+  operation: "read" | "write",
+): Promise<void> {
+  const lexicalRoot = matchingAllowedRoot(path, allowedPaths);
+  if (!lexicalRoot) {
+    throw new FileEditorPolicyError(
+      `${operation} path "${path}" is not authorized`,
+    );
+  }
+
+  const pathStat = await lstat(path);
+  if (pathStat.isSymbolicLink()) {
+    throw new FileEditorPolicyError(
+      `${operation} path "${path}" is a symbolic link`,
+    );
+  }
+
+  const [realRoot, realTarget] = await Promise.all([
+    realpath(lexicalRoot),
+    realpath(path),
+  ]);
+  if (!isPathWithin(realTarget, realRoot)) {
+    throw new FileEditorPolicyError(
+      `${operation} path "${path}" resolves outside its authorized root`,
+    );
+  }
+}
+
+async function ensureSafeWriteParent(
+  target: string,
+  allowedPaths: string[],
+): Promise<void> {
+  const lexicalRoot = matchingAllowedRoot(target, allowedPaths);
+  if (!lexicalRoot) {
+    throw new FileEditorPolicyError(
+      `write path "${target}" is not authorized`,
+    );
+  }
+
+  await mkdir(lexicalRoot, { recursive: true });
+  const rootStat = await lstat(lexicalRoot);
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw new FileEditorPolicyError(
+      `authorized write root "${lexicalRoot}" must be a real directory`,
+    );
+  }
+  const realRoot = await realpath(lexicalRoot);
+  const parent = dirname(target);
+  const relParent = relative(lexicalRoot, parent);
+  const segments = relParent === ""
+    ? []
+    : relParent.split(/[\\/]+/).filter(Boolean);
+
+  let current = lexicalRoot;
+  for (const segment of segments) {
+    current = join(current, segment);
+    try {
+      const entry = await lstat(current);
+      if (entry.isSymbolicLink()) {
+        throw new FileEditorPolicyError(
+          `write path "${target}" crosses symbolic link "${current}"`,
+        );
+      }
+      if (!entry.isDirectory()) {
+        throw new FileEditorPolicyError(
+          `write parent "${current}" is not a directory`,
+        );
+      }
+    } catch (error) {
+      if (
+        error instanceof FileEditorPolicyError ||
+        !(error instanceof Error) ||
+        !("code" in error) ||
+        error.code !== "ENOENT"
+      ) {
+        throw error;
+      }
+      await mkdir(current);
+    }
+
+    const realCurrent = await realpath(current);
+    if (!isPathWithin(realCurrent, realRoot)) {
+      throw new FileEditorPolicyError(
+        `write path "${target}" resolves outside its authorized root`,
+      );
+    }
+  }
+
+  try {
+    const targetStat = await lstat(target);
+    if (targetStat.isSymbolicLink()) {
+      throw new FileEditorPolicyError(
+        `write path "${target}" is a symbolic link`,
+      );
+    }
+    if (targetStat.isDirectory()) {
+      throw new FileEditorPolicyError(
+        `write path "${target}" is a directory`,
+      );
+    }
+    await assertExistingRealPathAllowed(target, allowedPaths, "write");
+  } catch (error) {
+    if (
+      error instanceof FileEditorPolicyError ||
+      !(error instanceof Error) ||
+      !("code" in error) ||
+      error.code !== "ENOENT"
+    ) {
+      throw error;
+    }
+  }
 }
 
 export class ControlledFileEditor {
@@ -191,6 +308,12 @@ export class ControlledFileEditor {
         request,
       );
 
+    await assertExistingRealPathAllowed(
+      path,
+      this.policy.allowedReadPaths,
+      "read",
+    );
+
     const content =
       await readFile(
         path,
@@ -243,20 +366,21 @@ export class ControlledFileEditor {
       );
     }
 
-    await mkdir(
-      dirname(
-        path,
-      ),
-      {
-        recursive:
-          true,
-      },
+    await ensureSafeWriteParent(
+      path,
+      this.policy.allowedWritePaths,
     );
 
     await writeFile(
       path,
       request.content,
       "utf8",
+    );
+
+    await assertExistingRealPathAllowed(
+      path,
+      this.policy.allowedWritePaths,
+      "write",
     );
 
     return {
@@ -279,8 +403,14 @@ export class ControlledFileEditor {
       await access(
         path,
       );
+      await assertExistingRealPathAllowed(
+        path,
+        this.policy.allowedReadPaths,
+        "read",
+      );
       return true;
-    } catch {
+    } catch (error) {
+      if (error instanceof FileEditorPolicyError) throw error;
       return false;
     }
   }
