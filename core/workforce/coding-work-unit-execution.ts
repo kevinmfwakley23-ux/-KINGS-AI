@@ -60,6 +60,16 @@ export interface CodingWorkUnitExecutionRequest {
   taskId:
     ID;
 
+  /**
+   * Mission continuity identity. Optional only for backwards compatibility
+   * with the original single-id coding path; new callers should provide it.
+   */
+  missionId?:
+    ID;
+
+  /**
+   * Project/workspace identity. This is intentionally distinct from missionId.
+   */
   projectId:
     ID;
 
@@ -97,6 +107,9 @@ export interface CodingWorkUnitExecutionRequest {
 
 export interface CodingWorkUnitExecutionResult {
   taskId:
+    ID;
+
+  missionId:
     ID;
 
   projectId:
@@ -179,6 +192,9 @@ export class CodingWorkUnitExecutionAuthority {
   ):
     Promise<CodingWorkUnitExecutionResult> {
     this.validateRequest(request);
+
+    const missionId =
+      this.resolveMissionId(request);
 
     const authorizedProposal =
       this.workspaceProposal.authorize({
@@ -290,6 +306,7 @@ export class CodingWorkUnitExecutionAuthority {
     return {
       taskId:
         request.taskId,
+      missionId,
       projectId:
         request.projectId,
       proposal:
@@ -316,9 +333,36 @@ export class CodingWorkUnitExecutionAuthority {
       );
     }
 
+    if (
+      request.missionId !== undefined &&
+      !request.missionId.trim()
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Coding Work Unit Execution: mission id cannot be blank.",
+      );
+    }
+
     if (!request.projectId.trim()) {
       throw new Error(
         "K.I.N.G.S. Coding Work Unit Execution: project id is required.",
+      );
+    }
+
+    if (
+      request.execution.projectId !==
+      request.projectId
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Coding Work Unit Execution: execution project does not match request project.",
+      );
+    }
+
+    if (
+      request.workspace.projectId !==
+      request.projectId
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Coding Work Unit Execution: workspace project does not match request project.",
       );
     }
 
@@ -340,9 +384,12 @@ export class CodingWorkUnitExecutionAuthority {
       );
     }
 
-    if (request.proposal.missionId !== request.projectId) {
+    if (
+      request.proposal.missionId !==
+      this.resolveMissionId(request)
+    ) {
       throw new Error(
-        "K.I.N.G.S. Coding Work Unit Execution: proposal mission does not match project.",
+        "K.I.N.G.S. Coding Work Unit Execution: proposal mission does not match request mission.",
       );
     }
 
@@ -363,5 +410,13 @@ export class CodingWorkUnitExecutionAuthority {
         "K.I.N.G.S. Coding Work Unit Execution: at least one verification criterion is required.",
       );
     }
+  }
+
+  private resolveMissionId(
+    request:
+      CodingWorkUnitExecutionRequest,
+  ): ID {
+    return request.missionId ??
+      request.projectId;
   }
 }
