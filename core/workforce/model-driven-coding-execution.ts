@@ -20,6 +20,10 @@ import type {
 } from "./provider-adapters";
 
 import {
+  ResilientModelExecutionAuthority,
+} from "./resilient-model-execution";
+
+import {
   KingsCodingMachine,
   type KingsCodingMachineModelExecutionRequest,
 } from "./kings-coding-machine";
@@ -39,6 +43,9 @@ export interface ModelDrivenCodingExecutionRequest {
 }
 
 export class ModelDrivenCodingExecutionAuthority {
+  private readonly resilientExecution:
+    ResilientModelExecutionAuthority;
+
   constructor(
     private readonly machine:
       KingsCodingMachine,
@@ -46,7 +53,15 @@ export class ModelDrivenCodingExecutionAuthority {
       ModelRouter,
     private readonly providers:
       ProviderAdapterRegistry,
-  ) {}
+    resilientExecution?:
+      ResilientModelExecutionAuthority,
+  ) {
+    this.resilientExecution =
+      resilientExecution ??
+      new ResilientModelExecutionAuthority(
+        providers,
+      );
+  }
 
   async execute(
     request:
@@ -66,29 +81,35 @@ export class ModelDrivenCodingExecutionAuthority {
 
     if (
       !route.selected ||
-      !route.providerId ||
-      !route.modelId
+      route.candidates.length === 0
     ) {
       throw new Error(
         `K.I.N.G.S. Model Driven Coding: no model route is available. ${route.reason}`,
       );
     }
 
-    const result =
-      await this.providers.execute(
-        route.providerId,
-        route.modelId,
+    const execution =
+      await this.resilientExecution.execute(
+        route.candidates,
         request.modelRequest,
       );
 
-    if (!result.success) {
+    if (!execution.result.success) {
+      const attemptSummary =
+        execution.attempts
+          .map(
+            (attempt) =>
+              `${attempt.providerId}/${attempt.modelId}:${attempt.skipped ? "skipped" : attempt.failureCode ?? "failed"}`,
+          )
+          .join(", ");
+
       throw new Error(
-        result.failure?.message ??
-          "K.I.N.G.S. Model Driven Coding: model execution failed.",
+        execution.result.failure?.message ??
+          `K.I.N.G.S. Model Driven Coding: all routed model executions failed.${attemptSummary ? ` Attempts: ${attemptSummary}` : ""}`,
       );
     }
 
-    if (!result.response) {
+    if (!execution.result.response) {
       throw new Error(
         "K.I.N.G.S. Model Driven Coding: provider returned success without a model response.",
       );
@@ -98,7 +119,7 @@ export class ModelDrivenCodingExecutionAuthority {
       {
         ...request.machineRequest,
         modelResult:
-          result,
+          execution.result,
       },
       editor,
       buildTestOptions,
