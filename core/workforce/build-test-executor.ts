@@ -46,6 +46,8 @@ export interface BuildTestExecutionRequest {
     WorkUnitContract;
   steps:
     BuildTestStep[];
+  workspaceRoot?:
+    string;
 }
 
 export interface BuildTestStepResult {
@@ -236,6 +238,12 @@ export class BuildTestExecutor {
       );
     }
 
+    const workspaceRoot =
+      resolve(
+        request.workspaceRoot ??
+        process.cwd(),
+      );
+
     const unauthorizedStep =
       request.steps.find(
         (step) =>
@@ -243,7 +251,10 @@ export class BuildTestExecutor {
             (allowedPath) =>
               isPathWithin(
                 step.workingDirectory,
-                allowedPath,
+                resolve(
+                  workspaceRoot,
+                  allowedPath,
+                ),
               ),
           ),
       );
