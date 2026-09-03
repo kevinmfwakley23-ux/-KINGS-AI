@@ -59,6 +59,7 @@ async function runTest(): Promise<void> {
     KINGS_OMNIROUTE_KEY: "test-omni",
     KINGS_9ROUTER_URL: "http://127.0.0.1:30128",
     KINGS_9ROUTER_KEY: "test-nine",
+    KINGS_9ROUTER_MODELS: "stale/configured-coder",
   } as NodeJS.ProcessEnv;
 
   const definitions = configuredGatewayDefinitions(env);
@@ -105,6 +106,15 @@ async function runTest(): Promise<void> {
     !runtime.catalog.some((entry) => entry.modelId === "audio/tts-1"),
     "Audio-only models must not enter the coding execution catalog.",
   );
+  const staleRoute = runtime.catalog.find(
+    (entry) =>
+      entry.providerId === "9router" &&
+      entry.modelId === "stale/configured-coder",
+  );
+  assert(
+    staleRoute?.codingEligible === false,
+    "A configured 9Router model missing from live discovery must not be coding-eligible.",
+  );
   console.log("GATEWAY-RUNTIME-002 live /v1/models discovery + coding filter: SUCCESS");
 
   const providers = new ProviderAdapterRegistry();
@@ -120,6 +130,10 @@ async function runTest(): Promise<void> {
   assert(
     capabilities.get("9router", "kr/qwen3-coder-next") !== undefined,
     "9Router discovered coding model was not registered.",
+  );
+  assert(
+    capabilities.get("9router", "stale/configured-coder") === undefined,
+    "A stale configured 9Router model must not be registered as an executable coding route.",
   );
   assert(
     capabilities.get("omniroute", "auto/coding")?.capabilities.every(
