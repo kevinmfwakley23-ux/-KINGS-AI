@@ -2,6 +2,7 @@ import {
   mkdtemp,
   mkdir,
   writeFile,
+  symlink,
   rm,
 } from "node:fs/promises";
 
@@ -32,6 +33,10 @@ async function main(): Promise<void> {
   const root =
     await mkdtemp(
       "/tmp/kings-tree-061-",
+    );
+  const outsideRoot =
+    await mkdtemp(
+      "/tmp/kings-tree-061-outside-",
     );
 
   await mkdir(
@@ -97,6 +102,20 @@ async function main(): Promise<void> {
     ),
     "ignored\n",
     "utf8",
+  );
+
+  const outsideSecret = join(
+    outsideRoot,
+    "host-secret.ts",
+  );
+  await writeFile(
+    outsideSecret,
+    "export const HOST_SECRET = 'must-never-leak';\n",
+    "utf8",
+  );
+  await symlink(
+    outsideSecret,
+    join(root, "src", "linked-host-secret.ts"),
   );
 
   const source:
@@ -191,6 +210,14 @@ async function main(): Promise<void> {
       "Excluded dependency directories must not be inspected.",
     );
 
+    assert(
+      !result.files.some(
+        (file) =>
+          file.relativePath === "src/linked-host-secret.ts",
+      ),
+      "Repository metadata inspection must not follow or expose symbolic links.",
+    );
+
     const content =
       await inspector.readTextFile(
         source,
@@ -220,6 +247,20 @@ async function main(): Promise<void> {
     assert(
       traversalRejected,
       "Repository inspection must reject path traversal.",
+    );
+
+    let symlinkRejected = false;
+    try {
+      await inspector.readTextFile(
+        source,
+        "src/linked-host-secret.ts",
+      );
+    } catch {
+      symlinkRejected = true;
+    }
+    assert(
+      symlinkRejected,
+      "Repository inspection must reject symlink-based host file escapes.",
     );
 
     const unauthorizedSource:
@@ -267,6 +308,10 @@ async function main(): Promise<void> {
     );
 
     console.log(
+      "06.1 symlink escape protection: SUCCESS",
+    );
+
+    console.log(
       "06.1 source authorization: SUCCESS",
     );
 
@@ -274,15 +319,26 @@ async function main(): Promise<void> {
       "TREE-06.1 REPOSITORY INSPECTION: SUCCESS",
     );
   } finally {
-    await rm(
-      root,
-      {
-        recursive:
-          true,
-        force:
-          true,
-      },
-    );
+    await Promise.all([
+      rm(
+        root,
+        {
+          recursive:
+            true,
+          force:
+            true,
+        },
+      ),
+      rm(
+        outsideRoot,
+        {
+          recursive:
+            true,
+          force:
+            true,
+        },
+      ),
+    ]);
   }
 }
 
