@@ -26,13 +26,10 @@ import type {
 export interface EngineeringWorkspaceProposalRequest {
   execution:
     AutonomousEngineeringExecution;
-
   step:
     EngineeringExecutionStep;
-
   workspace:
     EngineeringWorkspace;
-
   proposal:
     LocalCodingChangeProposal;
 }
@@ -40,14 +37,11 @@ export interface EngineeringWorkspaceProposalRequest {
 export interface AuthorizedEngineeringFileChange {
   path:
     string;
-
   operation:
     "create"
     | "replace";
-
   content:
     string;
-
   language:
     EngineeringLanguage;
 }
@@ -55,13 +49,10 @@ export interface AuthorizedEngineeringFileChange {
 export interface EngineeringWorkspaceProposalResult {
   command:
     EngineeringCommand;
-
   taskId:
     ID;
-
   missionId:
     ID;
-
   changes:
     AuthorizedEngineeringFileChange[];
 }
@@ -178,7 +169,7 @@ function inferLanguage(
   const normalized =
     normalizePath(
       path,
-    );
+    ).toLowerCase();
 
   if (
     normalized.endsWith(
@@ -197,6 +188,12 @@ function inferLanguage(
     ) ||
     normalized.endsWith(
       ".jsx",
+    ) ||
+    normalized.endsWith(
+      ".mjs",
+    ) ||
+    normalized.endsWith(
+      ".cjs",
     )
   ) {
     return "javascript";
@@ -251,6 +248,12 @@ function inferLanguage(
     ) ||
     normalized.endsWith(
       ".hpp",
+    ) ||
+    normalized.endsWith(
+      ".cc",
+    ) ||
+    normalized.endsWith(
+      ".cxx",
     )
   ) {
     return "cpp";
@@ -292,6 +295,62 @@ function inferLanguage(
     )
   ) {
     return "shell";
+  }
+
+  if (
+    normalized.endsWith(
+      ".json",
+    ) ||
+    normalized.endsWith(
+      ".jsonc",
+    )
+  ) {
+    return "json";
+  }
+
+  if (
+    normalized.endsWith(
+      ".yaml",
+    ) ||
+    normalized.endsWith(
+      ".yml",
+    )
+  ) {
+    return "yaml";
+  }
+
+  if (
+    normalized.endsWith(
+      ".md",
+    ) ||
+    normalized.endsWith(
+      ".mdx",
+    )
+  ) {
+    return "markdown";
+  }
+
+  if (
+    normalized.endsWith(
+      ".txt",
+    ) ||
+    normalized.endsWith(
+      ".env",
+    ) ||
+    normalized.endsWith(
+      ".gitignore",
+    ) ||
+    normalized.endsWith(
+      ".npmrc",
+    ) ||
+    normalized.endsWith(
+      ".editorconfig",
+    ) ||
+    normalized.endsWith(
+      "dockerfile",
+    )
+  ) {
+    return "text";
   }
 
   return undefined;
