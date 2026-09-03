@@ -97,6 +97,20 @@ interface OpenAiChatCompletionResponse {
     prompt_tokens?: number;
     completion_tokens?: number;
     total_tokens?: number;
+    cached_tokens?: number;
+    saved_tokens?: number;
+    tokens_saved?: number;
+    cost?: number;
+    cost_usd?: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+    };
+  };
+  cost?: number;
+  cost_usd?: number;
+  compression?: {
+    saved_tokens?: number;
+    tokens_saved?: number;
   };
 }
 
@@ -138,6 +152,20 @@ function looksLikeNonChatModel(modelId: string): boolean {
     "tts", "speech", "audio", "music", "video", "image",
     "flux", "stable-diffusion", "dall-e",
   ].some((token) => value.includes(token));
+}
+
+function nonNegativeNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function firstReportedNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    const number = nonNegativeNumber(value);
+    if (number !== undefined) return number;
+  }
+  return undefined;
 }
 
 function parseToolCalls(
@@ -207,7 +235,11 @@ export class FetchOpenAiCompatibleGatewayTransport
       const text = await response.text();
       let parsed: unknown;
       if (text) {
-        try { parsed = JSON.parse(text) as unknown; } catch { parsed = undefined; }
+        try {
+          parsed = JSON.parse(text) as unknown;
+        } catch {
+          parsed = undefined;
+        }
       }
       return { status: response.status, body: parsed, text };
     } finally {
@@ -313,9 +345,30 @@ class OpenAiCompatibleGatewayModel implements IntelligenceModel {
       }
 
       const completedAt = new Date();
-      const inputTokens = payload.usage?.prompt_tokens ?? 0;
-      const outputTokens = payload.usage?.completion_tokens ?? 0;
-      const totalTokens = payload.usage?.total_tokens ?? inputTokens + outputTokens;
+      const inputTokens = nonNegativeNumber(payload.usage?.prompt_tokens) ?? 0;
+      const outputTokens = nonNegativeNumber(payload.usage?.completion_tokens) ?? 0;
+      const reportedTotal = nonNegativeNumber(payload.usage?.total_tokens);
+      const totalTokens = Math.max(
+        inputTokens + outputTokens,
+        reportedTotal ?? inputTokens + outputTokens,
+      );
+      const cachedTokens = firstReportedNumber(
+        payload.usage?.prompt_tokens_details?.cached_tokens,
+        payload.usage?.cached_tokens,
+      );
+      const savedTokens = firstReportedNumber(
+        payload.usage?.saved_tokens,
+        payload.usage?.tokens_saved,
+        payload.compression?.saved_tokens,
+        payload.compression?.tokens_saved,
+      );
+      const reportedCostUsd = firstReportedNumber(
+        payload.usage?.cost_usd,
+        payload.usage?.cost,
+        payload.cost_usd,
+        payload.cost,
+      );
+
       return {
         success: true,
         response: {
@@ -329,8 +382,12 @@ class OpenAiCompatibleGatewayModel implements IntelligenceModel {
             elapsedMs: completedAt.getTime() - startedAt.getTime(),
             tokensUsed: totalTokens,
             iterationsUsed: 1,
+            estimatedCost: reportedCostUsd,
             inputTokens,
             outputTokens,
+            cachedTokens,
+            savedTokens,
+            reportedCostUsd,
           },
           metadata: {
             requestId: request.id,
@@ -401,7 +458,7 @@ export class OpenAiCompatibleGatewayAdapter implements ProviderAdapter {
     this.descriptor = {
       id: config.id,
       name: config.name,
-      kind: config.providerKind ?? "external-free",
+      kind: config.providerKind ?? "external-routed",
       available: config.available ?? true,
     };
     this.discoverModelsEnabled = config.discoverModels ?? true;
