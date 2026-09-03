@@ -12,6 +12,7 @@ export interface OwnerRuntimeReadiness {
   repositoryExecutionReady: boolean;
   localModelRoutable: boolean;
   gatewayCodingRouteRoutable: boolean;
+  localFallbackAvailable: boolean;
   blockers: string[];
 }
 
@@ -47,6 +48,7 @@ export function selectAutomaticCodingRoute(
         entry.modelId === "auto/coding" &&
         entry.verifiedCodingRoute,
     ) ??
+    routable.find((entry) => entry.providerId === "9router") ??
     routable.find((entry) => entry.verifiedCodingRoute) ??
     routable[0];
 
@@ -67,14 +69,16 @@ export function assessOwnerRuntimeReadiness(input: {
   gatewayCodingRouteRoutable: boolean;
   repositoryExecutionAllowed: boolean;
 }): OwnerRuntimeReadiness {
-  const aiExecutionReady =
-    input.localModelRoutable || input.gatewayCodingRouteRoutable;
+  // K.I.N.G.S. production coding is gateway-first. A local Ollama model can be
+  // exposed as an optional fallback, but it cannot make production readiness
+  // green by itself because it does not provide the large routed model fabric.
+  const aiExecutionReady = input.gatewayCodingRouteRoutable;
   const repositoryExecutionReady = input.repositoryExecutionAllowed;
   const blockers: string[] = [];
 
-  if (!aiExecutionReady) {
+  if (!input.gatewayCodingRouteRoutable) {
     blockers.push(
-      "No routable AI coding model is available from local Ollama or a healthy configured gateway.",
+      "No live OmniRoute, 9Router, or configured OpenAI-compatible coding gateway is routable. Local Ollama alone does not satisfy K.I.N.G.S. production readiness.",
     );
   }
   if (!repositoryExecutionReady) {
@@ -89,6 +93,7 @@ export function assessOwnerRuntimeReadiness(input: {
     repositoryExecutionReady,
     localModelRoutable: input.localModelRoutable,
     gatewayCodingRouteRoutable: input.gatewayCodingRouteRoutable,
+    localFallbackAvailable: input.localModelRoutable,
     blockers,
   };
 }
