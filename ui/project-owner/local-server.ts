@@ -6,6 +6,7 @@ import { TaskControl } from "../../core/workforce/task-control";
 import { WorkforceRegistry } from "../../core/workforce/registry";
 import { WorkUnitRegistry } from "../../core/workforce/work-unit-registry";
 import { KingsCodingMachine } from "../../core/workforce/kings-coding-machine";
+import { DurableMissionContinuityStore } from "../../core/workforce/durable-mission-continuity-store";
 import type { ProjectOwnerExecutionContext } from "../../core/workforce/project-owner-machine-api";
 import {
   ProjectOwnerMachineServerController,
@@ -18,6 +19,9 @@ const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
 const bindHost = process.env.KINGS_CODING_MACHINE_BIND ?? "0.0.0.0";
 const publicHost = process.env.KINGS_CODING_MACHINE_HOST ?? "localhost";
 const workspaceRoot = process.env.KINGS_CODING_MACHINE_WORKSPACE ?? process.cwd();
+const continuityFile =
+  process.env.KINGS_CODING_MACHINE_STATE ??
+  join(workspaceRoot, ".kings", "mission-continuity.json");
 const ollamaBaseUrl =
   process.env.KINGS_CODING_MACHINE_OLLAMA_URL ?? "http://127.0.0.1:11434";
 const modelId = process.env.KINGS_CODING_MACHINE_MODEL ?? "qwen2.5-coder:1.5b";
@@ -73,7 +77,8 @@ async function main(): Promise<void> {
   const registry = new WorkforceRegistry();
   const workUnits = new WorkUnitRegistry();
   const taskControl = new TaskControl(registry);
-  const machine = new KingsCodingMachine(undefined, undefined, taskControl, workUnits);
+  const continuity = new DurableMissionContinuityStore(continuityFile);
+  const machine = new KingsCodingMachine(continuity, undefined, taskControl, workUnits);
   const missionFactory = createDefaultProjectOwnerMissionFactory(registry, workUnits);
 
   const executionContext: ProjectOwnerExecutionContext = {
@@ -108,6 +113,7 @@ async function main(): Promise<void> {
             product: "AI Author's Forge",
             model: modelId,
             workspace: workspaceRoot,
+            continuityFile,
             runtimeBuild,
             ollama,
           }));
@@ -166,6 +172,7 @@ async function main(): Promise<void> {
     console.log(`Health: http://${publicHost}:${port}/health`);
     console.log(`Bind: ${bindHost}:${port}`);
     console.log(`Workspace: ${workspaceRoot}`);
+    console.log(`Mission state: ${continuityFile}`);
     console.log(`Ollama: ${ollamaBaseUrl}`);
     console.log(`Model: ${modelId}`);
     console.log(`Runtime build: ${runtimeBuild}`);
