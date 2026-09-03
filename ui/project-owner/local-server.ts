@@ -27,6 +27,12 @@ import {
   hasRoutableGatewayCodingModel,
   selectAutomaticCodingRoute,
 } from "../../core/workforce/owner-runtime-readiness";
+import {
+  setDefaultProviderExecutionObserver,
+} from "../../core/workforce/provider-adapters";
+import {
+  DurableGatewayUsageLedger,
+} from "../../core/workforce/gateway-usage-ledger";
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
 const bindHost = process.env.KINGS_CODING_MACHINE_BIND ?? "0.0.0.0";
@@ -36,6 +42,9 @@ const workspaceRoot =
   process.env.KINGS_CODING_MACHINE_WORKSPACE ?? join(stateRoot, "projects");
 const continuityFile =
   process.env.KINGS_CODING_MACHINE_STATE ?? join(stateRoot, "mission-continuity.json");
+const usageFile =
+  process.env.KINGS_GATEWAY_USAGE_FILE ?? join(stateRoot, "gateway-usage.jsonl");
+const enableOllamaFallback = process.env.KINGS_ENABLE_OLLAMA_FALLBACK === "1";
 const ollamaBaseUrl =
   process.env.KINGS_CODING_MACHINE_OLLAMA_URL ?? "http://127.0.0.1:11434";
 const modelId = process.env.KINGS_CODING_MACHINE_MODEL ?? "qwen2.5-coder:1.5b";
@@ -44,7 +53,7 @@ const publicFile = join(process.cwd(), "ui/project-owner/index.html");
 const forgeFile = join(process.cwd(), "ui/project-owner/authors-forge.html");
 const manifestFile = join(process.cwd(), "ui/project-owner/manifest.webmanifest");
 const serviceWorkerFile = join(process.cwd(), "ui/project-owner/service-worker.js");
-const runtimeBuild = "kings-chief-engineer-v6";
+const runtimeBuild = "kings-gateway-first-v7";
 
 async function body(request: import("node:http").IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -88,29 +97,22 @@ async function detectProcessIsolation(): Promise<SandboxBubblewrapIsolation | un
       break;
     }
   }
-
   if (!executable) return undefined;
 
   const home = process.env.HOME?.trim();
   const nodePrefix = dirname(dirname(process.execPath));
-  const additionalReadOnlyPaths = [
-    nodePrefix,
-    ...(home
-      ? [
-          join(home, ".cargo", "bin"),
-          join(home, ".rustup"),
-        ]
-      : []),
-  ];
-
   return {
     kind: "bubblewrap",
     executable,
-    additionalReadOnlyPaths,
+    additionalReadOnlyPaths: [
+      nodePrefix,
+      ...(home ? [join(home, ".cargo", "bin"), join(home, ".rustup")] : []),
+    ],
   };
 }
 
 interface OllamaHealth {
+  enabled: boolean;
   ok: boolean;
   connected: boolean;
   message: string;
@@ -118,15 +120,26 @@ interface OllamaHealth {
 }
 
 async function checkOllama(): Promise<OllamaHealth> {
+  if (!enableOllamaFallback) {
+    return {
+      enabled: false,
+      ok: false,
+      connected: false,
+      message:
+        "Local Ollama fallback is disabled. Set KINGS_ENABLE_OLLAMA_FALLBACK=1 only if an offline fallback is wanted.",
+    };
+  }
+
   try {
     const response = await fetch(`${ollamaBaseUrl}/api/tags`, {
       signal: AbortSignal.timeout(5_000),
     });
     if (!response.ok) {
       return {
+        enabled: true,
         ok: false,
         connected: false,
-        message: `Ollama HTTP ${response.status}`,
+        message: `Ollama fallback HTTP ${response.status}`,
       };
     }
 
@@ -140,22 +153,23 @@ async function checkOllama(): Promise<OllamaHealth> {
     const modelAvailable = models.some(
       (name) => name === modelId || name.startsWith(`${modelId}:`),
     );
-
     return {
+      enabled: true,
       ok: modelAvailable,
       connected: true,
       message: modelAvailable
-        ? `Ollama connected; ${modelId} is available.`
-        : `Ollama connected, but configured model ${modelId} is not installed.`,
+        ? `Optional Ollama fallback connected; ${modelId} is available.`
+        : `Optional Ollama fallback connected, but ${modelId} is not installed.`,
       models,
     };
   } catch (error) {
     return {
+      enabled: true,
       ok: false,
       connected: false,
       message: error instanceof Error
-        ? `Ollama unavailable: ${error.message}`
-        : `Ollama unavailable: ${String(error)}`,
+        ? `Optional Ollama fallback unavailable: ${error.message}`
+        : `Optional Ollama fallback unavailable: ${String(error)}`,
     };
   }
 }
@@ -173,12 +187,41 @@ function json(
 }
 
 async function main(): Promise<void> {
+  const usageLedger = new DurableGatewayUsageLedger(usageFile);
   const [initialGatewayRuntime, initialOllama, processIsolation] = await Promise.all([
     loadKingsAiGatewayRuntime(),
     checkOllama(),
     detectProcessIsolation(),
   ]);
   let gatewayRuntime = initialGatewayRuntime;
+  const gatewayProviderIds = new Set(
+    gatewayRuntime.gateways.map(({ adapter }) => adapter.descriptor.id),
+  );
+
+  setDefaultProviderExecutionObserver(async (
+    providerId,
+    modelIdValue,
+    _request,
+    result,
+  ) => {
+    if (!gatewayProviderIds.has(providerId) || !result.success || !result.response) {
+      return;
+    }
+    const response = result.response;
+    await usageLedger.record({
+      requestId: response.requestId,
+      providerRequestId: response.metadata.providerRequestId,
+      providerId,
+      modelId: modelIdValue,
+      startedAt: response.metadata.startedAt,
+      completedAt: response.metadata.completedAt,
+      inputTokens: response.usage.inputTokens,
+      outputTokens: response.usage.outputTokens,
+      totalTokens: response.usage.tokensUsed,
+      costStatus: "unknown",
+      source: "provider-response",
+    });
+  });
 
   const registry = new WorkforceRegistry();
   const workUnits = new WorkUnitRegistry();
@@ -206,7 +249,7 @@ async function main(): Promise<void> {
       ollamaBaseUrl,
       gatewayRuntime,
       allowBuildNetwork,
-      localModelAvailable: initialOllama.ok,
+      localModelAvailable: enableOllamaFallback && initialOllama.ok,
       processIsolation,
     },
   );
@@ -218,6 +261,10 @@ async function main(): Promise<void> {
     gatewayRefreshPromise = refreshKingsAiGatewayRuntime(gatewayRuntime)
       .then((refreshed) => {
         gatewayRuntime = refreshed;
+        gatewayProviderIds.clear();
+        for (const { adapter } of refreshed.gateways) {
+          gatewayProviderIds.add(adapter.descriptor.id);
+        }
         controller.synchronizeGatewayRuntime(refreshed);
         return refreshed;
       })
@@ -235,7 +282,7 @@ async function main(): Promise<void> {
       checkOllama(),
       refreshGateways(),
     ]);
-    controller.setLocalModelAvailability(ollama.ok);
+    controller.setLocalModelAvailability(enableOllamaFallback && ollama.ok);
     return { ollama, gateways };
   }
 
@@ -244,7 +291,7 @@ async function main(): Promise<void> {
     gateways: KingsAiGatewayRuntime;
   }) {
     return assessOwnerRuntimeReadiness({
-      localModelRoutable: runtime.ollama.ok,
+      localModelRoutable: enableOllamaFallback && runtime.ollama.ok,
       gatewayCodingRouteRoutable: hasRoutableGatewayCodingModel(runtime.gateways),
       repositoryExecutionAllowed: Boolean(processIsolation),
     });
@@ -263,10 +310,10 @@ async function main(): Promise<void> {
           name: "kings.local",
           product: "K.I.N.G.S. AI Coding Machine",
           runtimeBuild,
-          localModel: modelId,
-          localModelRoutable: refreshed.ollama.ok,
+          routingMode: "gateway-first",
           projectsRoot: workspaceRoot,
           continuityFile,
+          usageFile,
           allowBuildNetwork,
           processIsolation: processIsolation
             ? {
@@ -283,7 +330,7 @@ async function main(): Promise<void> {
                 message:
                   "Verified Bubblewrap was not found. GitHub repository build/test execution is fail-closed until host isolation is installed or configured.",
               },
-          ollama: refreshed.ollama,
+          ollamaFallback: refreshed.ollama,
           gateways: refreshed.gateways.gateways.map(({ adapter, health }) => ({
             providerId: adapter.descriptor.id,
             name: adapter.descriptor.name,
@@ -306,6 +353,7 @@ async function main(): Promise<void> {
           ok: readiness.ready,
           ready: readiness.ready,
           runtimeBuild,
+          routingMode: "gateway-first",
           readiness,
           automaticRoute: selectAutomaticCodingRoute(refreshed.gateways),
         });
@@ -315,39 +363,35 @@ async function main(): Promise<void> {
       if (req.method === "GET" && req.url === "/api/models") {
         const refreshed = await refreshAiRuntime();
         const automaticRoute = selectAutomaticCodingRoute(refreshed.gateways);
-        const localModels = refreshed.ollama.ok
+        const localModels = enableOllamaFallback && refreshed.ollama.ok
           ? [{
               providerId: "internal-intelligence",
-              providerName: "Local Ollama",
+              providerName: "Local Ollama (optional fallback)",
               gatewayKind: "ollama",
               modelId,
-              displayName: `Local Ollama: ${modelId}`,
+              displayName: `Local fallback: ${modelId}`,
               codingEligible: true,
               verifiedCodingRoute: true,
               local: true,
+              fallbackOnly: true,
             }]
           : [];
 
         json(res, 200, {
           ok: true,
-          codingReady: refreshed.ollama.ok || Boolean(automaticRoute),
-          defaultModel: refreshed.ollama.ok
-            ? { providerId: "internal-intelligence", modelId }
-            : automaticRoute,
+          routingMode: "gateway-first",
+          codingReady: Boolean(automaticRoute),
+          defaultModel: automaticRoute,
           automaticRoute,
           models: [
-            ...localModels,
             ...refreshed.gateways.catalog.map((entry) => ({
               ...entry,
               local: false,
+              costStatus: "unknown-unless-provider-reported",
             })),
+            ...localModels,
           ],
-          localRuntime: {
-            ok: refreshed.ollama.ok,
-            connected: refreshed.ollama.connected,
-            configuredModel: modelId,
-            message: refreshed.ollama.message,
-          },
+          localFallback: refreshed.ollama,
           gateways: refreshed.gateways.gateways.map(({ adapter, health }) => ({
             providerId: adapter.descriptor.id,
             name: adapter.descriptor.name,
@@ -357,6 +401,18 @@ async function main(): Promise<void> {
             totalModels: health.models.length,
             codingModels: health.codingModels.length,
           })),
+        });
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/usage") {
+        const summary = await usageLedger.summarize();
+        json(res, 200, {
+          ok: true,
+          source: "provider-reported-token-usage",
+          note:
+            "Costs and saved-token counts are only reported when K.I.N.G.S. has provider evidence; unknown values are never estimated as free or saved.",
+          summary,
         });
         return;
       }
@@ -397,7 +453,20 @@ async function main(): Promise<void> {
       }
 
       if (req.method === "POST" && req.url === "/api/project-owner/missions") {
-        const request = (await body(req)) as Parameters<ProjectOwnerMachineApi["handle"]>[0];
+        const incoming = (await body(req)) as Parameters<ProjectOwnerMachineApi["handle"]>[0];
+        const route =
+          incoming.action === "execute-next" &&
+          !incoming.preferredProviderId &&
+          !incoming.preferredModelId
+            ? selectAutomaticCodingRoute(gatewayRuntime)
+            : null;
+        const request = route
+          ? {
+              ...incoming,
+              preferredProviderId: route.providerId,
+              preferredModelId: route.modelId,
+            }
+          : incoming;
         const result = await controller.handle(request);
         json(res, result.ok ? 200 : 400, result);
         return;
@@ -421,7 +490,7 @@ async function main(): Promise<void> {
   });
 
   const initialReadiness = assessOwnerRuntimeReadiness({
-    localModelRoutable: initialOllama.ok,
+    localModelRoutable: enableOllamaFallback && initialOllama.ok,
     gatewayCodingRouteRoutable: hasRoutableGatewayCodingModel(gatewayRuntime),
     repositoryExecutionAllowed: Boolean(processIsolation),
   });
@@ -432,12 +501,14 @@ async function main(): Promise<void> {
     console.log(`Health: http://${publicHost}:${port}/health`);
     console.log(`Readiness: http://${publicHost}:${port}/ready`);
     console.log(`Models: http://${publicHost}:${port}/api/models`);
+    console.log(`Usage: http://${publicHost}:${port}/api/usage`);
     console.log(`Bind: ${bindHost}:${port}`);
     console.log(`Projects: ${workspaceRoot}`);
     console.log(`Mission state: ${continuityFile}`);
-    console.log(`Ollama: ${ollamaBaseUrl}`);
-    console.log(`Local model: ${modelId}`);
-    console.log(`Local model routable: ${initialOllama.ok}`);
+    console.log(`Gateway usage ledger: ${usageFile}`);
+    console.log("Routing mode: GATEWAY FIRST");
+    console.log(`Optional Ollama fallback enabled: ${enableOllamaFallback}`);
+    console.log(`Optional local fallback routable: ${initialOllama.ok}`);
     console.log(`AI gateways: ${gatewayRuntime.gateways.length}`);
     console.log(`Gateway model catalog: ${gatewayRuntime.catalog.length}`);
     console.log(`Automatic coding route: ${selectAutomaticCodingRoute(gatewayRuntime)?.label ?? "UNAVAILABLE"}`);
