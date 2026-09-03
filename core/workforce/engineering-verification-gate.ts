@@ -76,15 +76,10 @@ export class EngineeringVerificationGateAuthority {
             result.status ===
               "success" &&
             result.projectId ===
-              request.projectId,
-        );
-
-      const repairEvidence =
-        request.repairResults.find(
-          (result) =>
-            result.projectId ===
               request.projectId &&
-            result.verified,
+            result.verifiesCriteria?.includes(
+              criterion,
+            ) === true,
         );
 
       if (
@@ -103,29 +98,7 @@ export class EngineeringVerificationGateAuthority {
           passed:
             true,
           summary:
-            `Verified by successful engineering command ${commandEvidence.id}.`,
-        });
-
-        continue;
-      }
-
-      if (
-        repairEvidence
-      ) {
-        evidence.push({
-          id:
-            `verification-${request.projectId}-${evidence.length + 1}`,
-          projectId:
-            request.projectId,
-          source:
-            "repair",
-          referenceId:
-            repairEvidence.id,
-          criterion,
-          passed:
-            true,
-          summary:
-            `Verified by successful repair execution ${repairEvidence.id}.`,
+            `Verified by successful engineering command ${commandEvidence.id} explicitly bound to this criterion.`,
         });
 
         continue;
@@ -148,7 +121,13 @@ export class EngineeringVerificationGateAuthority {
         passed:
           false,
         summary:
-          "No successful verification evidence was found.",
+          request.repairResults.some(
+            (result) =>
+              result.projectId === request.projectId &&
+              result.verified,
+          )
+            ? "A repair completed, but no post-repair command explicitly verified this acceptance criterion."
+            : "No successful command explicitly verified this acceptance criterion.",
       });
     }
 
