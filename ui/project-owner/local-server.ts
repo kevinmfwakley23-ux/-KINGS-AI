@@ -14,7 +14,11 @@ import {
 } from "./server-contract";
 import { ProjectOwnerMachineApi } from "../../core/workforce/project-owner-machine-api";
 import { AuthorsForgeApi, type AuthorsForgeRequest } from "./authors-forge-api";
-import { loadKingsAiGatewayRuntime } from "../../core/workforce/ai-gateway-runtime";
+import {
+  loadKingsAiGatewayRuntime,
+  refreshKingsAiGatewayRuntime,
+  type KingsAiGatewayRuntime,
+} from "../../core/workforce/ai-gateway-runtime";
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
 const bindHost = process.env.KINGS_CODING_MACHINE_BIND ?? "0.0.0.0";
@@ -32,7 +36,7 @@ const publicFile = join(process.cwd(), "ui/project-owner/index.html");
 const forgeFile = join(process.cwd(), "ui/project-owner/authors-forge.html");
 const manifestFile = join(process.cwd(), "ui/project-owner/manifest.webmanifest");
 const serviceWorkerFile = join(process.cwd(), "ui/project-owner/service-worker.js");
-const runtimeBuild = "kings-chief-engineer-v3";
+const runtimeBuild = "kings-chief-engineer-v4";
 
 async function body(request: import("node:http").IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -103,11 +107,33 @@ function json(
   res.end(JSON.stringify(value));
 }
 
+function automaticCodingRoute(runtime: KingsAiGatewayRuntime) {
+  const healthyGatewayIds = new Set(
+    runtime.gateways
+      .filter(({ health }) => health.ok)
+      .map(({ adapter }) => adapter.descriptor.id),
+  );
+  return runtime.catalog.find(
+    (entry) =>
+      entry.providerId === "omniroute" &&
+      entry.modelId === "auto/coding" &&
+      entry.verifiedCodingRoute &&
+      healthyGatewayIds.has(entry.providerId),
+  )
+    ? {
+        providerId: "omniroute",
+        modelId: "auto/coding",
+        label: "OmniRoute Auto Coding",
+      }
+    : null;
+}
+
 async function main(): Promise<void> {
-  const [gatewayRuntime, initialOllama] = await Promise.all([
+  const [initialGatewayRuntime, initialOllama] = await Promise.all([
     loadKingsAiGatewayRuntime(),
     checkOllama(),
   ]);
+  let gatewayRuntime = initialGatewayRuntime;
 
   const registry = new WorkforceRegistry();
   const workUnits = new WorkUnitRegistry();
@@ -139,42 +165,50 @@ async function main(): Promise<void> {
     },
   );
   const forgeApi = new AuthorsForgeApi();
+  let gatewayRefreshPromise: Promise<KingsAiGatewayRuntime> | undefined;
 
-  const healthyGatewayIds = new Set(
-    gatewayRuntime.gateways
-      .filter(({ health }) => health.ok)
-      .map(({ adapter }) => adapter.descriptor.id),
-  );
-  const automaticRoute = gatewayRuntime.catalog.find(
-    (entry) =>
-      entry.providerId === "omniroute" &&
-      entry.modelId === "auto/coding" &&
-      entry.verifiedCodingRoute &&
-      healthyGatewayIds.has(entry.providerId),
-  )
-    ? {
-        providerId: "omniroute",
-        modelId: "auto/coding",
-        label: "OmniRoute Auto Coding",
-      }
-    : null;
+  async function refreshGateways(): Promise<KingsAiGatewayRuntime> {
+    if (gatewayRefreshPromise) return gatewayRefreshPromise;
+    gatewayRefreshPromise = refreshKingsAiGatewayRuntime(gatewayRuntime)
+      .then((refreshed) => {
+        gatewayRuntime = refreshed;
+        controller.synchronizeGatewayRuntime(refreshed);
+        return refreshed;
+      })
+      .finally(() => {
+        gatewayRefreshPromise = undefined;
+      });
+    return gatewayRefreshPromise;
+  }
+
+  async function refreshAiRuntime(): Promise<{
+    ollama: OllamaHealth;
+    gateways: KingsAiGatewayRuntime;
+  }> {
+    const [ollama, gateways] = await Promise.all([
+      checkOllama(),
+      refreshGateways(),
+    ]);
+    controller.setLocalModelAvailability(ollama.ok);
+    return { ollama, gateways };
+  }
 
   const server = createServer(async (req, res) => {
     try {
       if (req.method === "GET" && req.url === "/health") {
-        const ollama = await checkOllama();
+        const refreshed = await refreshAiRuntime();
         json(res, 200, {
           ok: true,
           name: "kings.local",
           product: "K.I.N.G.S. AI Coding Machine",
           runtimeBuild,
           localModel: modelId,
-          localModelRoutableAtStartup: initialOllama.ok,
+          localModelRoutable: refreshed.ollama.ok,
           projectsRoot: workspaceRoot,
           continuityFile,
           allowBuildNetwork,
-          ollama,
-          gateways: gatewayRuntime.gateways.map(({ adapter, health }) => ({
+          ollama: refreshed.ollama,
+          gateways: refreshed.gateways.gateways.map(({ adapter, health }) => ({
             providerId: adapter.descriptor.id,
             name: adapter.descriptor.name,
             kind: adapter.gatewayKind,
@@ -183,14 +217,16 @@ async function main(): Promise<void> {
             totalModels: health.models.length,
             codingModels: health.codingModels.length,
           })),
-          discoveredGatewayModels: gatewayRuntime.catalog.length,
+          discoveredGatewayModels: refreshed.gateways.catalog.length,
+          automaticRoute: automaticCodingRoute(refreshed.gateways),
         });
         return;
       }
 
       if (req.method === "GET" && req.url === "/api/models") {
-        const ollama = await checkOllama();
-        const localModels = ollama.ok
+        const refreshed = await refreshAiRuntime();
+        const automaticRoute = automaticCodingRoute(refreshed.gateways);
+        const localModels = refreshed.ollama.ok
           ? [{
               providerId: "internal-intelligence",
               providerName: "Local Ollama",
@@ -205,24 +241,24 @@ async function main(): Promise<void> {
 
         json(res, 200, {
           ok: true,
-          defaultModel: initialOllama.ok
+          defaultModel: refreshed.ollama.ok
             ? { providerId: "internal-intelligence", modelId }
             : automaticRoute,
           automaticRoute,
           models: [
             ...localModels,
-            ...gatewayRuntime.catalog.map((entry) => ({
+            ...refreshed.gateways.catalog.map((entry) => ({
               ...entry,
               local: false,
             })),
           ],
           localRuntime: {
-            ok: ollama.ok,
-            connected: ollama.connected,
+            ok: refreshed.ollama.ok,
+            connected: refreshed.ollama.connected,
             configuredModel: modelId,
-            message: ollama.message,
+            message: refreshed.ollama.message,
           },
-          gateways: gatewayRuntime.gateways.map(({ adapter, health }) => ({
+          gateways: refreshed.gateways.gateways.map(({ adapter, health }) => ({
             providerId: adapter.descriptor.id,
             name: adapter.descriptor.name,
             kind: adapter.gatewayKind,
