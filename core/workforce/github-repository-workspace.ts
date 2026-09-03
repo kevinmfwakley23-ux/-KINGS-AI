@@ -219,9 +219,12 @@ export class GitCliCommandRunner implements GitCommandRunner {
       };
 
       if (token) {
+        const basicCredential = Buffer
+          .from(`x-access-token:${token}`, "utf8")
+          .toString("base64");
         environment.GIT_CONFIG_COUNT = "1";
         environment.GIT_CONFIG_KEY_0 = "http.https://github.com/.extraheader";
-        environment.GIT_CONFIG_VALUE_0 = `AUTHORIZATION: bearer ${token}`;
+        environment.GIT_CONFIG_VALUE_0 = `AUTHORIZATION: basic ${basicCredential}`;
       }
 
       const child = spawn("git", [...args], {
