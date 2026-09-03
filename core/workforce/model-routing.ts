@@ -8,6 +8,12 @@ import type {
   ModelCapabilityMatch,
 } from "./model-capability-registry";
 
+export type ModelCostBasis =
+  | "verified-free"
+  | "provider-reported"
+  | "configured-estimate"
+  | "unknown";
+
 export interface ModelRoutingRequest {
   requiredCapabilities: IntelligenceCapability[];
   minimumCapabilityStrength?: number;
@@ -16,6 +22,7 @@ export interface ModelRoutingRequest {
   requireStructuredOutput?: boolean;
   requireToolCalling?: boolean;
   preferInternal?: boolean;
+  preferExternal?: boolean;
   preferredProviderId?: ID;
   preferredModelId?: ID;
   allowUnverifiedExplicitSelection?: boolean;
@@ -23,7 +30,8 @@ export interface ModelRoutingRequest {
 }
 
 export interface ModelRoutingMetrics {
-  estimatedCost: number;
+  estimatedCost?: number;
+  costBasis?: ModelCostBasis;
   latencyMs: number;
   reliability: number;
 }
@@ -32,7 +40,8 @@ export interface ModelRoutingCandidate {
   modelId: ID;
   providerId: ID;
   capabilityStrength: number;
-  estimatedCost: number;
+  estimatedCost: number | null;
+  costBasis: ModelCostBasis;
   latencyMs: number;
   reliability: number;
   internal: boolean;
@@ -83,10 +92,12 @@ export class ModelRouter {
         this.supportsToolCalling(match, request),
       )
       .map((match) => this.toCandidate(match))
-      .filter((candidate) =>
-        request.maximumEstimatedCost === undefined ||
-        candidate.estimatedCost <= request.maximumEstimatedCost,
-      )
+      .filter((candidate) => {
+        if (request.maximumEstimatedCost === undefined) return true;
+        // Unknown price is never treated as free or within a numeric budget.
+        return candidate.estimatedCost !== null &&
+          candidate.estimatedCost <= request.maximumEstimatedCost;
+      })
       .sort((left, right) =>
         this.compareCandidates(left, right, request),
       );
@@ -100,7 +111,9 @@ export class ModelRouter {
         selected: false,
         reason: requested
           ? `Requested model route "${requested}" is unavailable or does not satisfy the routing requirements.`
-          : "No available verified model satisfies the routing requirements.",
+          : request.maximumEstimatedCost !== undefined
+            ? "No available verified model with known cost satisfies the routing requirements and cost ceiling."
+            : "No available verified model satisfies the routing requirements.",
         candidates: [],
       };
     }
@@ -122,12 +135,18 @@ export class ModelRouter {
         match.model.modelId,
       )) ??
       this.metrics.get(match.model.modelId);
+    const estimatedCost =
+      metric?.estimatedCost !== undefined && Number.isFinite(metric.estimatedCost)
+        ? metric.estimatedCost
+        : null;
 
     return {
       modelId: match.model.modelId,
       providerId: match.model.providerId,
       capabilityStrength: match.weakestRequiredStrength,
-      estimatedCost: metric?.estimatedCost ?? 0,
+      estimatedCost,
+      costBasis: metric?.costBasis ??
+        (estimatedCost === null ? "unknown" : "configured-estimate"),
       latencyMs: metric?.latencyMs ?? Number.MAX_SAFE_INTEGER,
       reliability: metric?.reliability ?? 0,
       internal:
@@ -171,11 +190,25 @@ export class ModelRouter {
     right: ModelRoutingCandidate,
     request: ModelRoutingRequest,
   ): number {
+    if (request.preferExternal && left.internal !== right.internal) {
+      return left.internal ? 1 : -1;
+    }
     if (request.preferInternal && left.internal !== right.internal) {
       return left.internal ? -1 : 1;
     }
-    if (left.estimatedCost !== right.estimatedCost) {
-      return left.estimatedCost - right.estimatedCost;
+
+    const leftCostKnown = left.estimatedCost !== null;
+    const rightCostKnown = right.estimatedCost !== null;
+    if (leftCostKnown && rightCostKnown && left.estimatedCost !== right.estimatedCost) {
+      return (left.estimatedCost as number) - (right.estimatedCost as number);
+    }
+    // Known verified-free routes sort ahead of unknown-price routes. Unknown prices
+    // are not assigned an invented numeric value.
+    if (left.costBasis === "verified-free" && right.costBasis !== "verified-free") {
+      return -1;
+    }
+    if (right.costBasis === "verified-free" && left.costBasis !== "verified-free") {
+      return 1;
     }
     if (left.reliability !== right.reliability) {
       return right.reliability - left.reliability;
@@ -196,22 +229,32 @@ export class ModelRouter {
     candidate: ModelRoutingCandidate,
     request: ModelRoutingRequest,
   ): string {
+    const cost = candidate.estimatedCost === null
+      ? "cost unknown (not treated as free)"
+      : `estimated cost ${candidate.estimatedCost} (${candidate.costBasis})`;
     if (request.preferredProviderId || request.preferredModelId) {
       const verification = request.allowUnverifiedExplicitSelection
-        ? "explicit catalog selection under post-generation verification"
+        ? "explicit live-catalog selection under post-generation verification"
         : "explicit verified model selection";
-      return `${verification} ${candidate.providerId}/${candidate.modelId}; estimated cost ${candidate.estimatedCost}; reliability ${candidate.reliability}; capability strength ${candidate.capabilityStrength}`;
+      return `${verification} ${candidate.providerId}/${candidate.modelId}; ${cost}; reliability ${candidate.reliability}; capability strength ${candidate.capabilityStrength}`;
     }
-    const internalReason = request.preferInternal && candidate.internal
-      ? "preferred internal intelligence"
-      : "capable available verified model";
-    return `${internalReason}; estimated cost ${candidate.estimatedCost}; reliability ${candidate.reliability}; capability strength ${candidate.capabilityStrength}`;
+    const preference = request.preferExternal && !candidate.internal
+      ? "preferred external gateway intelligence"
+      : request.preferInternal && candidate.internal
+        ? "preferred internal intelligence"
+        : "capable available verified model";
+    return `${preference}; ${cost}; reliability ${candidate.reliability}; capability strength ${candidate.capabilityStrength}`;
   }
 
   private validateRequest(request: ModelRoutingRequest): void {
     if (request.requiredCapabilities.length === 0) {
       throw new Error(
         "K.I.N.G.S. Model Router: at least one capability is required",
+      );
+    }
+    if (request.preferInternal && request.preferExternal) {
+      throw new Error(
+        "K.I.N.G.S. Model Router: internal and external routing cannot both be preferred",
       );
     }
     const minimumStrength = request.minimumCapabilityStrength ?? 0;
