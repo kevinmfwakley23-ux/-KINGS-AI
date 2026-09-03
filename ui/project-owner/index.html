@@ -1,114 +1,240 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>K.I.N.G.S. Coding Machine Owner Console</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#b98a36">
+  <meta name="color-scheme" content="light dark">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <title>K.I.N.G.S. AI Coding Machine</title>
   <style>
-    :root{color-scheme:dark;font-family:Inter,system-ui,sans-serif}
-    body{margin:0;background:#0b1020;color:#edf2f7}
-    main{max-width:1180px;margin:0 auto;padding:32px 20px 60px}
-    h1{margin:0 0 8px}.muted{color:#9aa7bd}
-    .grid{display:grid;grid-template-columns:1.2fr .8fr;gap:20px;margin-top:20px}
-    .card{background:#131b2f;border:1px solid #26324d;border-radius:16px;padding:20px}
-    .conversation{min-height:180px;max-height:320px;overflow:auto;background:#0e1628;border:1px solid #33415f;border-radius:12px;padding:14px}
-    .message{margin-bottom:14px}.message:last-child{margin-bottom:0}.message-label{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}.message.owner .message-label{color:#f1c75b}.message.kings .message-label{color:#7dd3fc}.message-text{white-space:pre-wrap;line-height:1.5}
-    .talk-row{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:12px}.talk-row textarea{min-height:130px;padding:12px;resize:vertical}
-    .talk-button{min-width:120px;min-height:130px;margin:0;background:#2b3958;color:#fff;border:1px solid #415170;border-radius:14px}.talk-button.listening{background:#b84d5a;border-color:#e06b78;box-shadow:0 0 0 4px rgba(224,107,120,.18)}
-    label{display:block;margin:14px 0 6px;font-weight:600}.field{position:relative}input,textarea{width:100%;box-sizing:border-box;background:#0e1628;color:#fff;border:1px solid #33415f;border-radius:10px;padding:11px 48px 11px 12px}textarea{min-height:120px;resize:vertical}
-    .voice{position:absolute;right:7px;top:7px;width:34px;height:34px;margin:0;padding:0;border:1px solid #415170;border-radius:8px;background:#18243d;color:#fff;font-size:17px}.voice.listening{background:#b84d5a;border-color:#e06b78}
-    .voice-status{min-height:20px;margin-top:8px;font-size:13px;color:#9aa7bd}.voice-status.active{color:#f08a96}
-    button{margin:8px 8px 0 0;padding:11px 16px;border:0;border-radius:10px;cursor:pointer;font-weight:700}button:disabled{opacity:.45;cursor:not-allowed}
-    .secondary{background:#2b3958;color:#fff}.success{background:#4fae78;color:#fff}#build-vision{background:#f1c75b;color:#111827}
-    .stack{display:grid;gap:12px}.metric{padding:14px;background:#0e1628;border-radius:10px}pre{white-space:pre-wrap;word-break:break-word}.controls{margin-top:18px}.notice{margin-top:12px;padding:12px 14px;border-radius:10px;background:#18243d}details{margin-top:14px}summary{cursor:pointer;color:#b7c3d8}
-    .error{border:1px solid #8f3f4a;background:#2a151b}.successNotice{border:1px solid #396b50;background:#102419}
-    @media(max-width:800px){.grid{grid-template-columns:1fr}.talk-row{grid-template-columns:1fr}.talk-button{min-height:72px;width:100%}}
+    :root{
+      font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      --gold:#b48737;--gold-2:#d9b867;--gold-deep:#76541c;--ink:#171512;--muted:#676157;
+      --paper:#f8f6f1;--panel:rgba(255,255,255,.82);--panel-strong:rgba(255,255,255,.95);
+      --line:rgba(105,82,42,.25);--soft-line:rgba(44,38,29,.12);--shadow:0 18px 55px rgba(56,45,27,.13);
+      --success:#276545;--danger:#8b3038;--info:#315a75;--input:#fffefb;
+      --marble:
+        linear-gradient(118deg,transparent 0 17%,rgba(24,23,22,.045) 17.2%,transparent 17.7% 43%,rgba(176,132,51,.09) 43.2%,transparent 43.7% 70%,rgba(20,20,18,.035) 70.2%,transparent 70.7%),
+        linear-gradient(21deg,transparent 0 31%,rgba(177,133,53,.07) 31.2%,transparent 31.6% 59%,rgba(26,24,21,.04) 59.2%,transparent 59.7%),
+        radial-gradient(circle at 18% 12%,#fff 0,#f8f5ef 46%,#eee9df 100%);
+    }
+    html[data-theme="dark"]{
+      --ink:#f7f0df;--muted:#b8ac97;--paper:#0c0b0a;--panel:rgba(19,17,14,.88);--panel-strong:rgba(22,20,17,.97);
+      --line:rgba(217,184,103,.32);--soft-line:rgba(233,213,170,.12);--shadow:0 22px 70px rgba(0,0,0,.45);
+      --success:#69b98c;--danger:#ef8b93;--info:#7db5d4;--input:#151310;
+      --marble:
+        linear-gradient(118deg,transparent 0 17%,rgba(255,255,255,.055) 17.2%,transparent 17.7% 43%,rgba(217,184,103,.12) 43.2%,transparent 43.7% 70%,rgba(255,255,255,.035) 70.2%,transparent 70.7%),
+        linear-gradient(21deg,transparent 0 31%,rgba(217,184,103,.09) 31.2%,transparent 31.6% 59%,rgba(255,255,255,.04) 59.2%,transparent 59.7%),
+        radial-gradient(circle at 18% 12%,#1a1815 0,#100f0d 48%,#080807 100%);
+    }
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;color:var(--ink);background:var(--marble);background-attachment:fixed}
+    button,input,textarea,select{font:inherit}
+    button{cursor:pointer}
+    .shell{max-width:1440px;margin:0 auto;padding:18px clamp(14px,2.6vw,36px) 54px}
+    .topbar{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:15px 18px;border:1px solid var(--line);border-radius:22px;background:var(--panel);box-shadow:var(--shadow);backdrop-filter:blur(18px)}
+    .brand{display:flex;align-items:center;gap:14px;min-width:0}.crest{width:52px;height:52px;display:grid;place-items:center;border:1px solid var(--gold);border-radius:16px;background:linear-gradient(145deg,rgba(217,184,103,.23),rgba(118,84,28,.06));font-size:27px;box-shadow:inset 0 0 0 4px rgba(180,135,55,.08)}
+    .brand h1{font-family:Georgia,"Times New Roman",serif;font-size:clamp(20px,3vw,30px);letter-spacing:.08em;margin:0}.brand p{margin:3px 0 0;color:var(--muted);font-size:13px;letter-spacing:.04em}
+    .top-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}.icon-btn{border:1px solid var(--line);color:var(--ink);background:var(--panel-strong);border-radius:12px;padding:9px 11px;font-weight:750}
+    .hero{margin:18px 0;display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr);gap:18px}
+    .hero-main,.route-card,.panel{border:1px solid var(--line);background:var(--panel);border-radius:24px;box-shadow:var(--shadow);backdrop-filter:blur(18px)}
+    .hero-main{padding:clamp(22px,4vw,42px);position:relative;overflow:hidden}.hero-main:after{content:"✒";position:absolute;right:4%;bottom:-30px;font-size:150px;color:rgba(180,135,55,.08);transform:rotate(-12deg);pointer-events:none}.eyebrow{color:var(--gold-deep);font-weight:900;letter-spacing:.18em;text-transform:uppercase;font-size:12px}.hero h2{font-family:Georgia,"Times New Roman",serif;font-size:clamp(31px,5vw,54px);line-height:1.03;margin:10px 0 13px;max-width:850px}.hero-copy{color:var(--muted);font-size:clamp(15px,2vw,18px);max-width:800px;line-height:1.6;margin:0}.truth-row{display:flex;gap:9px;flex-wrap:wrap;margin-top:20px}.seal{font-size:12px;font-weight:850;border:1px solid var(--line);border-radius:999px;padding:8px 11px;background:var(--panel-strong)}.seal strong{color:var(--gold-deep)}
+    .route-card{padding:20px}.route-card h3,.panel h3{font-family:Georgia,"Times New Roman",serif;margin:0 0 5px;font-size:21px}.sub{color:var(--muted);font-size:13px;line-height:1.45}.route-stats{display:grid;grid-template-columns:repeat(2,1fr);gap:9px;margin:15px 0}.stat{border:1px solid var(--soft-line);border-radius:14px;padding:12px;background:var(--panel-strong)}.stat b{display:block;font-size:23px;font-family:Georgia,serif}.stat span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}.gateway-list{display:flex;gap:7px;flex-wrap:wrap;margin:10px 0 0}.gateway{font-size:11px;padding:6px 9px;border-radius:999px;border:1px solid var(--soft-line);background:var(--panel-strong)}.gateway.ok{border-color:rgba(39,101,69,.38)}.gateway.bad{border-color:rgba(139,48,56,.4)}
+    .workspace-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(315px,.65fr);gap:18px}.panel{padding:20px}.composer{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:14px}.composer textarea{min-height:150px;resize:vertical}.talk-button{min-width:128px;min-height:150px}.talk-button.listening{background:var(--danger);color:#fff;border-color:transparent}
+    input,textarea,select{width:100%;color:var(--ink);background:var(--input);border:1px solid var(--line);border-radius:13px;padding:11px 12px;outline:none;transition:border-color .15s,box-shadow .15s}input:focus,textarea:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(180,135,55,.12)}
+    label{display:block;margin:13px 0 6px;font-size:12px;font-weight:850;letter-spacing:.04em}.controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px}.btn{border:1px solid var(--line);border-radius:12px;padding:11px 15px;background:var(--panel-strong);color:var(--ink);font-weight:850}.btn.gold{background:linear-gradient(135deg,var(--gold-2),var(--gold));color:#17110a;border-color:var(--gold-deep)}.btn.success{background:var(--success);color:#fff;border-color:transparent}.btn:disabled{opacity:.42;cursor:not-allowed}.btn.wide{flex:1}
+    .conversation{min-height:126px;max-height:285px;overflow:auto;padding:12px;border:1px solid var(--soft-line);border-radius:16px;background:rgba(127,111,82,.035)}.message{padding:10px 11px;border-radius:12px;margin-bottom:8px;border:1px solid var(--soft-line);background:var(--panel-strong)}.message:last-child{margin-bottom:0}.message-label{font-size:10px;font-weight:900;letter-spacing:.12em;color:var(--gold-deep);margin-bottom:4px}.message-text{white-space:pre-wrap;line-height:1.5;font-size:14px}
+    .routing-box{margin-top:15px;border-top:1px solid var(--soft-line);padding-top:14px}.route-options{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}.route-choice{position:relative}.route-choice input{position:absolute;opacity:0;pointer-events:none}.route-choice label{height:100%;margin:0;padding:10px;border:1px solid var(--line);border-radius:13px;background:var(--panel-strong);cursor:pointer}.route-choice input:checked+label{border-color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold),0 0 0 3px rgba(180,135,55,.09)}.route-choice b{display:block;font-size:12px}.route-choice small{display:block;color:var(--muted);margin-top:3px;line-height:1.3}.manual-model{margin-top:9px}.model-hint{font-size:11px;color:var(--muted);margin-top:5px}
+    .status-stack{display:grid;gap:10px}.metric{border:1px solid var(--soft-line);background:var(--panel-strong);border-radius:15px;padding:13px}.metric-title{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:850}.metric-value{font-weight:780;margin-top:4px;line-height:1.4;word-break:break-word}.notice{border:1px solid var(--soft-line);border-radius:14px;padding:12px;font-size:13px;line-height:1.45;background:var(--panel-strong)}.notice.error{border-color:rgba(139,48,56,.45);color:var(--danger)}.notice.success{border-color:rgba(39,101,69,.45);color:var(--success)}.notice.info{border-color:rgba(49,90,117,.35);color:var(--info)}
+    .progress-rail{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:12px 0}.stage{padding:9px 6px;border-radius:11px;border:1px solid var(--soft-line);font-size:10px;text-align:center;color:var(--muted);font-weight:850}.stage.active{border-color:var(--gold);color:var(--ink);background:rgba(180,135,55,.1)}.stage.done{border-color:rgba(39,101,69,.45);color:var(--success)}
+    details{margin-top:14px;border:1px solid var(--soft-line);border-radius:15px;background:rgba(127,111,82,.025)}summary{cursor:pointer;padding:12px 14px;font-weight:850}.details-body{padding:0 14px 14px}.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.field{position:relative}.voice{position:absolute;right:7px;top:7px;width:35px;height:35px;border:1px solid var(--line);background:var(--panel-strong);color:var(--ink);border-radius:9px}.field input,.field textarea{padding-right:49px}.voice.listening{background:var(--danger);color:#fff}.voice-status{font-size:12px;color:var(--muted);margin-top:7px;min-height:18px}
+    .shelf{margin-top:18px;border-top:1px solid var(--line);padding-top:13px;display:flex;gap:9px;align-items:flex-end;min-height:62px}.shelf-label{font-family:Georgia,serif;color:var(--muted);font-size:12px;margin-right:auto}.book{width:30px;height:42px;border:1px solid var(--gold-deep);border-radius:3px 6px 6px 3px;background:linear-gradient(90deg,var(--gold-deep),var(--gold),var(--gold-2));box-shadow:3px 4px 8px rgba(0,0,0,.17)}.book:nth-child(odd){height:48px}.book.dim{filter:grayscale(.8);opacity:.28}
+    pre{font-size:11px;white-space:pre-wrap;word-break:break-word;max-height:260px;overflow:auto;color:var(--muted)}
+    .security-note{font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5}
+    @media(max-width:980px){.hero,.workspace-grid{grid-template-columns:1fr}.route-card{order:2}}
+    @media(max-width:680px){.shell{padding:10px 10px 38px}.topbar{border-radius:17px;padding:12px}.crest{width:43px;height:43px}.brand p{display:none}.hero-main,.route-card,.panel{border-radius:18px;padding:15px}.hero{margin:10px 0;gap:10px}.workspace-grid{gap:10px}.composer{grid-template-columns:1fr}.talk-button{min-height:52px;width:100%}.route-options{grid-template-columns:1fr}.field-grid{grid-template-columns:1fr}.progress-rail{grid-template-columns:repeat(2,1fr)}.top-actions .label{display:none}.hero-main:after{font-size:100px}.controls .btn{flex:1;min-width:130px}}
+    @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
   </style>
 </head>
 <body>
-  <main>
-    <h1>K.I.N.G.S. Coding Machine Owner Console</h1>
-    <div class="muted">Tell KINGS what you want to build. Your voice or typed vision becomes the software-building mission.</div>
-    <div class="grid">
-      <section class="card">
-        <h2>Talk to KINGS</h2>
-        <div id="conversation" class="conversation">
-          <div class="message kings"><div class="message-label">KINGS</div><div class="message-text">Tell me what you want to build. Describe the experience, features, constraints, and what success looks like. You can speak naturally.</div></div>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="crest" aria-hidden="true">♛</div>
+        <div><h1>K.I.N.G.S.</h1><p>Chief Engineer · AI Coding Machine</p></div>
+      </div>
+      <div class="top-actions">
+        <button id="refresh-models" class="icon-btn" type="button"><span class="label">Refresh AI</span> ↻</button>
+        <button id="theme-toggle" class="icon-btn" type="button" aria-label="Toggle light and dark theme">◐ <span class="label">Theme</span></button>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div class="hero-main">
+        <div class="eyebrow">The King's Engineering Chamber</div>
+        <h2>Build software that has to prove it works.</h2>
+        <p class="hero-copy">Describe the product. KINGS routes the work through local or gateway AI, writes into an isolated project workspace, then builds, tests, diagnoses, repairs, and retests before it can call the mission complete.</p>
+        <div class="truth-row">
+          <span class="seal"><strong>Real files</strong> · isolated workspace</span>
+          <span class="seal"><strong>Real checks</strong> · criterion-bound</span>
+          <span class="seal"><strong>Repair loop</strong> · bounded retries</span>
+          <span class="seal"><strong>Mobile</strong> · Chromebook + Android</span>
         </div>
-        <div class="talk-row">
-          <textarea id="talk-input" placeholder="Speak or type your complete software vision..."></textarea>
-          <button id="talk-button" type="button" class="talk-button">🎙<br>Talk to KINGS</button>
+      </div>
+      <aside class="route-card">
+        <h3>Royal AI Arsenal</h3>
+        <div class="sub">Live models discovered from local intelligence, OmniRoute, 9Router, and configured OpenAI-compatible gateways.</div>
+        <div class="route-stats">
+          <div class="stat"><b id="model-count">—</b><span>coding models</span></div>
+          <div class="stat"><b id="gateway-count">—</b><span>gateways</span></div>
         </div>
-        <div id="voice-status" class="voice-status">🎙 Voice input ready</div>
+        <div id="gateway-list" class="gateway-list"><span class="gateway">Loading AI routes…</span></div>
+        <div class="shelf" aria-label="Completed build shelf">
+          <span class="shelf-label">Verified build shelf</span>
+          <span class="book dim"></span><span class="book dim"></span><span class="book dim"></span>
+        </div>
+      </aside>
+    </section>
+
+    <main class="workspace-grid">
+      <section class="panel">
+        <h3>Speak to the Chief Engineer</h3>
+        <div class="sub">Natural language in. Governed coding mission out.</div>
+        <div id="conversation" class="conversation" aria-live="polite">
+          <div class="message"><div class="message-label">KINGS</div><div class="message-text">Tell me what you want built, what it must do, and what matters most. I will not call it finished unless the generated project can produce executable verification evidence.</div></div>
+        </div>
+
+        <div class="composer">
+          <textarea id="talk-input" placeholder="Example: Build me a responsive inventory app that works on Chromebook and Android, stores items locally, searches instantly, and has automated tests for add/edit/delete/search…"></textarea>
+          <button id="talk-button" class="btn talk-button" type="button">🎙<br>Talk to KINGS</button>
+        </div>
+        <div id="voice-status" class="voice-status">Voice input depends on browser support. Typing always works.</div>
+
+        <div class="routing-box">
+          <label>AI routing for this build</label>
+          <div class="route-options">
+            <div class="route-choice">
+              <input id="route-kings" name="routing" type="radio" value="auto" checked>
+              <label for="route-kings"><b>KINGS Auto</b><small>Verified, local-first, then resilient fallback.</small></label>
+            </div>
+            <div class="route-choice">
+              <input id="route-omni" name="routing" type="radio" value="omniroute-auto" disabled>
+              <label for="route-omni"><b>OmniRoute Auto</b><small>Use the gateway's coding-optimized automatic route.</small></label>
+            </div>
+            <div class="route-choice">
+              <input id="route-manual" name="routing" type="radio" value="manual">
+              <label for="route-manual"><b>Choose Any Model</b><small>Search the full live model catalog.</small></label>
+            </div>
+          </div>
+          <div id="manual-model" class="manual-model" hidden>
+            <input id="model-search" list="model-list" autocomplete="off" placeholder="Search model or provider…">
+            <datalist id="model-list"></datalist>
+            <div id="model-hint" class="model-hint">Choose an exact result from the live catalog.</div>
+          </div>
+        </div>
+
         <div class="controls">
-          <button id="build-vision" type="button">Build From This Vision</button>
-          <button id="clear-vision" type="button" class="secondary">Clear</button>
+          <button id="build-vision" class="btn gold wide" type="button">Forge Coding Mission</button>
+          <button id="clear-vision" class="btn" type="button">Clear</button>
         </div>
 
         <details>
-          <summary>Advanced project details</summary>
-          <form id="mission-form">
-            <label for="projectName">Project name</label>
-            <div class="field"><input id="projectName" placeholder="My new application"><button type="button" class="voice" data-target="projectName">🎙</button></div>
-            <label for="objective">Objective</label>
-            <div class="field"><textarea id="objective" placeholder="Describe the outcome."></textarea><button type="button" class="voice" data-target="objective">🎙</button></div>
-            <label for="requirements">Requirements</label>
-            <div class="field"><textarea id="requirements" placeholder="One requirement per line"></textarea><button type="button" class="voice" data-target="requirements">🎙</button></div>
-            <label for="platform">Preferred platform</label>
-            <div class="field"><input id="platform" placeholder="Linux, web, Android, Chromebook..."><button type="button" class="voice" data-target="platform">🎙</button></div>
-            <label for="language">Preferred language</label>
-            <div class="field"><input id="language" placeholder="TypeScript, Python, Rust..."><button type="button" class="voice" data-target="language">🎙</button></div>
-            <label for="constraints">Constraints</label>
-            <div class="field"><textarea id="constraints" placeholder="One constraint per line"></textarea><button type="button" class="voice" data-target="constraints">🎙</button></div>
-            <label for="acceptance">How will we know it works?</label>
-            <div class="field"><textarea id="acceptance" placeholder="One acceptance criterion per line"></textarea><button type="button" class="voice" data-target="acceptance">🎙</button></div>
-            <button id="submit" type="submit" class="secondary">Create Coding Mission</button>
-          </form>
+          <summary>Advanced project contract</summary>
+          <div class="details-body">
+            <form id="mission-form">
+              <div class="field-grid">
+                <div><label for="projectName">Project name</label><div class="field"><input id="projectName" placeholder="My application"><button type="button" class="voice" data-target="projectName">🎙</button></div></div>
+                <div><label for="platform">Target platform</label><div class="field"><input id="platform" value="Chromebook web and Android phone/tablet"><button type="button" class="voice" data-target="platform">🎙</button></div></div>
+              </div>
+              <label for="objective">Objective</label><div class="field"><textarea id="objective" placeholder="Describe the outcome."></textarea><button type="button" class="voice" data-target="objective">🎙</button></div>
+              <label for="requirements">Requirements</label><div class="field"><textarea id="requirements" placeholder="One requirement per line"></textarea><button type="button" class="voice" data-target="requirements">🎙</button></div>
+              <div class="field-grid">
+                <div><label for="language">Preferred language / stack</label><div class="field"><input id="language" placeholder="Best fit, TypeScript, Python…"><button type="button" class="voice" data-target="language">🎙</button></div></div>
+                <div><label for="constraints">Constraints</label><div class="field"><textarea id="constraints" placeholder="One constraint per line"></textarea><button type="button" class="voice" data-target="constraints">🎙</button></div></div>
+              </div>
+              <label for="acceptance">Acceptance criteria — executable evidence required</label><div class="field"><textarea id="acceptance" placeholder="One criterion per line"></textarea><button type="button" class="voice" data-target="acceptance">🎙</button></div>
+              <button id="submit" class="btn" type="submit">Create From Advanced Contract</button>
+            </form>
+          </div>
         </details>
 
-        <div class="controls">
-          <button id="approve" class="secondary" disabled>Approve Plan</button>
-          <button id="lock" class="secondary" disabled>Lock Plan</button>
-          <button id="refresh" class="secondary" disabled>Refresh State</button>
-          <button id="execute" class="success" disabled>Execute Next</button>
+        <div class="progress-rail">
+          <div id="stage-plan" class="stage active">1 · PLAN</div>
+          <div id="stage-approve" class="stage">2 · APPROVE</div>
+          <div id="stage-build" class="stage">3 · BUILD + REPAIR</div>
+          <div id="stage-verify" class="stage">4 · VERIFIED</div>
         </div>
-        <div id="notice" class="notice muted">Execution is performed by the local Linux machine. The browser has no direct filesystem or provider authority.</div>
+        <div class="controls">
+          <button id="approve" class="btn" disabled>Approve Plan</button>
+          <button id="lock" class="btn" disabled>Lock Plan</button>
+          <button id="refresh" class="btn" disabled>Refresh State</button>
+          <button id="execute" class="btn success" disabled>Execute + Verify</button>
+        </div>
       </section>
 
-      <aside class="card">
-        <h2>Machine Status</h2>
-        <div class="stack">
-          <div class="metric"><strong>Mission</strong><div id="mission">Not created</div></div>
-          <div class="metric"><strong>Plan</strong><div id="plan">Waiting for mission</div></div>
-          <div class="metric"><strong>Tasks</strong><div id="tasks">0 completed · 0 active · 0 failed</div></div>
-          <div class="metric"><strong>System</strong><div id="system">Ready</div></div>
-          <div id="diagnosticNotice" class="notice muted" hidden></div>
+      <aside class="panel">
+        <h3>Forge Status</h3>
+        <div class="sub">What KINGS can prove right now.</div>
+        <div class="status-stack" style="margin-top:14px">
+          <div class="metric"><div class="metric-title">Mission</div><div id="mission" class="metric-value">Not created</div></div>
+          <div class="metric"><div class="metric-title">Plan</div><div id="plan" class="metric-value">Waiting for mission</div></div>
+          <div class="metric"><div class="metric-title">Tasks</div><div id="tasks" class="metric-value">0 completed · 0 active · 0 failed</div></div>
+          <div class="metric"><div class="metric-title">Project workspace</div><div id="workspace" class="metric-value">Created per mission</div></div>
+          <div class="metric"><div class="metric-title">Selected intelligence</div><div id="selected-model" class="metric-value">KINGS Auto</div></div>
+          <div class="metric"><div class="metric-title">System</div><div id="system" class="metric-value">Checking runtime…</div></div>
+          <div id="diagnosticNotice" class="notice info" hidden></div>
         </div>
-        <pre id="details" class="muted"></pre>
+        <details>
+          <summary>Mission evidence / raw state</summary>
+          <div class="details-body"><pre id="details">No mission state yet.</pre></div>
+        </details>
+        <div class="security-note">KINGS writes only inside the configured projects root. The browser never receives direct filesystem authority; it requests governed actions from the Chromebook runtime.</div>
       </aside>
-    </div>
-  </main>
+    </main>
+  </div>
 
   <script>
     const $=id=>document.getElementById(id)
-    const form=$('mission-form'), conversation=$('conversation'), talkInput=$('talk-input'), talkButton=$('talk-button'), voiceStatus=$('voice-status'), system=$('system'), notice=$('notice'), diagnosticNotice=$('diagnosticNotice'), approve=$('approve'), lock=$('lock'), refresh=$('refresh'), execute=$('execute')
-    let missionId=null, planApproved=false, planLocked=false, activeRecognition=null
+    const form=$('mission-form'),conversation=$('conversation'),talkInput=$('talk-input'),talkButton=$('talk-button'),voiceStatus=$('voice-status'),system=$('system'),diagnosticNotice=$('diagnosticNotice'),approve=$('approve'),lock=$('lock'),refresh=$('refresh'),execute=$('execute'),modelSearch=$('model-search'),modelList=$('model-list'),manualModel=$('manual-model')
+    let missionId=null,planApproved=false,planLocked=false,activeRecognition=null,modelCatalog=[],modelLookup=new Map(),automaticRoute=null
+    const defaultCriteria=[
+      'Project files are created in the isolated mission workspace and required generated files are non-empty.',
+      'Project syntax, typecheck, compilation, or build validation passes for the detected project type.',
+      'Automated behavior tests exercise the main owner-requested workflow and pass.'
+    ]
     const lines=v=>v.split('\n').map(x=>x.trim()).filter(Boolean)
-    function addMessage(role,text){const w=document.createElement('div');w.className=`message ${role}`;w.innerHTML=`<div class="message-label">${role==='owner'?'YOU':'KINGS'}</div><div class="message-text"></div>`;w.querySelector('.message-text').textContent=text;conversation.appendChild(w);conversation.scrollTop=conversation.scrollHeight}
-    function render(p){const v=p?.view;if(v){missionId=v.mission?.id||missionId;planApproved=!!v.plan?.approvedByHuman;planLocked=!!v.plan?.locked;$('mission').textContent=v.mission?.name||'Unknown';$('plan').textContent=v.plan?.objective||'Plan unavailable';const s=v.state||{};$('tasks').textContent=`${s.completedTaskIds?.length||0} completed · ${s.activeTaskIds?.length||0} active · ${s.failedTaskIds?.length||0} failed`;$('details').textContent=JSON.stringify(v,null,2);approve.disabled=!missionId||planApproved;lock.disabled=!missionId||!planApproved||planLocked;refresh.disabled=!missionId;execute.disabled=!missionId||!planLocked}if(p?.diagnostics){diagnosticNotice.hidden=false;diagnosticNotice.className='notice error';diagnosticNotice.textContent=`Execution diagnostics: ${p.diagnostics}`}else if(p?.ok){diagnosticNotice.hidden=false;diagnosticNotice.className='notice successNotice';diagnosticNotice.textContent=p.message||'Operation completed successfully.'}else if(p?.message){diagnosticNotice.hidden=false;diagnosticNotice.className='notice error';diagnosticNotice.textContent=p.message}}
+    const escapeText=value=>String(value??'')
+    function setTheme(theme){document.documentElement.dataset.theme=theme;localStorage.setItem('kings-theme',theme);document.querySelector('meta[name="theme-color"]').setAttribute('content',theme==='dark'?'#17130d':'#b98a36')}
+    setTheme(localStorage.getItem('kings-theme')||((matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light'))
+    $('theme-toggle').addEventListener('click',()=>setTheme(document.documentElement.dataset.theme==='dark'?'light':'dark'))
+    function addMessage(role,text){const w=document.createElement('div');w.className='message';const l=document.createElement('div');l.className='message-label';l.textContent=role==='owner'?'YOU':'KINGS';const t=document.createElement('div');t.className='message-text';t.textContent=text;w.append(l,t);conversation.appendChild(w);conversation.scrollTop=conversation.scrollHeight}
+    function setNotice(type,text){diagnosticNotice.hidden=!text;if(!text)return;diagnosticNotice.className=`notice ${type}`;diagnosticNotice.textContent=text}
+    function updateStages(v){const s=v?.state||{};const completed=s.completedTaskIds?.length||0;const active=s.activeTaskIds?.length||0;['stage-plan','stage-approve','stage-build','stage-verify'].forEach(id=>$(id).className='stage');$('stage-plan').classList.add(missionId?'done':'active');if(missionId&&!planApproved)$('stage-approve').classList.add('active');else if(planApproved)$('stage-approve').classList.add('done');if(planLocked&&completed===0)$('stage-build').classList.add(active?'active':'active');else if(completed>0)$('stage-build').classList.add('done');if(completed>0)$('stage-verify').classList.add('done')}
+    function render(p){const v=p?.view;if(v){missionId=v.mission?.id||missionId;planApproved=!!v.plan?.approvedByHuman;planLocked=!!v.plan?.locked;$('mission').textContent=v.mission?.name||'Unknown';$('plan').textContent=v.plan?.objective||'Plan unavailable';const s=v.state||{};$('tasks').textContent=`${s.completedTaskIds?.length||0} completed · ${s.activeTaskIds?.length||0} active · ${s.failedTaskIds?.length||0} failed`;$('details').textContent=JSON.stringify(v,null,2);approve.disabled=!missionId||planApproved;lock.disabled=!missionId||!planApproved||planLocked;refresh.disabled=!missionId;execute.disabled=!missionId||!planLocked;updateStages(v)}if(p?.workspacePath)$('workspace').textContent=p.workspacePath;if(p?.diagnostics)setNotice('error',`Real execution diagnostics: ${p.diagnostics}`);else if(p?.ok)setNotice('success',p.message||'Operation completed.');else if(p?.message)setNotice('error',p.message)}
+    function routingSelection(){const mode=document.querySelector('input[name="routing"]:checked')?.value||'auto';if(mode==='omniroute-auto'){if(!automaticRoute)throw new Error('OmniRoute auto/coding is not currently available.');return {preferredProviderId:automaticRoute.providerId,preferredModelId:automaticRoute.modelId,label:automaticRoute.label||`${automaticRoute.providerId} · ${automaticRoute.modelId}`}}if(mode==='manual'){const model=modelLookup.get(modelSearch.value.trim());if(!model)throw new Error('Choose an exact model from the live catalog before executing.');return {preferredProviderId:model.providerId,preferredModelId:model.modelId,label:`${model.providerName} · ${model.modelId}`}}return {label:'KINGS Auto · verified local-first with fallback'}}
+    function syncRoutingUi(){const mode=document.querySelector('input[name="routing"]:checked')?.value;manualModel.hidden=mode!=='manual';try{$('selected-model').textContent=routingSelection().label}catch{$('selected-model').textContent='Choose a catalog model'}}
+    document.querySelectorAll('input[name="routing"]').forEach(r=>r.addEventListener('change',syncRoutingUi));modelSearch.addEventListener('input',syncRoutingUi)
+    async function loadModels(){try{const r=await fetch('/api/models',{cache:'no-store'});if(!r.ok)throw new Error(`HTTP ${r.status}`);const p=await r.json();modelCatalog=(p.models||[]).filter(m=>m.codingEligible);automaticRoute=p.automaticRoute||null;$('route-omni').disabled=!automaticRoute;modelLookup=new Map();modelList.innerHTML='';for(const m of modelCatalog){const display=`${m.providerName} · ${m.modelId}`;modelLookup.set(display,m);const option=document.createElement('option');option.value=display;modelList.appendChild(option)}$('model-count').textContent=String(modelCatalog.length);$('gateway-count').textContent=String((p.gateways||[]).length);const list=$('gateway-list');list.innerHTML='';const local=document.createElement('span');local.className='gateway';local.textContent='Local Ollama';list.appendChild(local);for(const g of p.gateways||[]){const x=document.createElement('span');x.className=`gateway ${g.ok?'ok':'bad'}`;x.textContent=`${g.name}: ${g.codingModels||0}/${g.totalModels||0}`;x.title=g.message||'';list.appendChild(x)}$('model-hint').textContent=`${modelCatalog.length} coding-eligible models currently searchable.`;system.textContent='Runtime connected';syncRoutingUi()}catch(e){$('model-count').textContent='?';$('gateway-count').textContent='?';system.textContent=`Model catalog unavailable: ${e.message||e}`;setNotice('error','The live AI catalog could not be loaded. Check the Chromebook runtime and configured gateways.')}}
+    $('refresh-models').addEventListener('click',loadModels)
     async function api(action,extra={}){const r=await fetch('/api/project-owner/missions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action,missionId,...extra})});let p;try{p=await r.json()}catch{p={ok:false,message:`HTTP ${r.status}: server returned invalid JSON.`}}render(p);system.textContent=p.message||`Request returned HTTP ${r.status}`;if(!r.ok||!p.ok)throw new Error(p.diagnostics||p.message||`Coding machine request failed (HTTP ${r.status}).`);return p}
-    function populateAdvanced(vision){$('objective').value=vision;$('requirements').value=vision;$('acceptance').value='The application launches, implements the owner vision, and passes automated verification and acceptance checks.'}
-    async function buildVision(){const vision=talkInput.value.trim();if(!vision){system.textContent='Tell KINGS what you want to build first.';return}addMessage('owner',vision);populateAdvanced(vision);const words=vision.split(/\s+/).slice(0,8).join(' ');const input={id:`ui-${Date.now()}`,projectName:words||'New Application',objective:vision,requirements:[vision],constraints:[],acceptanceCriteria:['The application launches, implements the owner vision, and passes automated verification and acceptance checks.']};system.textContent='Turning your vision into a coding mission...';const r=await fetch('/api/project-owner/missions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'create-mission',input})});let p;try{p=await r.json()}catch{p={ok:false,message:`HTTP ${r.status}: invalid server response.`}}render(p);if(!r.ok||!p.ok)throw new Error(p.diagnostics||p.message||'Mission creation failed.');addMessage('kings','I turned your vision into an executable coding mission. Review the plan, approve it, lock it, then Execute Next.');talkInput.value=''}
-    function startVoice(target,onDone){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){voiceStatus.textContent='🎙 Voice input is not supported by this browser.';return}if(activeRecognition){activeRecognition.stop();activeRecognition=null;return}const r=new SR();r.lang=navigator.language||'en-US';r.continuous=true;r.interimResults=true;activeRecognition=r;const isTalk=target===talkInput;if(isTalk){talkButton.classList.add('listening');talkButton.textContent='■ Stop Talking';voiceStatus.classList.add('active');voiceStatus.textContent='● Listening… describe your vision naturally.'}else{target.closest('.field').querySelector('.voice').classList.add('listening')}let finalText=target.value?`${target.value.trim()} `:'';r.onresult=e=>{let interim='';for(let i=e.resultIndex;i<e.results.length;i++){const t=e.results[i][0].transcript;if(e.results[i].isFinal)finalText+=t.trim()+' ';else interim+=t}target.value=`${finalText}${interim}`.trim()};r.onerror=e=>{voiceStatus.textContent=e.error==='not-allowed'?'🎙 Allow microphone access for this site and try again.':`🎙 Voice input error: ${e.error}`};r.onend=()=>{activeRecognition=null;if(isTalk){talkButton.classList.remove('listening');talkButton.textContent='🎙\nTalk to KINGS';voiceStatus.classList.remove('active');if(!voiceStatus.textContent.startsWith('🎙 Allow'))voiceStatus.textContent='🎙 Voice input ready'}else{target.closest('.field').querySelector('.voice').classList.remove('listening')}if(onDone)onDone()};r.start()}
-    talkButton.addEventListener('click',()=>startVoice(talkInput));
-    document.querySelectorAll('.voice').forEach(b=>b.addEventListener('click',()=>startVoice($(b.dataset.target))));
-    $('build-vision').addEventListener('click',async()=>{try{await buildVision()}catch(e){system.textContent=e.message||String(e)}})
-    $('clear-vision').addEventListener('click',()=>{talkInput.value='';conversation.innerHTML='<div class="message kings"><div class="message-label">KINGS</div><div class="message-text">Tell me what you want to build. Speak naturally.</div></div>';system.textContent='Ready';diagnosticNotice.hidden=true})
-    form.addEventListener('submit',async e=>{e.preventDefault();talkInput.value=$('objective').value.trim();await buildVision()})
-    approve.addEventListener('click',async()=>{try{await api('approve-plan')}catch(e){system.textContent=e.message||String(e)}})
-    lock.addEventListener('click',async()=>{try{await api('lock-plan')}catch(e){system.textContent=e.message||String(e)}})
-    refresh.addEventListener('click',async()=>{try{await api('snapshot')}catch(e){system.textContent=e.message||String(e)}})
-    execute.addEventListener('click',async()=>{system.textContent='KINGS is executing the next coding task locally...';notice.textContent='Local model, Linux workspace, governed writes, build/test, and verification are controlled by the machine runtime.';execute.disabled=true;try{const p=await api('execute-next');system.textContent=p.message||'Execution complete'}catch(e){system.textContent=e.message||String(e)}finally{execute.disabled=!missionId||!planLocked}})
+    function populateAdvanced(vision){$('objective').value=vision;$('requirements').value=vision;if(!$('acceptance').value.trim())$('acceptance').value=defaultCriteria.join('\n')}
+    function missionInputFromForm(fallbackVision=''){const objective=$('objective').value.trim()||fallbackVision;const requirements=lines($('requirements').value);return {id:`ui-${Date.now()}`,projectName:$('projectName').value.trim()||objective.split(/\s+/).slice(0,7).join(' ')||'New Application',objective,requirements:requirements.length?requirements:[objective],preferredPlatform:$('platform').value.trim()||undefined,preferredLanguage:$('language').value.trim()||undefined,constraints:lines($('constraints').value),acceptanceCriteria:lines($('acceptance').value).length?lines($('acceptance').value):[...defaultCriteria]}}
+    async function createMission(input,spokenVision){system.textContent='Compiling your vision into a governed coding mission…';const r=await fetch('/api/project-owner/missions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'create-mission',input})});let p;try{p=await r.json()}catch{p={ok:false,message:`HTTP ${r.status}: invalid server response.`}}render(p);if(!r.ok||!p.ok)throw new Error(p.diagnostics||p.message||'Mission creation failed.');addMessage('kings',`Mission forged. The project will be built in its isolated workspace. Review the plan, approve it, lock it, then Execute + Verify. I will only certify criteria backed by executable evidence.`);if(spokenVision)talkInput.value=''}
+    async function buildVision(){const vision=talkInput.value.trim();if(!vision){system.textContent='Tell KINGS what you want built first.';return}addMessage('owner',vision);populateAdvanced(vision);if(!$('projectName').value.trim())$('projectName').value=vision.split(/\s+/).slice(0,7).join(' ');await createMission(missionInputFromForm(vision),true)}
+    function startVoice(target){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){voiceStatus.textContent='Voice input is not supported in this browser. Type your vision instead.';return}if(activeRecognition){activeRecognition.stop();activeRecognition=null;return}const r=new SR();r.lang=navigator.language||'en-US';r.continuous=true;r.interimResults=true;activeRecognition=r;const isTalk=target===talkInput;if(isTalk){talkButton.classList.add('listening');talkButton.textContent='■ Stop';voiceStatus.textContent='● Listening…'}else target.closest('.field')?.querySelector('.voice')?.classList.add('listening');let finalText=target.value?`${target.value.trim()} `:'';r.onresult=e=>{let interim='';for(let i=e.resultIndex;i<e.results.length;i++){const t=e.results[i][0].transcript;if(e.results[i].isFinal)finalText+=t.trim()+' ';else interim+=t}target.value=`${finalText}${interim}`.trim()};r.onerror=e=>{voiceStatus.textContent=e.error==='not-allowed'?'Allow microphone access for this site or type your vision.':`Voice input error: ${e.error}`};r.onend=()=>{activeRecognition=null;if(isTalk){talkButton.classList.remove('listening');talkButton.innerHTML='🎙<br>Talk to KINGS';if(!voiceStatus.textContent.startsWith('Allow'))voiceStatus.textContent='Voice input ready when supported.'}else target.closest('.field')?.querySelector('.voice')?.classList.remove('listening')};r.start()}
+    talkButton.addEventListener('click',()=>startVoice(talkInput));document.querySelectorAll('.voice').forEach(b=>b.addEventListener('click',()=>startVoice($(b.dataset.target))))
+    $('build-vision').addEventListener('click',async()=>{try{await buildVision()}catch(e){system.textContent=e.message||String(e);setNotice('error',e.message||String(e))}})
+    $('clear-vision').addEventListener('click',()=>{talkInput.value='';conversation.innerHTML='<div class="message"><div class="message-label">KINGS</div><div class="message-text">Tell me what you want built. I will require real verification before completion.</div></div>';system.textContent='Ready';setNotice('', '')})
+    form.addEventListener('submit',async e=>{e.preventDefault();try{const input=missionInputFromForm();if(!input.objective)throw new Error('Objective is required.');addMessage('owner',input.objective);await createMission(input,false)}catch(err){system.textContent=err.message||String(err);setNotice('error',err.message||String(err))}})
+    approve.addEventListener('click',async()=>{try{await api('approve-plan')}catch(e){setNotice('error',e.message||String(e))}})
+    lock.addEventListener('click',async()=>{try{await api('lock-plan')}catch(e){setNotice('error',e.message||String(e))}})
+    refresh.addEventListener('click',async()=>{try{await api('snapshot')}catch(e){setNotice('error',e.message||String(e))}})
+    execute.addEventListener('click',async()=>{execute.disabled=true;system.textContent='KINGS is coding, building, testing, and repairing as needed…';setNotice('info','Real execution is running on the Chromebook. Failed checks are fed back into the bounded repair loop.');try{const route=routingSelection();$('selected-model').textContent=route.label;const p=await api('execute-next',{preferredProviderId:route.preferredProviderId,preferredModelId:route.preferredModelId});system.textContent=p.message||'Execution complete';if(p.ok)addMessage('kings',`Verified build completed. Project workspace: ${p.workspacePath||'see Forge Status'}`)}catch(e){system.textContent=e.message||String(e);setNotice('error',e.message||String(e))}finally{execute.disabled=!missionId||!planLocked}})
+    async function health(){try{const r=await fetch('/health',{cache:'no-store'});const p=await r.json();if(!r.ok||!p.ok)throw new Error(p.message||`HTTP ${r.status}`);system.textContent=`${p.runtimeBuild} · projects isolated · ${p.discoveredGatewayModels||0} gateway models discovered`}catch(e){system.textContent=`Runtime unavailable: ${e.message||e}`}}
+    if('serviceWorker' in navigator&&window.isSecureContext){navigator.serviceWorker.register('/service-worker.js').catch(()=>{})}
+    $('acceptance').value=defaultCriteria.join('\n');
+    Promise.all([loadModels(),health()]);
   </script>
 </body>
 </html>
