@@ -32,7 +32,9 @@ import type { WorkUnitContract } from "../../core/workforce/work-unit-contract";
 import type { MissionPlan } from "../../core/workforce/mission-continuity";
 import {
   registerKingsAiGatewayRuntime,
+  synchronizeKingsAiGatewayRuntime,
   type KingsAiGatewayRuntime,
+  type KingsGatewayRuntimeSynchronization,
 } from "../../core/workforce/ai-gateway-runtime";
 import {
   GitHubRepositoryWorkspaceAuthority,
@@ -220,6 +222,12 @@ export class ProjectOwnerMachineServerController
   private readonly api: ProjectOwnerMachineApi;
   private readonly editor: EngineeringRepairEditor;
   private readonly buildTestOptions: BuildTestOptions;
+  private readonly providers = new ProviderAdapterRegistry();
+  private readonly capabilities = new ModelCapabilityRegistry();
+  private readonly metrics = new Map<string, ModelRoutingMetrics>();
+  private readonly localModel: OllamaIntelligenceModel;
+  private readonly localAdapter: GovernedInternalIntelligenceAdapter;
+  private readonly localMetricKey: string;
 
   constructor(
     machine: KingsCodingMachine,
@@ -257,25 +265,23 @@ export class ProjectOwnerMachineServerController
       "verification",
       "recovery",
     ];
-    const model = new OllamaIntelligenceModel(
+    this.localModel = new OllamaIntelligenceModel(
       ollamaClient,
       modelId,
       capabilitiesForModel,
       localModelAvailable,
     );
-    const adapter = new GovernedInternalIntelligenceAdapter({
+    this.localAdapter = new GovernedInternalIntelligenceAdapter({
       async execute(identity, request) {
         return ollamaClient.execute(identity, request);
       },
     });
-    adapter.registerModel(model);
+    this.localAdapter.descriptor.available = localModelAvailable;
+    this.localAdapter.registerModel(this.localModel);
+    this.providers.register(this.localAdapter);
 
-    const providers = new ProviderAdapterRegistry();
-    providers.register(adapter);
-
-    const capabilities = new ModelCapabilityRegistry();
-    capabilities.register({
-      model: model.identity,
+    this.capabilities.register({
+      model: this.localModel.identity,
       capabilities: capabilitiesForModel.map((capability) => ({
         capability,
         strength: capability === "coding" ? 90 : 82,
@@ -285,26 +291,29 @@ export class ProjectOwnerMachineServerController
       })),
     });
 
-    const metrics = new Map<string, ModelRoutingMetrics>();
-    metrics.set(
-      modelRoutingMetricKey(model.identity.providerId, model.identity.modelId),
-      { estimatedCost: 0, latencyMs: 1_000, reliability: 85 },
+    this.localMetricKey = modelRoutingMetricKey(
+      this.localModel.identity.providerId,
+      this.localModel.identity.modelId,
+    );
+    this.metrics.set(
+      this.localMetricKey,
+      { estimatedCost: 0, latencyMs: 1_000, reliability: localModelAvailable ? 85 : 20 },
     );
 
     if (runtime.gatewayRuntime) {
       registerKingsAiGatewayRuntime(
         runtime.gatewayRuntime,
-        providers,
-        capabilities,
-        metrics,
+        this.providers,
+        this.capabilities,
+        this.metrics,
       );
     }
 
-    const router = new ModelRouter(capabilities, metrics);
+    const router = new ModelRouter(this.capabilities, this.metrics);
     const modelDrivenCoding = new ModelDrivenCodingExecutionAuthority(
       machine,
       router,
-      providers,
+      this.providers,
     );
 
     this.editor = new EngineeringRepairEditor(
@@ -372,6 +381,30 @@ export class ProjectOwnerMachineServerController
       new ProjectOwnerUiController(),
       workspaceRoot,
       new GitHubRepositoryWorkspaceAuthority(),
+    );
+  }
+
+  setLocalModelAvailability(available: boolean): void {
+    this.localModel.identity.available = available;
+    this.localAdapter.descriptor.available = available;
+    this.metrics.set(
+      this.localMetricKey,
+      {
+        estimatedCost: 0,
+        latencyMs: 1_000,
+        reliability: available ? 85 : 20,
+      },
+    );
+  }
+
+  synchronizeGatewayRuntime(
+    runtime: KingsAiGatewayRuntime,
+  ): KingsGatewayRuntimeSynchronization {
+    return synchronizeKingsAiGatewayRuntime(
+      runtime,
+      this.providers,
+      this.capabilities,
+      this.metrics,
     );
   }
 
