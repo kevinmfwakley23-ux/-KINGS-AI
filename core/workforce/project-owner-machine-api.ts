@@ -84,6 +84,7 @@ export class ProjectOwnerMachineApi {
     private readonly modelDrivenCoding: ModelDrivenCodingExecutionAuthority,
     private readonly executionContext: ProjectOwnerExecutionContext,
     controller: ProjectOwnerUiController = new ProjectOwnerUiController(),
+    private readonly workspaceRoot: string = process.cwd(),
   ) {
     this.controller = controller;
   }
@@ -319,6 +320,7 @@ export class ProjectOwnerMachineApi {
                 },
                 execution: {
                   taskId,
+                  missionId,
                   projectId: missionId,
                   workUnit: { ...workUnit, approved: true },
                   execution: {
@@ -348,7 +350,7 @@ export class ProjectOwnerMachineApi {
                   workspace: {
                     id: `workspace-${missionId}`,
                     projectId: missionId,
-                    rootPath: process.cwd(),
+                    rootPath: this.workspaceRoot,
                     allowedPaths: workUnit.allowedPaths,
                     allowedLanguages: ["typescript"],
                     allowedOperations: ["create"],
@@ -372,7 +374,7 @@ export class ProjectOwnerMachineApi {
                         `if (${JSON.stringify(workUnit.acceptanceCriteria.join(" "))}.includes('KINGS_OWNER_MODEL_GREEN') && !value.includes('KINGS_OWNER_MODEL_GREEN')) process.exit(2);`,
                         "console.log('KINGS_OWNER_MODEL_VERIFIED');",
                       ].join(" ")],
-                      workingDirectory: process.cwd(),
+                      workingDirectory: this.workspaceRoot,
                     },
                   ],
                   requiredCriteria: workUnit.acceptanceCriteria,
