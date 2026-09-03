@@ -19,6 +19,7 @@ export interface RepositoryCodingContextResult {
   context: string;
   inspectedFiles: string[];
   repositoryFileCount: number;
+  excludedSensitiveFiles: number;
   truncated: boolean;
 }
 
@@ -61,6 +62,35 @@ const IMPORTANT_NAMES = new Set([
   ".github/workflows/ci.yaml",
 ]);
 
+function isSensitivePath(path: string): boolean {
+  const normalized = path.replaceAll("\\", "/").toLowerCase();
+  const name = normalized.split("/").at(-1) ?? normalized;
+
+  if (
+    name === ".env" ||
+    name.startsWith(".env.") ||
+    [".npmrc", ".pypirc", ".netrc"].includes(name)
+  ) {
+    return true;
+  }
+
+  if (
+    /^(?:id_(?:rsa|dsa|ecdsa|ed25519))(?:\.pub)?$/i.test(name) ||
+    /\.(?:pem|key|p12|pfx|jks|keystore)$/i.test(name)
+  ) {
+    return true;
+  }
+
+  if (
+    /(?:^|[._-])(?:credential|credentials|secret|secrets)(?:[._-]|$)/i.test(name) ||
+    /^(?:service-account|service_account|firebase-adminsdk)[^/]*\.json$/i.test(name)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 function terms(value: string): Set<string> {
   return new Set(
     value
@@ -76,7 +106,12 @@ function terms(value: string): Set<string> {
 }
 
 function isTextCandidate(file: RepositoryFileSummary): boolean {
-  if (file.isDirectory || file.sizeBytes <= 0 || file.sizeBytes > 200_000) {
+  if (
+    file.isDirectory ||
+    file.sizeBytes <= 0 ||
+    file.sizeBytes > 200_000 ||
+    isSensitivePath(file.relativePath)
+  ) {
     return false;
   }
   const lower = file.relativePath.toLowerCase();
@@ -134,7 +169,13 @@ export class RepositoryCodingContextAuthority {
     });
 
     const inspection = await inspector.inspect(source);
-    const files = inspection.files.filter((file) => !file.isDirectory);
+    const allFiles = inspection.files.filter((file) => !file.isDirectory);
+    const sensitiveFiles = allFiles.filter((file) =>
+      isSensitivePath(file.relativePath),
+    );
+    const files = allFiles.filter((file) =>
+      !isSensitivePath(file.relativePath),
+    );
     const objectiveTerms = terms(
       `${request.objective} ${request.requirements.join(" ")}`,
     );
@@ -155,7 +196,8 @@ export class RepositoryCodingContextAuthority {
     const sections: string[] = [
       "K.I.N.G.S. REPOSITORY INSPECTION CONTEXT",
       `Workspace: ${inspection.rootPath}`,
-      `Files discovered: ${files.length}`,
+      `Files discovered for safe model context: ${files.length}`,
+      `Sensitive files excluded from model context: ${sensitiveFiles.length}`,
       "",
       "REPOSITORY INVENTORY:",
       tree,
@@ -190,6 +232,12 @@ export class RepositoryCodingContextAuthority {
       if (content.length > excerpt.length) truncated = true;
     }
 
+    if (sensitiveFiles.length > 0) {
+      sections.push(
+        "\n\nSECURITY NOTICE: K.I.N.G.S. detected sensitive repository files and intentionally withheld both their names and contents from model context. Never request, infer, reproduce, or overwrite credentials or secrets from unavailable source.",
+      );
+    }
+
     if (truncated) {
       sections.push(
         "\n\nCONTEXT NOTICE: Repository context was bounded for model safety. The inventory above remains authoritative; do not invent unseen source. Modify only files whose required behavior can be established from the provided source and executable verification.",
@@ -200,6 +248,7 @@ export class RepositoryCodingContextAuthority {
       context: sections.join("\n"),
       inspectedFiles,
       repositoryFileCount: files.length,
+      excludedSensitiveFiles: sensitiveFiles.length,
       truncated,
     };
   }
