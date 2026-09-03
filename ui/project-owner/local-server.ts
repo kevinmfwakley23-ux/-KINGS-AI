@@ -14,20 +14,16 @@ import {
 } from "./server-contract";
 import { ProjectOwnerMachineApi } from "../../core/workforce/project-owner-machine-api";
 import { AuthorsForgeApi, type AuthorsForgeRequest } from "./authors-forge-api";
-import {
-  loadKingsAiGatewayRuntime,
-} from "../../core/workforce/ai-gateway-runtime";
+import { loadKingsAiGatewayRuntime } from "../../core/workforce/ai-gateway-runtime";
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
 const bindHost = process.env.KINGS_CODING_MACHINE_BIND ?? "0.0.0.0";
 const publicHost = process.env.KINGS_CODING_MACHINE_HOST ?? "localhost";
 const stateRoot = process.env.KINGS_STATE_ROOT ?? join(process.cwd(), ".kings");
 const workspaceRoot =
-  process.env.KINGS_CODING_MACHINE_WORKSPACE ??
-  join(stateRoot, "projects");
+  process.env.KINGS_CODING_MACHINE_WORKSPACE ?? join(stateRoot, "projects");
 const continuityFile =
-  process.env.KINGS_CODING_MACHINE_STATE ??
-  join(stateRoot, "mission-continuity.json");
+  process.env.KINGS_CODING_MACHINE_STATE ?? join(stateRoot, "mission-continuity.json");
 const ollamaBaseUrl =
   process.env.KINGS_CODING_MACHINE_OLLAMA_URL ?? "http://127.0.0.1:11434";
 const modelId = process.env.KINGS_CODING_MACHINE_MODEL ?? "qwen2.5-coder:1.5b";
@@ -36,7 +32,7 @@ const publicFile = join(process.cwd(), "ui/project-owner/index.html");
 const forgeFile = join(process.cwd(), "ui/project-owner/authors-forge.html");
 const manifestFile = join(process.cwd(), "ui/project-owner/manifest.webmanifest");
 const serviceWorkerFile = join(process.cwd(), "ui/project-owner/service-worker.js");
-const runtimeBuild = "kings-chief-engineer-v2";
+const runtimeBuild = "kings-chief-engineer-v3";
 
 async function body(request: import("node:http").IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -45,16 +41,26 @@ async function body(request: import("node:http").IncomingMessage): Promise<unkno
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-async function checkOllama(): Promise<{
+interface OllamaHealth {
   ok: boolean;
+  connected: boolean;
   message: string;
   models?: string[];
-}> {
+}
+
+async function checkOllama(): Promise<OllamaHealth> {
   try {
-    const response = await fetch(`${ollamaBaseUrl}/api/tags`);
+    const response = await fetch(`${ollamaBaseUrl}/api/tags`, {
+      signal: AbortSignal.timeout(5_000),
+    });
     if (!response.ok) {
-      return { ok: false, message: `Ollama HTTP ${response.status}` };
+      return {
+        ok: false,
+        connected: false,
+        message: `Ollama HTTP ${response.status}`,
+      };
     }
+
     const data = (await response.json()) as {
       models?: Array<{ name?: string }>;
     };
@@ -65,20 +71,22 @@ async function checkOllama(): Promise<{
     const modelAvailable = models.some(
       (name) => name === modelId || name.startsWith(`${modelId}:`),
     );
+
     return {
       ok: modelAvailable,
+      connected: true,
       message: modelAvailable
         ? `Ollama connected; ${modelId} is available.`
-        : `Ollama connected, but ${modelId} is not installed.`,
+        : `Ollama connected, but configured model ${modelId} is not installed.`,
       models,
     };
   } catch (error) {
     return {
       ok: false,
-      message:
-        error instanceof Error
-          ? `Ollama unavailable: ${error.message}`
-          : `Ollama unavailable: ${String(error)}`,
+      connected: false,
+      message: error instanceof Error
+        ? `Ollama unavailable: ${error.message}`
+        : `Ollama unavailable: ${String(error)}`,
     };
   }
 }
@@ -96,7 +104,11 @@ function json(
 }
 
 async function main(): Promise<void> {
-  const gatewayRuntime = await loadKingsAiGatewayRuntime();
+  const [gatewayRuntime, initialOllama] = await Promise.all([
+    loadKingsAiGatewayRuntime(),
+    checkOllama(),
+  ]);
+
   const registry = new WorkforceRegistry();
   const workUnits = new WorkUnitRegistry();
   const taskControl = new TaskControl(registry);
@@ -123,9 +135,29 @@ async function main(): Promise<void> {
       ollamaBaseUrl,
       gatewayRuntime,
       allowBuildNetwork,
+      localModelAvailable: initialOllama.ok,
     },
   );
   const forgeApi = new AuthorsForgeApi();
+
+  const healthyGatewayIds = new Set(
+    gatewayRuntime.gateways
+      .filter(({ health }) => health.ok)
+      .map(({ adapter }) => adapter.descriptor.id),
+  );
+  const automaticRoute = gatewayRuntime.catalog.find(
+    (entry) =>
+      entry.providerId === "omniroute" &&
+      entry.modelId === "auto/coding" &&
+      entry.verifiedCodingRoute &&
+      healthyGatewayIds.has(entry.providerId),
+  )
+    ? {
+        providerId: "omniroute",
+        modelId: "auto/coding",
+        label: "OmniRoute Auto Coding",
+      }
+    : null;
 
   const server = createServer(async (req, res) => {
     try {
@@ -137,6 +169,7 @@ async function main(): Promise<void> {
           product: "K.I.N.G.S. AI Coding Machine",
           runtimeBuild,
           localModel: modelId,
+          localModelRoutableAtStartup: initialOllama.ok,
           projectsRoot: workspaceRoot,
           continuityFile,
           allowBuildNetwork,
@@ -157,36 +190,25 @@ async function main(): Promise<void> {
 
       if (req.method === "GET" && req.url === "/api/models") {
         const ollama = await checkOllama();
-        const localModels = (ollama.models ?? []).map((id) => ({
-          providerId: "internal-intelligence",
-          providerName: "Local Ollama",
-          gatewayKind: "ollama",
-          modelId: id,
-          displayName: `Local Ollama: ${id}`,
-          codingEligible: true,
-          verifiedCodingRoute:
-            id === modelId || id.startsWith(`${modelId}:`),
-          local: true,
-        }));
+        const localModels = ollama.ok
+          ? [{
+              providerId: "internal-intelligence",
+              providerName: "Local Ollama",
+              gatewayKind: "ollama",
+              modelId,
+              displayName: `Local Ollama: ${modelId}`,
+              codingEligible: true,
+              verifiedCodingRoute: true,
+              local: true,
+            }]
+          : [];
 
         json(res, 200, {
           ok: true,
-          defaultModel: {
-            providerId: "internal-intelligence",
-            modelId,
-          },
-          automaticRoute: gatewayRuntime.catalog.some(
-            (entry) =>
-              entry.providerId === "omniroute" &&
-              entry.modelId === "auto/coding" &&
-              entry.verifiedCodingRoute,
-          )
-            ? {
-                providerId: "omniroute",
-                modelId: "auto/coding",
-                label: "OmniRoute Auto Coding",
-              }
-            : null,
+          defaultModel: initialOllama.ok
+            ? { providerId: "internal-intelligence", modelId }
+            : automaticRoute,
+          automaticRoute,
           models: [
             ...localModels,
             ...gatewayRuntime.catalog.map((entry) => ({
@@ -194,6 +216,12 @@ async function main(): Promise<void> {
               local: false,
             })),
           ],
+          localRuntime: {
+            ok: ollama.ok,
+            connected: ollama.connected,
+            configuredModel: modelId,
+            message: ollama.message,
+          },
           gateways: gatewayRuntime.gateways.map(({ adapter, health }) => ({
             providerId: adapter.descriptor.id,
             name: adapter.descriptor.name,
@@ -276,6 +304,7 @@ async function main(): Promise<void> {
     console.log(`Mission state: ${continuityFile}`);
     console.log(`Ollama: ${ollamaBaseUrl}`);
     console.log(`Local model: ${modelId}`);
+    console.log(`Local model routable: ${initialOllama.ok}`);
     console.log(`AI gateways: ${gatewayRuntime.gateways.length}`);
     console.log(`Gateway model catalog: ${gatewayRuntime.catalog.length}`);
     console.log(`Runtime build: ${runtimeBuild}`);
