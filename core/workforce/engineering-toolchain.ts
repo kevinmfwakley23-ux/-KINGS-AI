@@ -171,6 +171,7 @@ export class EngineeringToolchainRegistry {
                 ...command.args,
               ],
             }),
+          ),
       }),
     );
   }
@@ -224,10 +225,9 @@ function command(
     string,
   args:
     string[] = [],
-  requiresCompilation:
-    boolean = false,
-):
-  ToolchainCommand {
+  requiresCompilation =
+    false,
+): ToolchainCommand {
   return {
     operation,
     command:
@@ -242,7 +242,7 @@ export function createDefaultEngineeringToolchains():
   return [
     {
       id:
-        "engineering-typescript",
+        "toolchain-typescript",
       language:
         "typescript",
       displayName:
@@ -257,44 +257,47 @@ export function createDefaultEngineeringToolchains():
           "node",
         ),
         command(
-          "typecheck",
+          "format",
           "npx",
-          [
-            "tsc",
-            "--noEmit",
-          ],
+          ["prettier"],
         ),
         command(
-          "compile",
+          "lint",
           "npx",
-          [
-            "tsc",
-          ],
-          true,
+          ["eslint"],
+        ),
+        command(
+          "typecheck",
+          "npx",
+          ["tsc"],
         ),
         command(
           "build",
           "npm",
-          [
-            "run",
-            "build",
-          ],
-          true,
+          ["run", "build"],
+        ),
+        command(
+          "run",
+          "node",
         ),
         command(
           "test",
           "npm",
-          [
-            "test",
-          ],
+          ["test"],
+        ),
+        command(
+          "package",
+          "npm",
+          ["pack"],
         ),
       ],
       enabled:
         true,
     },
+
     {
       id:
-        "engineering-javascript",
+        "toolchain-javascript",
       language:
         "javascript",
       displayName:
@@ -311,23 +314,37 @@ export function createDefaultEngineeringToolchains():
           "node",
         ),
         command(
+          "format",
+          "npx",
+          ["prettier"],
+        ),
+        command(
+          "lint",
+          "npx",
+          ["eslint"],
+        ),
+        command(
           "run",
           "node",
         ),
         command(
           "test",
           "npm",
-          [
-            "test",
-          ],
+          ["test"],
+        ),
+        command(
+          "package",
+          "npm",
+          ["pack"],
         ),
       ],
       enabled:
         true,
     },
+
     {
       id:
-        "engineering-python",
+        "toolchain-python",
       language:
         "python",
       displayName:
@@ -341,24 +358,37 @@ export function createDefaultEngineeringToolchains():
           "python3",
         ),
         command(
+          "format",
+          "python3",
+          ["-m", "black"],
+        ),
+        command(
+          "lint",
+          "python3",
+          ["-m", "ruff"],
+        ),
+        command(
           "run",
           "python3",
         ),
         command(
           "test",
           "python3",
-          [
-            "-m",
-            "pytest",
-          ],
+          ["-m", "pytest"],
+        ),
+        command(
+          "package",
+          "python3",
+          ["-m", "build"],
         ),
       ],
       enabled:
         true,
     },
+
     {
       id:
-        "engineering-rust",
+        "toolchain-rust",
       language:
         "rust",
       displayName:
@@ -370,37 +400,56 @@ export function createDefaultEngineeringToolchains():
         command(
           "create",
           "cargo",
+          ["new"],
+        ),
+        command(
+          "format",
+          "cargo",
+          ["fmt"],
+        ),
+        command(
+          "lint",
+          "cargo",
+          ["clippy"],
         ),
         command(
           "compile",
-          "cargo",
-          [
-            "check",
-          ],
+          "rustc",
+          [],
           true,
         ),
         command(
           "build",
           "cargo",
-          [
-            "build",
-          ],
+          ["build"],
+          true,
+        ),
+        command(
+          "run",
+          "cargo",
+          ["run"],
           true,
         ),
         command(
           "test",
           "cargo",
-          [
-            "test",
-          ],
+          ["test"],
+          true,
+        ),
+        command(
+          "package",
+          "cargo",
+          ["package"],
+          true,
         ),
       ],
       enabled:
         true,
     },
+
     {
       id:
-        "engineering-go",
+        "toolchain-go",
       language:
         "go",
       displayName:
@@ -412,23 +461,314 @@ export function createDefaultEngineeringToolchains():
         command(
           "create",
           "go",
+          ["mod", "init"],
+        ),
+        command(
+          "format",
+          "gofmt",
+          [],
+        ),
+        command(
+          "lint",
+          "go",
+          ["vet", "./..."],
+        ),
+        command(
+          "compile",
+          "go",
+          ["build"],
+          true,
         ),
         command(
           "build",
           "go",
-          [
-            "build",
-            "./...",
-          ],
+          ["build"],
           true,
+        ),
+        command(
+          "run",
+          "go",
+          ["run", "."],
         ),
         command(
           "test",
           "go",
-          [
-            "test",
-            "./...",
-          ],
+          ["test", "./..."],
+        ),
+        command(
+          "package",
+          "go",
+          ["build"],
+          true,
+        ),
+      ],
+      enabled:
+        true,
+    },
+
+    {
+      id:
+        "toolchain-java",
+      language:
+        "java",
+      displayName:
+        "Java",
+      fileExtensions: [
+        ".java",
+      ],
+      commands: [
+        command(
+          "create",
+          "java",
+        ),
+        command(
+          "compile",
+          "javac",
+          [],
+          true,
+        ),
+        command(
+          "build",
+          "javac",
+          [],
+          true,
+        ),
+        command(
+          "run",
+          "java",
+        ),
+        command(
+          "test",
+          "mvn",
+          ["test"],
+        ),
+        command(
+          "package",
+          "mvn",
+          ["package"],
+          true,
+        ),
+      ],
+      enabled:
+        true,
+    },
+
+    {
+      id:
+        "toolchain-c",
+      language:
+        "c",
+      displayName:
+        "C",
+      fileExtensions: [
+        ".c",
+        ".h",
+      ],
+      commands: [
+        command(
+          "compile",
+          "gcc",
+          [],
+          true,
+        ),
+        command(
+          "build",
+          "gcc",
+          [],
+          true,
+        ),
+        command(
+          "run",
+          "gcc",
+          [],
+          true,
+        ),
+        command(
+          "test",
+          "make",
+          ["test"],
+        ),
+        command(
+          "package",
+          "make",
+          ["package"],
+        ),
+      ],
+      enabled:
+        true,
+    },
+
+    {
+      id:
+        "toolchain-cpp",
+      language:
+        "cpp",
+      displayName:
+        "C++",
+      fileExtensions: [
+        ".cpp",
+        ".hpp",
+      ],
+      commands: [
+        command(
+          "compile",
+          "g++",
+          [],
+          true,
+        ),
+        command(
+          "build",
+          "g++",
+          [],
+          true,
+        ),
+        command(
+          "run",
+          "g++",
+          [],
+          true,
+        ),
+        command(
+          "test",
+          "ctest",
+        ),
+        command(
+          "package",
+          "cmake",
+          ["--build"],
+          true,
+        ),
+      ],
+      enabled:
+        true,
+    },
+
+    {
+      id:
+        "toolchain-shell",
+      language:
+        "shell",
+      displayName:
+        "Shell",
+      fileExtensions: [
+        ".sh",
+        ".bash",
+      ],
+      commands: [
+        command(
+          "create",
+          "bash",
+        ),
+        command(
+          "lint",
+          "shellcheck",
+        ),
+        command(
+          "run",
+          "bash",
+        ),
+        command(
+          "test",
+          "bash",
+        ),
+      ],
+      enabled:
+        true,
+    },
+
+    {
+      id:
+        "toolchain-html",
+      language:
+        "html",
+      displayName:
+        "HTML",
+      fileExtensions: [
+        ".html",
+        ".htm",
+      ],
+      commands: [
+        command(
+          "create",
+          "node",
+        ),
+        command(
+          "format",
+          "npx",
+          ["prettier"],
+        ),
+        command(
+          "lint",
+          "npx",
+          ["html-validate"],
+        ),
+        command(
+          "test",
+          "npx",
+          ["html-validate"],
+        ),
+      ],
+      enabled:
+        true,
+    },
+
+    {
+      id:
+        "toolchain-css",
+      language:
+        "css",
+      displayName:
+        "CSS",
+      fileExtensions: [
+        ".css",
+      ],
+      commands: [
+        command(
+          "create",
+          "node",
+        ),
+        command(
+          "format",
+          "npx",
+          ["prettier"],
+        ),
+        command(
+          "lint",
+          "npx",
+          ["stylelint"],
+        ),
+        command(
+          "test",
+          "npx",
+          ["stylelint"],
+        ),
+      ],
+      enabled:
+        true,
+    },
+
+    {
+      id:
+        "toolchain-sql",
+      language:
+        "sql",
+      displayName:
+        "SQL",
+      fileExtensions: [
+        ".sql",
+      ],
+      commands: [
+        command(
+          "create",
+          "sqlite3",
+        ),
+        command(
+          "run",
+          "sqlite3",
+        ),
+        command(
+          "test",
+          "sqlite3",
         ),
       ],
       enabled:
