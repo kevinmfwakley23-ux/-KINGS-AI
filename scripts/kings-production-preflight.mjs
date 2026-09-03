@@ -90,7 +90,7 @@ async function checkOllama() {
     });
     if (!response.ok) {
       warn(`Ollama responded HTTP ${response.status}; gateway AI can still be used if configured.`);
-      return;
+      return false;
     }
     const data = await response.json();
     const models = (data.models ?? [])
@@ -99,11 +99,14 @@ async function checkOllama() {
     const available = models.some((name) => name === modelId || name.startsWith(`${modelId}:`));
     if (available) {
       pass(`Local Ollama model is routable: ${modelId}`);
-    } else {
-      warn(`Ollama is reachable but configured model ${modelId} is not installed.`);
+      return true;
     }
+
+    warn(`Ollama is reachable but configured model ${modelId} is not installed.`);
+    return false;
   } catch (error) {
     warn(`Local Ollama is unavailable (${error instanceof Error ? error.message : String(error)}). A healthy configured gateway is required for AI coding.`);
+    return false;
   }
 }
 
@@ -143,9 +146,10 @@ async function checkGateways() {
   const gateways = configuredGateways();
   if (gateways.length === 0) {
     warn("No OmniRoute, 9Router, or custom OpenAI-compatible gateway is configured. Local Ollama must be available for AI coding.");
-    return;
+    return 0;
   }
 
+  let usableGateways = 0;
   for (const gateway of gateways) {
     try {
       const base = gateway.url.replace(/\/+$/, "").replace(/\/v1$/i, "");
@@ -161,11 +165,19 @@ async function checkGateways() {
       }
       const data = await response.json();
       const modelCount = Array.isArray(data?.data) ? data.data.length : 0;
+      if (modelCount < 1) {
+        warn(`${gateway.id} is reachable but returned no routable models.`);
+        continue;
+      }
+
+      usableGateways += 1;
       pass(`${gateway.id} is reachable and returned ${modelCount} model${modelCount === 1 ? "" : "s"}.`);
     } catch (error) {
       warn(`${gateway.id} is configured but unreachable (${error instanceof Error ? error.message : String(error)}).`);
     }
   }
+
+  return usableGateways;
 }
 
 function checkGitHubAuth() {
@@ -200,18 +212,34 @@ async function main() {
   const bwrap = await detectBubblewrap();
   if (bwrap) {
     const version = command(bwrap, ["--version"]);
-    if (version.ok) pass(`Bubblewrap host isolation is available: ${version.stdout || bwrap}`);
-    else fail(`Bubblewrap exists at ${bwrap} but cannot execute (${version.stderr || version.error?.message || "unknown error"}).`);
+    const identity = `${version.stdout}\n${version.stderr}`.trim();
+    if (version.ok && /\bbubblewrap\b/i.test(identity)) {
+      pass(`Bubblewrap host isolation is available: ${version.stdout || bwrap}`);
+    } else if (version.ok) {
+      fail(`KINGS_BWRAP_PATH resolved to ${bwrap}, but that executable did not identify itself as Bubblewrap.`);
+    } else {
+      fail(`Bubblewrap exists at ${bwrap} but cannot execute (${version.stderr || version.error?.message || "unknown error"}).`);
+    }
   } else {
     fail("Bubblewrap is required for real GitHub repository build/test execution. On Debian/Crostini install the bubblewrap package, or set KINGS_BWRAP_PATH to a trusted executable.");
   }
 
   await checkWorkspace();
   checkGitHubAuth();
-  await Promise.all([
+  const [ollamaReady, usableGateways] = await Promise.all([
     checkOllama(),
     checkGateways(),
   ]);
+
+  if (ollamaReady || usableGateways > 0) {
+    const providers = [
+      ollamaReady ? "local Ollama" : undefined,
+      usableGateways > 0 ? `${usableGateways} gateway${usableGateways === 1 ? "" : "s"}` : undefined,
+    ].filter(Boolean).join(" + ");
+    pass(`AI execution path is ready: ${providers}.`);
+  } else {
+    fail("No usable AI execution provider is available. Production cannot perform AI coding until the configured Ollama model or at least one OmniRoute, 9Router, or custom gateway returns a routable model.");
+  }
 
   console.log(`\nSUMMARY  ${passes.length} passed · ${warnings.length} warning${warnings.length === 1 ? "" : "s"} · ${failures.length} failure${failures.length === 1 ? "" : "s"}`);
 
