@@ -35,6 +35,8 @@ export interface BuildTestStep {
     string[];
   workingDirectory:
     string;
+  verifiesCriteria?:
+    string[];
 }
 
 export interface BuildTestExecutionRequest {
@@ -216,6 +218,21 @@ export class BuildTestExecutor {
     ) {
       throw new Error(
         "K.I.N.G.S. Build/Test Executor: every step requires id, command, and working directory",
+      );
+    }
+
+    const invalidCriterion =
+      request.steps.find(
+        (step) =>
+          step.verifiesCriteria?.some(
+            (criterion) =>
+              !criterion.trim(),
+          ),
+      );
+
+    if (invalidCriterion) {
+      throw new Error(
+        `K.I.N.G.S. Build/Test Executor: step "${invalidCriterion.id}" contains a blank verification criterion`,
       );
     }
 
