@@ -1,5 +1,7 @@
 import { createServer } from "node:http";
+import { constants } from "node:fs";
 import { access, readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 
 import { TaskControl } from "../../core/workforce/task-control";
@@ -20,6 +22,11 @@ import {
   refreshKingsAiGatewayRuntime,
   type KingsAiGatewayRuntime,
 } from "../../core/workforce/ai-gateway-runtime";
+import {
+  assessOwnerRuntimeReadiness,
+  hasRoutableGatewayCodingModel,
+  selectAutomaticCodingRoute,
+} from "../../core/workforce/owner-runtime-readiness";
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
 const bindHost = process.env.KINGS_CODING_MACHINE_BIND ?? "0.0.0.0";
@@ -37,7 +44,7 @@ const publicFile = join(process.cwd(), "ui/project-owner/index.html");
 const forgeFile = join(process.cwd(), "ui/project-owner/authors-forge.html");
 const manifestFile = join(process.cwd(), "ui/project-owner/manifest.webmanifest");
 const serviceWorkerFile = join(process.cwd(), "ui/project-owner/service-worker.js");
-const runtimeBuild = "kings-chief-engineer-v5";
+const runtimeBuild = "kings-chief-engineer-v6";
 
 async function body(request: import("node:http").IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -46,13 +53,24 @@ async function body(request: import("node:http").IncomingMessage): Promise<unkno
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-async function exists(path: string): Promise<boolean> {
+async function isExecutable(path: string): Promise<boolean> {
   try {
-    await access(path);
+    await access(path, constants.X_OK);
     return true;
   } catch {
     return false;
   }
+}
+
+function identifiesAsBubblewrap(path: string): boolean {
+  const result = spawnSync(path, ["--version"], {
+    encoding: "utf8",
+    shell: false,
+    env: process.env,
+    timeout: 5_000,
+  });
+  if (result.status !== 0) return false;
+  return /\bbubblewrap\b/i.test(`${result.stdout ?? ""}\n${result.stderr ?? ""}`);
 }
 
 async function detectProcessIsolation(): Promise<SandboxBubblewrapIsolation | undefined> {
@@ -62,12 +80,14 @@ async function detectProcessIsolation(): Promise<SandboxBubblewrapIsolation | un
   const candidates = configured
     ? [configured]
     : ["/usr/bin/bwrap", "/bin/bwrap"];
-  const executable = (await Promise.all(
-    candidates.map(async (candidate) => ({
-      candidate,
-      exists: await exists(candidate),
-    })),
-  )).find((entry) => entry.exists)?.candidate;
+
+  let executable: string | undefined;
+  for (const candidate of candidates) {
+    if (await isExecutable(candidate) && identifiesAsBubblewrap(candidate)) {
+      executable = candidate;
+      break;
+    }
+  }
 
   if (!executable) return undefined;
 
@@ -152,27 +172,6 @@ function json(
   res.end(JSON.stringify(value));
 }
 
-function automaticCodingRoute(runtime: KingsAiGatewayRuntime) {
-  const healthyGatewayIds = new Set(
-    runtime.gateways
-      .filter(({ health }) => health.ok)
-      .map(({ adapter }) => adapter.descriptor.id),
-  );
-  return runtime.catalog.find(
-    (entry) =>
-      entry.providerId === "omniroute" &&
-      entry.modelId === "auto/coding" &&
-      entry.verifiedCodingRoute &&
-      healthyGatewayIds.has(entry.providerId),
-  )
-    ? {
-        providerId: "omniroute",
-        modelId: "auto/coding",
-        label: "OmniRoute Auto Coding",
-      }
-    : null;
-}
-
 async function main(): Promise<void> {
   const [initialGatewayRuntime, initialOllama, processIsolation] = await Promise.all([
     loadKingsAiGatewayRuntime(),
@@ -240,12 +239,27 @@ async function main(): Promise<void> {
     return { ollama, gateways };
   }
 
+  function readinessFor(runtime: {
+    ollama: OllamaHealth;
+    gateways: KingsAiGatewayRuntime;
+  }) {
+    return assessOwnerRuntimeReadiness({
+      localModelRoutable: runtime.ollama.ok,
+      gatewayCodingRouteRoutable: hasRoutableGatewayCodingModel(runtime.gateways),
+      repositoryExecutionAllowed: Boolean(processIsolation),
+    });
+  }
+
   const server = createServer(async (req, res) => {
     try {
       if (req.method === "GET" && req.url === "/health") {
         const refreshed = await refreshAiRuntime();
+        const readiness = readinessFor(refreshed);
         json(res, 200, {
-          ok: true,
+          ok: readiness.ready,
+          alive: true,
+          ready: readiness.ready,
+          readiness,
           name: "kings.local",
           product: "K.I.N.G.S. AI Coding Machine",
           runtimeBuild,
@@ -267,7 +281,7 @@ async function main(): Promise<void> {
                 executable: null,
                 repositoryExecutionAllowed: false,
                 message:
-                  "Bubblewrap was not found. GitHub repository build/test execution is fail-closed until host isolation is installed or configured.",
+                  "Verified Bubblewrap was not found. GitHub repository build/test execution is fail-closed until host isolation is installed or configured.",
               },
           ollama: refreshed.ollama,
           gateways: refreshed.gateways.gateways.map(({ adapter, health }) => ({
@@ -280,14 +294,27 @@ async function main(): Promise<void> {
             codingModels: health.codingModels.length,
           })),
           discoveredGatewayModels: refreshed.gateways.catalog.length,
-          automaticRoute: automaticCodingRoute(refreshed.gateways),
+          automaticRoute: selectAutomaticCodingRoute(refreshed.gateways),
+        });
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/ready") {
+        const refreshed = await refreshAiRuntime();
+        const readiness = readinessFor(refreshed);
+        json(res, readiness.ready ? 200 : 503, {
+          ok: readiness.ready,
+          ready: readiness.ready,
+          runtimeBuild,
+          readiness,
+          automaticRoute: selectAutomaticCodingRoute(refreshed.gateways),
         });
         return;
       }
 
       if (req.method === "GET" && req.url === "/api/models") {
         const refreshed = await refreshAiRuntime();
-        const automaticRoute = automaticCodingRoute(refreshed.gateways);
+        const automaticRoute = selectAutomaticCodingRoute(refreshed.gateways);
         const localModels = refreshed.ollama.ok
           ? [{
               providerId: "internal-intelligence",
@@ -303,6 +330,7 @@ async function main(): Promise<void> {
 
         json(res, 200, {
           ok: true,
+          codingReady: refreshed.ollama.ok || Boolean(automaticRoute),
           defaultModel: refreshed.ollama.ok
             ? { providerId: "internal-intelligence", modelId }
             : automaticRoute,
@@ -392,10 +420,17 @@ async function main(): Promise<void> {
     }
   });
 
+  const initialReadiness = assessOwnerRuntimeReadiness({
+    localModelRoutable: initialOllama.ok,
+    gatewayCodingRouteRoutable: hasRoutableGatewayCodingModel(gatewayRuntime),
+    repositoryExecutionAllowed: Boolean(processIsolation),
+  });
+
   server.listen(port, bindHost, () => {
     console.log(`KINGS CODING MACHINE UI: http://${publicHost}:${port}`);
     console.log(`Author's Forge: http://${publicHost}:${port}/authors-forge`);
     console.log(`Health: http://${publicHost}:${port}/health`);
+    console.log(`Readiness: http://${publicHost}:${port}/ready`);
     console.log(`Models: http://${publicHost}:${port}/api/models`);
     console.log(`Bind: ${bindHost}:${port}`);
     console.log(`Projects: ${workspaceRoot}`);
@@ -405,7 +440,14 @@ async function main(): Promise<void> {
     console.log(`Local model routable: ${initialOllama.ok}`);
     console.log(`AI gateways: ${gatewayRuntime.gateways.length}`);
     console.log(`Gateway model catalog: ${gatewayRuntime.catalog.length}`);
+    console.log(`Automatic coding route: ${selectAutomaticCodingRoute(gatewayRuntime)?.label ?? "UNAVAILABLE"}`);
     console.log(`Host process isolation: ${processIsolation ? `${processIsolation.kind} (${processIsolation.executable})` : "UNAVAILABLE — GitHub execution blocked"}`);
+    console.log(`Production ready: ${initialReadiness.ready}`);
+    if (!initialReadiness.ready) {
+      for (const blocker of initialReadiness.blockers) {
+        console.warn(`READINESS BLOCKER: ${blocker}`);
+      }
+    }
     console.log(`Runtime build: ${runtimeBuild}`);
   });
 }
