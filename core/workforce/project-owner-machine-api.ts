@@ -1,3 +1,7 @@
+import {
+  join,
+} from "node:path";
+
 import type {
   ID,
   Mission,
@@ -39,6 +43,10 @@ import type {
   WorkUnitContract,
 } from "./work-unit-contract";
 
+import type {
+  EngineeringLanguage,
+} from "./engineering-toolchain";
+
 export interface ProjectOwnerMachineApiRequest {
   action:
     | "create-mission"
@@ -49,6 +57,8 @@ export interface ProjectOwnerMachineApiRequest {
 
   input?: ProjectOwnerDesignInput;
   missionId?: ID;
+  preferredProviderId?: ID;
+  preferredModelId?: ID;
   editor?: EngineeringRepairEditor;
   buildTestOptions?: ConstructorParameters<
     typeof import("./coding-work-unit-execution").CodingWorkUnitExecutionAuthority
@@ -61,6 +71,7 @@ export interface ProjectOwnerMachineApiResponse {
   view?: ProjectOwnerMissionView;
   plan?: MissionPlan;
   diagnostics?: string;
+  workspacePath?: string;
 }
 
 export interface ProjectOwnerMissionFactory {
@@ -75,6 +86,42 @@ export interface ProjectOwnerExecutionContext {
   getWorkUnit(taskId: ID): WorkUnitContract;
 }
 
+const PROJECT_LANGUAGES: EngineeringLanguage[] = [
+  "typescript",
+  "javascript",
+  "python",
+  "rust",
+  "go",
+  "java",
+  "c",
+  "cpp",
+  "css",
+  "html",
+  "sql",
+  "shell",
+  "json",
+  "yaml",
+  "markdown",
+  "text",
+];
+
+function safeWorkspaceSegment(value: string): string {
+  const normalized = value
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^\.+/, "")
+    .replace(/-+/g, "-")
+    .slice(0, 96);
+
+  if (!normalized) {
+    throw new Error(
+      "K.I.N.G.S. Project Owner: mission id cannot be converted into a safe workspace name.",
+    );
+  }
+
+  return normalized;
+}
+
 export class ProjectOwnerMachineApi {
   private readonly controller: ProjectOwnerUiController;
 
@@ -84,7 +131,11 @@ export class ProjectOwnerMachineApi {
     private readonly modelDrivenCoding: ModelDrivenCodingExecutionAuthority,
     private readonly executionContext: ProjectOwnerExecutionContext,
     controller: ProjectOwnerUiController = new ProjectOwnerUiController(),
-    private readonly workspaceRoot: string = process.cwd(),
+    private readonly workspaceRoot: string = join(
+      process.cwd(),
+      ".kings",
+      "projects",
+    ),
   ) {
     this.controller = controller;
   }
@@ -133,6 +184,10 @@ export class ProjectOwnerMachineApi {
           ok: true,
           message:
             "Vision compiled into an executable coding mission. Human approval is required before execution.",
+          workspacePath: join(
+            this.workspaceRoot,
+            safeWorkspaceSegment(created.mission.id),
+          ),
           view: {
             mission: snapshot.mission,
             plan: snapshot.plan,
@@ -146,6 +201,11 @@ export class ProjectOwnerMachineApi {
         return { ok: false, message: "Mission id is required." };
       }
 
+      const missionWorkspace = join(
+        this.workspaceRoot,
+        safeWorkspaceSegment(missionId),
+      );
+
       if (request.action === "approve-plan") {
         const plan = this.machine.approvePlan(missionId);
         const snapshot = this.machine.snapshot(missionId);
@@ -153,6 +213,7 @@ export class ProjectOwnerMachineApi {
           ok: true,
           message: "Mission plan approved.",
           plan,
+          workspacePath: missionWorkspace,
           view: {
             mission: snapshot.mission,
             plan: snapshot.plan,
@@ -168,6 +229,7 @@ export class ProjectOwnerMachineApi {
           ok: true,
           message: "Mission plan locked and ready for governed execution.",
           plan,
+          workspacePath: missionWorkspace,
           view: {
             mission: snapshot.mission,
             plan: snapshot.plan,
@@ -185,6 +247,7 @@ export class ProjectOwnerMachineApi {
             plan: snapshot.plan,
             state: snapshot.state,
           }),
+          workspacePath: missionWorkspace,
           view: {
             mission: snapshot.mission,
             plan: snapshot.plan,
@@ -203,6 +266,7 @@ export class ProjectOwnerMachineApi {
             return {
               ok: false,
               message: "Mission must be approved and locked before execution.",
+              workspacePath: missionWorkspace,
               view: {
                 mission: snapshot.mission,
                 plan: snapshot.plan,
@@ -215,6 +279,7 @@ export class ProjectOwnerMachineApi {
             return {
               ok: false,
               message: "Mission has more than one active task; execution routing is ambiguous.",
+              workspacePath: missionWorkspace,
               view: {
                 mission: snapshot.mission,
                 plan: snapshot.plan,
@@ -237,6 +302,7 @@ export class ProjectOwnerMachineApi {
             return {
               ok: false,
               message: "No executable coding task is available for this mission.",
+              workspacePath: missionWorkspace,
               view: {
                 mission: snapshot.mission,
                 plan: snapshot.plan,
@@ -257,6 +323,10 @@ export class ProjectOwnerMachineApi {
 
           this.machine.setTaskRunning(missionId, taskId);
 
+          const numberedCriteria = workUnit.acceptanceCriteria
+            .map((criterion, index) => `ACCEPTANCE-${index + 1}: ${criterion}`)
+            .join("\n");
+
           const modelRequest: ModelExecutionRequest = {
             id: `model-request-${taskId}-${Date.now()}`,
             taskId,
@@ -264,13 +334,20 @@ export class ProjectOwnerMachineApi {
             messages: [
               {
                 role: "system",
-                content:
-                  "You are the coding engine inside K.I.N.G.S. Coding Machine. Return ONLY FILE blocks. Every file must start exactly with FILE: relative/path [create|replace], followed by complete file contents. No Markdown fences. No explanation outside FILE blocks. Never propose paths outside the authorized workspace.",
+                content: [
+                  "You are the production coding engine inside K.I.N.G.S. Coding Machine.",
+                  "Generate real runnable software, never placeholder-only, mock-only, TODO-only, pseudocode, or fake-success code.",
+                  "Return ONLY FILE blocks. Every file must start exactly with FILE: relative/path [create|replace], followed by complete file contents. No Markdown fences and no explanation outside FILE blocks.",
+                  "Include every manifest, configuration, source file, and automated test required for the project to install, build, run, and verify in a clean project workspace.",
+                  "Every acceptance criterion must be exercised by executable tests or a real launch/smoke path. Do not write tests that merely assert true, print a green marker, or duplicate the implementation without exercising behavior.",
+                  "For browser applications, include a responsive viewport and layouts usable on Chromebook and Android phone/tablet screens.",
+                  "Never propose paths outside the authorized workspace. K.I.N.G.S. will independently execute build/test/smoke verification and reject uncovered criteria.",
+                ].join(" "),
               },
               {
                 role: "user",
                 content:
-                  `${workUnit.objective}\n\nAcceptance criteria:\n${workUnit.acceptanceCriteria.join("\n")}\n\nTask: ${task.description}`,
+                  `${workUnit.objective}\n\nAcceptance criteria:\n${numberedCriteria}\n\nTask: ${task.description}\n\nBuild the complete project in the current isolated workspace.`,
               },
             ],
             requiredCapabilities: [
@@ -290,6 +367,10 @@ export class ProjectOwnerMachineApi {
             allowToolProposals: false,
           };
 
+          const explicitModel = Boolean(
+            request.preferredProviderId || request.preferredModelId,
+          );
+
           const routing: ModelRoutingRequest = {
             requiredCapabilities: [
               "reasoning",
@@ -303,7 +384,10 @@ export class ProjectOwnerMachineApi {
             minimumCapabilityStrength: 70,
             requiredInputModality: "text",
             requiredOutputModality: "text",
-            preferInternal: true,
+            preferInternal: !explicitModel,
+            preferredProviderId: request.preferredProviderId,
+            preferredModelId: request.preferredModelId,
+            allowUnverifiedExplicitSelection: explicitModel,
             maximumEstimatedCost: 0,
           };
 
@@ -330,9 +414,9 @@ export class ProjectOwnerMachineApi {
                     steps: [
                       {
                         id: taskId,
-                        language: "typescript",
+                        language: "text",
                         operation: "create",
-                        capabilityId: "engineering-typescript",
+                        capabilityId: "engineering-project",
                         sequence: 1,
                       },
                     ],
@@ -342,41 +426,29 @@ export class ProjectOwnerMachineApi {
                   },
                   step: {
                     id: taskId,
-                    language: "typescript",
+                    language: "text",
                     operation: "create",
-                    capabilityId: "engineering-typescript",
+                    capabilityId: "engineering-project",
                     sequence: 1,
                   },
                   workspace: {
                     id: `workspace-${missionId}`,
                     projectId: missionId,
-                    rootPath: this.workspaceRoot,
+                    rootPath: missionWorkspace,
                     allowedPaths: workUnit.allowedPaths,
-                    allowedLanguages: ["typescript"],
-                    allowedOperations: ["create"],
+                    allowedLanguages: PROJECT_LANGUAGES,
+                    allowedOperations: ["create", "replace"],
                     active: true,
                   },
                   repairStep: {
                     id: `repair-${taskId}`,
                     strategy: "edit",
-                    description: "Repair generated application until verification passes.",
+                    description: "Write or repair generated application until governed verification passes.",
                     reason: "Bounded local build/test recovery.",
                     required: true,
                   },
-                  buildTestSteps: [
-                    {
-                      id: `verify-linux-${taskId}`,
-                      operation: "validate",
-                      command: process.execPath,
-                      args: ["-e", [
-                        "const fs = require('node:fs');",
-                        `const value = fs.readFileSync(${JSON.stringify(workUnit.acceptanceCriteria.some((criterion) => criterion.includes("source file exists")) ? "src/owner-model-proof.ts" : "package.json")}, 'utf8');`,
-                        `if (${JSON.stringify(workUnit.acceptanceCriteria.join(" "))}.includes('KINGS_OWNER_MODEL_GREEN') && !value.includes('KINGS_OWNER_MODEL_GREEN')) process.exit(2);`,
-                        "console.log('KINGS_OWNER_MODEL_VERIFIED');",
-                      ].join(" ")],
-                      workingDirectory: this.workspaceRoot,
-                    },
-                  ],
+                  buildTestSteps: [],
+                  autoPlanBuildTest: true,
                   requiredCriteria: workUnit.acceptanceCriteria,
                 },
               },
@@ -389,9 +461,10 @@ export class ProjectOwnerMachineApi {
           return {
             ok: result.completed,
             message: result.completed
-              ? `Coding task "${taskId}" completed and verified.`
-              : `Coding task "${taskId}" did not satisfy completion criteria.`,
+              ? `Coding task "${taskId}" completed with project-aware build/test verification.`
+              : `Coding task "${taskId}" did not satisfy real completion criteria.`,
             diagnostics: result.failureDiagnostics,
+            workspacePath: missionWorkspace,
             view: {
               mission: next.mission,
               plan: next.plan,
@@ -409,6 +482,7 @@ export class ProjectOwnerMachineApi {
             ok: false,
             message: `Coding task "${taskId ?? "unknown"}" failed during governed execution.`,
             diagnostics,
+            workspacePath: missionWorkspace,
             view: {
               mission: failed.mission,
               plan: failed.plan,
