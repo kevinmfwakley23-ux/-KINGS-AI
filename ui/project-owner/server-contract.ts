@@ -35,8 +35,10 @@ import type {
 } from "../../core/workforce/execution-sandbox";
 import {
   registerKingsAiGatewayRuntime,
+  selectKingsAiGatewayCodingRoute,
   synchronizeKingsAiGatewayRuntime,
   type KingsAiGatewayRuntime,
+  type KingsGatewayCodingRoute,
   type KingsGatewayRuntimeSynchronization,
 } from "../../core/workforce/ai-gateway-runtime";
 import {
@@ -232,6 +234,7 @@ export class ProjectOwnerMachineServerController
   private readonly localModel: OllamaIntelligenceModel;
   private readonly localAdapter: GovernedInternalIntelligenceAdapter;
   private readonly localMetricKey: string;
+  private gatewayDefaultRoute?: KingsGatewayCodingRoute;
 
   constructor(
     machine: KingsCodingMachine,
@@ -288,10 +291,9 @@ export class ProjectOwnerMachineServerController
       model: this.localModel.identity,
       capabilities: capabilitiesForModel.map((capability) => ({
         capability,
-        strength: capability === "coding" ? 90 : 82,
-        status: "verified" as const,
-        evidenceReferences: ["real-local-1.5b-acceptance"],
-        verifiedAt: new Date().toISOString(),
+        strength: capability === "coding" ? 80 : 74,
+        status: "unverified" as const,
+        evidenceReferences: ["local-model-runtime-registration"],
       })),
     });
 
@@ -301,7 +303,12 @@ export class ProjectOwnerMachineServerController
     );
     this.metrics.set(
       this.localMetricKey,
-      { estimatedCost: 0, latencyMs: 1_000, reliability: localModelAvailable ? 85 : 20 },
+      {
+        estimatedCost: 0,
+        costBasis: "configured-estimate",
+        latencyMs: 1_000,
+        reliability: localModelAvailable ? 85 : 20,
+      },
     );
 
     if (runtime.gatewayRuntime) {
@@ -310,6 +317,9 @@ export class ProjectOwnerMachineServerController
         this.providers,
         this.capabilities,
         this.metrics,
+      );
+      this.gatewayDefaultRoute = selectKingsAiGatewayCodingRoute(
+        runtime.gatewayRuntime,
       );
     }
 
@@ -396,6 +406,7 @@ export class ProjectOwnerMachineServerController
       this.localMetricKey,
       {
         estimatedCost: 0,
+        costBasis: "configured-estimate",
         latencyMs: 1_000,
         reliability: available ? 85 : 20,
       },
@@ -405,12 +416,14 @@ export class ProjectOwnerMachineServerController
   synchronizeGatewayRuntime(
     runtime: KingsAiGatewayRuntime,
   ): KingsGatewayRuntimeSynchronization {
-    return synchronizeKingsAiGatewayRuntime(
+    const synchronization = synchronizeKingsAiGatewayRuntime(
       runtime,
       this.providers,
       this.capabilities,
       this.metrics,
     );
+    this.gatewayDefaultRoute = selectKingsAiGatewayCodingRoute(runtime);
+    return synchronization;
   }
 
   hasProcessIsolation(): boolean {
@@ -432,10 +445,28 @@ export class ProjectOwnerMachineServerController
       return this.api.handle(normalizedRequest);
     }
 
-    if (!this.hasProcessIsolation() && normalizedRequest.missionId) {
+    const fallbackRoute = this.localModel.identity.available
+      ? {
+          providerId: this.localModel.identity.providerId,
+          modelId: this.localModel.identity.modelId,
+        }
+      : undefined;
+    const defaultRoute = this.gatewayDefaultRoute ?? fallbackRoute;
+    const routedRequest =
+      !normalizedRequest.preferredProviderId &&
+      !normalizedRequest.preferredModelId &&
+      defaultRoute
+        ? {
+            ...normalizedRequest,
+            preferredProviderId: defaultRoute.providerId,
+            preferredModelId: defaultRoute.modelId,
+          }
+        : normalizedRequest;
+
+    if (!this.hasProcessIsolation() && routedRequest.missionId) {
       const snapshot = await this.api.handle({
         action: "snapshot",
-        missionId: normalizedRequest.missionId,
+        missionId: routedRequest.missionId,
       });
       if (snapshot.repository) {
         return {
@@ -448,10 +479,10 @@ export class ProjectOwnerMachineServerController
     }
 
     return this.api.handle({
-      ...normalizedRequest,
-      editor: normalizedRequest.editor ?? this.editor,
+      ...routedRequest,
+      editor: routedRequest.editor ?? this.editor,
       buildTestOptions:
-        normalizedRequest.buildTestOptions ?? this.buildTestOptions,
+        routedRequest.buildTestOptions ?? this.buildTestOptions,
     });
   }
 }
