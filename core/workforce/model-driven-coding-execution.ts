@@ -8,6 +8,7 @@ import type {
 
 import type {
   ModelExecutionRequest,
+  ModelToolDefinition,
 } from "./model-interface";
 
 import {
@@ -93,6 +94,8 @@ export class ModelDrivenCodingExecutionAuthority {
       ResilientModelExecutionAuthority,
     private readonly governedToolLoop?:
       GovernedModelToolLoop,
+    private readonly governedToolDefinitions:
+      readonly ModelToolDefinition[] = [],
   ) {
     this.resilientExecution =
       resilientExecution ??
@@ -112,9 +115,23 @@ export class ModelDrivenCodingExecutionAuthority {
       >[1],
   ):
     Promise<CodingWorkUnitExecutionResult> {
+    const toolsActive = Boolean(
+      this.governedToolLoop &&
+      this.governedToolDefinitions.length > 0,
+    );
+    const initialModelRequest = toolsActive
+      ? this.withGovernedTools(request.modelRequest)
+      : request.modelRequest;
+    const routingRequest: ModelRoutingRequest = toolsActive
+      ? {
+          ...request.routing,
+          requireToolCalling: true,
+        }
+      : request.routing;
+
     const route =
       this.router.route(
-        request.routing,
+        routingRequest,
       );
 
     if (
@@ -131,7 +148,7 @@ export class ModelDrivenCodingExecutionAuthority {
       request.machineRequest.execution.workUnit.budget.maxIterations,
     );
 
-    let modelRequest = request.modelRequest;
+    let modelRequest = initialModelRequest;
     let lastResult: CodingWorkUnitExecutionResult | undefined;
     let lastError: Error | undefined;
     let previousModelContent = "";
@@ -208,7 +225,7 @@ export class ModelDrivenCodingExecutionAuthority {
         }
 
         modelRequest = this.createRepairRequest(
-          request.modelRequest,
+          initialModelRequest,
           modelRequest,
           previousModelContent,
           diagnostics ||
@@ -232,7 +249,7 @@ export class ModelDrivenCodingExecutionAuthority {
         }
 
         modelRequest = this.createRepairRequest(
-          request.modelRequest,
+          initialModelRequest,
           modelRequest,
           previousModelContent,
           caught.message,
@@ -249,6 +266,20 @@ export class ModelDrivenCodingExecutionAuthority {
       new Error(
         "K.I.N.G.S. Model Driven Coding: coding loop ended without a verified result.",
       );
+  }
+
+  private withGovernedTools(
+    request: ModelExecutionRequest,
+  ): ModelExecutionRequest {
+    return {
+      ...request,
+      allowToolProposals: true,
+      toolDefinitions: this.governedToolDefinitions.map((tool) => ({
+        ...tool,
+        inputSchema: { ...tool.inputSchema },
+      })),
+      parallelToolCalls: false,
+    };
   }
 
   private executeModel(
