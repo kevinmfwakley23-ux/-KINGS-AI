@@ -241,10 +241,36 @@ async function main(): Promise<void> {
     "owner HTTP Auto mode must not collapse the superhost candidate pool to one route",
   );
 
+  const controllerSource = await readFile(
+    join(process.cwd(), "ui", "project-owner", "server-contract.ts"),
+    "utf8",
+  );
+  assert.doesNotMatch(
+    controllerSource,
+    /gatewayDefaultRoute/,
+    "server controller must not store a hidden single-model Auto route",
+  );
+  assert.doesNotMatch(
+    controllerSource,
+    /selectKingsAiGatewayCodingRoute/,
+    "server controller must not convert Auto mode into an explicit gateway choice",
+  );
+  assert.doesNotMatch(
+    controllerSource,
+    /preferredProviderId:\s*defaultRoute\.providerId/,
+    "server controller must preserve the core router's full failover pool",
+  );
+  assert.match(
+    controllerSource,
+    /\.\.\.normalizedRequest,[\s\S]*editor:/,
+    "server controller must pass owner routing intent through unchanged",
+  );
+
   console.log("K.I.N.G.S. SUPERHOST → AUTO MULTI-ROUTE CANDIDATES: SUCCESS");
   console.log("K.I.N.G.S. SUPERHOST → OMNIROUTE FAILURE → 9ROUTER RECOVERY: SUCCESS");
   console.log("K.I.N.G.S. SUPERHOST → EXPLICIT MODEL REMAINS PINNED: SUCCESS");
   console.log("K.I.N.G.S. OWNER HTTP → AUTO DOES NOT PIN ONE MODEL: SUCCESS");
+  console.log("K.I.N.G.S. SERVER CONTROLLER → AUTO DOES NOT PIN ONE MODEL: SUCCESS");
   console.log("TREE-KCM-SUPERHOST-MULTI-ROUTE-FAILOVER: SUCCESS");
 }
 
