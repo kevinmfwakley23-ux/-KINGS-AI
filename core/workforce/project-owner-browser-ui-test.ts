@@ -50,6 +50,23 @@ async function main(): Promise<void> {
     html.includes("Promise.all([loadModels(),health()])"),
     "Refresh AI does not refresh both routing and runtime health",
   );
+  assert(
+    html.includes("Gateway-first routing with independent build/test verification."),
+    "KINGS Auto does not describe the real gateway-first verification path",
+  );
+  assert(
+    html.includes("KINGS Auto · gateway-first with build/test verification"),
+    "selected-routing status does not describe the real KINGS Auto policy",
+  );
+  assert(
+    html.includes("p.localFallback?.ok") && html.includes("p.localFallback?.message"),
+    "browser AI status does not consume the server's real localFallback contract",
+  );
+  assert(
+    !/verified,\s*local-first/i.test(html) &&
+      !/verified local-first/i.test(html),
+    "owner UI contains a stale fake local-first verification claim",
+  );
 
   const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/i);
   assert(scriptMatch?.[1], "owner UI inline application script is missing");
@@ -76,6 +93,8 @@ async function main(): Promise<void> {
   );
 
   console.log("K.I.N.G.S. OWNER UI → BROWSER JAVASCRIPT SYNTAX: SUCCESS");
+  console.log("K.I.N.G.S. OWNER UI → GATEWAY-FIRST TRUTH CONTRACT: SUCCESS");
+  console.log("K.I.N.G.S. OWNER UI → LOCAL FALLBACK API CONTRACT: SUCCESS");
   console.log("K.I.N.G.S. OWNER UI → GITHUB WORKSPACE CONTROLS: SUCCESS");
   console.log("K.I.N.G.S. OWNER UI → HOST ISOLATION STATUS: SUCCESS");
   console.log("K.I.N.G.S. OWNER UI → CHROMEBOOK/ANDROID RESPONSIVE CONTRACT: SUCCESS");
