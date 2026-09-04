@@ -171,6 +171,29 @@ export class ProviderAdapterRegistry {
       };
     }
 
+    const registeredModel = adapter.getModel(modelId);
+    if (registeredModel && !registeredModel.identity.available) {
+      const now = new Date().toISOString();
+      return {
+        success: false,
+        failure: {
+          requestId: request.id,
+          providerId,
+          modelId,
+          retryable: true,
+          code: "MODEL_UNAVAILABLE",
+          message:
+            `Model "${modelId}" is currently unavailable on provider "${providerId}".`,
+          metadata: {
+            requestId: request.id,
+            startedAt: now,
+            completedAt: now,
+            latencyMs: 0,
+          },
+        },
+      };
+    }
+
     const result = await adapter.execute(
       modelId,
       request,
