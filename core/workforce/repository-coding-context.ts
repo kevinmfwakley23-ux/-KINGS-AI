@@ -97,6 +97,38 @@ function isSensitivePath(path: string): boolean {
   return false;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function redactSensitiveFileReferences(
+  content: string,
+  sensitiveFiles: readonly RepositoryFileSummary[],
+): string {
+  const references = new Set<string>();
+
+  for (const file of sensitiveFiles) {
+    const normalized = file.relativePath.replaceAll("\\", "/");
+    const name = normalized.split("/").at(-1);
+    references.add(normalized);
+    if (name) references.add(name);
+  }
+
+  let redacted = content;
+  const orderedReferences = [...references]
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length);
+
+  for (const reference of orderedReferences) {
+    redacted = redacted.replace(
+      new RegExp(escapeRegExp(reference), "gi"),
+      "[REDACTED SENSITIVE PATH]",
+    );
+  }
+
+  return redacted;
+}
+
 function terms(value: string): Set<string> {
   return new Set(
     value
@@ -242,7 +274,8 @@ export class RepositoryCodingContextAuthority {
       if (searchedBytes + file.sizeBytes > maxSearchBytes) continue;
       searchedBytes += file.sizeBytes;
       try {
-        const content = await inspector.readTextFile(source, file.relativePath);
+        const rawContent = await inspector.readTextFile(source, file.relativePath);
+        const content = redactSensitiveFileReferences(rawContent, sensitiveFiles);
         contentScores.set(
           file.relativePath,
           scoreContent(content, objectiveTerms),
@@ -292,7 +325,8 @@ export class RepositoryCodingContextAuthority {
       }
       let content: string;
       try {
-        content = await inspector.readTextFile(source, file.relativePath);
+        const rawContent = await inspector.readTextFile(source, file.relativePath);
+        content = redactSensitiveFileReferences(rawContent, sensitiveFiles);
       } catch {
         continue;
       }
@@ -317,7 +351,7 @@ export class RepositoryCodingContextAuthority {
 
     if (sensitiveFiles.length > 0) {
       sections.push(
-        "\n\nSECURITY NOTICE: K.I.N.G.S. detected sensitive repository files and intentionally withheld both their names and contents from model context. Never request, infer, reproduce, or overwrite credentials or secrets from unavailable source.",
+        "\n\nSECURITY NOTICE: K.I.N.G.S. detected sensitive repository files and intentionally withheld both their names and contents from model context. References to those detected sensitive paths inside otherwise-safe source were redacted as well. Never request, infer, reproduce, or overwrite credentials or secrets from unavailable source.",
       );
     }
 
