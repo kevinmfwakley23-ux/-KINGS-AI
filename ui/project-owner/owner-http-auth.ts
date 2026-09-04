@@ -143,5 +143,7 @@ export function ownerPairingCookieHeaders(input: {
 }
 
 export function protectedApiPath(pathname: string): boolean {
-  return pathname.startsWith("/api/");
+  return pathname.startsWith("/api/") ||
+    pathname === "/health" ||
+    pathname === "/ready";
 }
