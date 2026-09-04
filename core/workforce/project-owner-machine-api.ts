@@ -56,6 +56,16 @@ import {
   RepositoryCodingContextAuthority,
 } from "./repository-coding-context";
 
+import {
+  DurableInferenceEconomicsLedger,
+  type InferenceEconomicsSummary,
+  type PaidEscalationMode,
+} from "./inference-economics";
+
+import {
+  ProviderQuotaAuthority,
+} from "./provider-quota-state";
+
 export interface ProjectOwnerMachineApiRequest {
   action:
     | "create-mission"
@@ -68,18 +78,20 @@ export interface ProjectOwnerMachineApiRequest {
   missionId?: ID;
   preferredProviderId?: ID;
   preferredModelId?: ID;
-  /**
-   * Owner-controlled economics policy for this execution. Economy is the
-   * default. Free-only and local-only are hard routing boundaries; quality is
-   * an explicit opt-in escalation policy.
-   */
+  /** Owner-controlled route policy. Economy is the default. */
   costPreference?: ModelCostPreference;
-  /**
-   * Optional hard route-cost ceiling. Unknown price is not represented as zero;
-   * the ModelRouter remains the authority that decides whether a route has
-   * sufficient cost evidence to satisfy the ceiling.
-   */
+  /** Optional hard cost ceiling for an individual selected route. */
   maximumEstimatedCost?: number;
+  /** Hard inference-spend budgets. Omitted values mean no extra ceiling. */
+  missionBudgetUsd?: number;
+  dayBudgetUsd?: number;
+  monthBudgetUsd?: number;
+  missionPaidTokenBudget?: number;
+  dayPaidTokenBudget?: number;
+  monthPaidTokenBudget?: number;
+  /** Production default is ask: paid fallback requires explicit owner approval. */
+  paidEscalation?: PaidEscalationMode;
+  approvedPaidEscalation?: boolean;
   editor?: EngineeringRepairEditor;
   buildTestOptions?: ConstructorParameters<
     typeof import("./coding-work-unit-execution").CodingWorkUnitExecutionAuthority
@@ -93,6 +105,7 @@ export interface ProjectOwnerMachineApiResponse {
   plan?: MissionPlan;
   diagnostics?: string;
   workspacePath?: string;
+  economics?: InferenceEconomicsSummary;
   repository?: {
     repositoryId: string;
     baseRef: string;
@@ -153,6 +166,8 @@ function safeWorkspaceSegment(value: string): string {
 
 export class ProjectOwnerMachineApi {
   private readonly controller: ProjectOwnerUiController;
+  private readonly economicsLedger: DurableInferenceEconomicsLedger;
+  private readonly quotaAuthority: ProviderQuotaAuthority;
 
   constructor(
     private readonly machine: KingsCodingMachine,
@@ -168,8 +183,15 @@ export class ProjectOwnerMachineApi {
     private readonly repositoryWorkspace?: GitHubRepositoryWorkspaceAuthority,
     private readonly repositoryCodingContext: RepositoryCodingContextAuthority =
       new RepositoryCodingContextAuthority(),
+    economicsLedger?: DurableInferenceEconomicsLedger,
+    quotaAuthority?: ProviderQuotaAuthority,
   ) {
     this.controller = controller;
+    this.economicsLedger = economicsLedger ??
+      new DurableInferenceEconomicsLedger(
+        join(this.workspaceRoot, "..", "inference-economics.jsonl"),
+      );
+    this.quotaAuthority = quotaAuthority ?? new ProviderQuotaAuthority();
   }
 
   async handle(
@@ -243,6 +265,7 @@ export class ProjectOwnerMachineApi {
             ? `GitHub repository ${preparedRepository.metadata.repositoryId} checked out on ${preparedRepository.metadata.publishBranch}. Vision compiled into an executable coding mission; human approval is required before code changes execute.`
             : "Vision compiled into an executable coding mission. Human approval is required before execution.",
           workspacePath: missionWorkspace,
+          economics: await this.economicsLedger.summarize(design.id),
           repository: preparedRepository
             ? {
                 repositoryId: preparedRepository.metadata.repositoryId,
@@ -287,6 +310,7 @@ export class ProjectOwnerMachineApi {
           message: "Mission plan approved.",
           plan,
           workspacePath: missionWorkspace,
+          economics: await this.economicsLedger.summarize(missionId),
           repository: repositoryResponse,
           view: {
             mission: snapshot.mission,
@@ -304,6 +328,7 @@ export class ProjectOwnerMachineApi {
           message: "Mission plan locked and ready for governed execution.",
           plan,
           workspacePath: missionWorkspace,
+          economics: await this.economicsLedger.summarize(missionId),
           repository: repositoryResponse,
           view: {
             mission: snapshot.mission,
@@ -323,6 +348,7 @@ export class ProjectOwnerMachineApi {
             state: snapshot.state,
           }),
           workspacePath: missionWorkspace,
+          economics: await this.economicsLedger.summarize(missionId),
           repository: repositoryResponse,
           view: {
             mission: snapshot.mission,
@@ -343,6 +369,7 @@ export class ProjectOwnerMachineApi {
               ok: false,
               message: "Mission must be approved and locked before execution.",
               workspacePath: missionWorkspace,
+              economics: await this.economicsLedger.summarize(missionId),
               repository: repositoryResponse,
               view: {
                 mission: snapshot.mission,
@@ -357,6 +384,7 @@ export class ProjectOwnerMachineApi {
               ok: false,
               message: "Mission has more than one active task; execution routing is ambiguous.",
               workspacePath: missionWorkspace,
+              economics: await this.economicsLedger.summarize(missionId),
               repository: repositoryResponse,
               view: {
                 mission: snapshot.mission,
@@ -381,6 +409,7 @@ export class ProjectOwnerMachineApi {
               ok: false,
               message: "No executable coding task is available for this mission.",
               workspacePath: missionWorkspace,
+              economics: await this.economicsLedger.summarize(missionId),
               repository: repositoryResponse,
               view: {
                 mission: snapshot.mission,
@@ -499,6 +528,21 @@ export class ProjectOwnerMachineApi {
             {
               modelRequest,
               routing,
+              economics: {
+                ledger: this.economicsLedger,
+                policy: {
+                  missionUsd: request.missionBudgetUsd,
+                  dayUsd: request.dayBudgetUsd,
+                  monthUsd: request.monthBudgetUsd,
+                  missionPaidTokens: request.missionPaidTokenBudget,
+                  dayPaidTokens: request.dayPaidTokenBudget,
+                  monthPaidTokens: request.monthPaidTokenBudget,
+                  paidEscalation: request.paidEscalation ?? "ask",
+                },
+                approvedPaidEscalation:
+                  request.approvedPaidEscalation === true,
+                quotaAuthority: this.quotaAuthority,
+              },
               machineRequest: {
                 proposalParser: {
                   expectedTaskId: taskId,
@@ -562,6 +606,7 @@ export class ProjectOwnerMachineApi {
           );
 
           const next = this.machine.snapshot(missionId);
+          const economics = await this.economicsLedger.summarize(missionId);
 
           if (result.completed && managedRepository && this.repositoryWorkspace) {
             try {
@@ -581,6 +626,7 @@ export class ProjectOwnerMachineApi {
                   : `Coding task "${taskId}" completed with project-aware build/test verification. ${publication.message}`,
                 diagnostics: result.failureDiagnostics,
                 workspacePath: missionWorkspace,
+                economics,
                 repository: {
                   ...repositoryResponse!,
                   published: publication.published,
@@ -602,6 +648,7 @@ export class ProjectOwnerMachineApi {
                   `Coding task "${taskId}" passed real project verification, but GitHub publication failed. The verified local checkout was preserved for recovery.`,
                 diagnostics,
                 workspacePath: missionWorkspace,
+                economics,
                 repository: {
                   ...repositoryResponse!,
                   published: false,
@@ -623,6 +670,7 @@ export class ProjectOwnerMachineApi {
               : `Coding task "${taskId}" did not satisfy real completion criteria.`,
             diagnostics: result.failureDiagnostics,
             workspacePath: missionWorkspace,
+            economics,
             repository: repositoryResponse
               ? {
                   ...repositoryResponse,
@@ -647,6 +695,7 @@ export class ProjectOwnerMachineApi {
             message: `Coding task "${taskId ?? "unknown"}" failed during governed execution.`,
             diagnostics,
             workspacePath: missionWorkspace,
+            economics: await this.economicsLedger.summarize(missionId),
             repository: repositoryResponse,
             view: {
               mission: failed.mission,
