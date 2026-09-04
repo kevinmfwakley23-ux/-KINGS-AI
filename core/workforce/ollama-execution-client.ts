@@ -21,6 +21,16 @@ export interface OllamaHttpTransport {
   ): Promise<unknown>;
 }
 
+function nonNegativeInteger(
+  value: unknown,
+): number {
+  return typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= 0
+      ? Math.floor(value)
+      : 0;
+}
+
 export class HttpOllamaExecutionClient
   implements OllamaExecutionClient {
   constructor(
@@ -70,6 +80,8 @@ export class HttpOllamaExecutionClient
       const payload = response as {
         response?: unknown;
         done?: unknown;
+        prompt_eval_count?: unknown;
+        eval_count?: unknown;
       };
 
       if (typeof payload.response !== "string") {
@@ -83,6 +95,17 @@ export class HttpOllamaExecutionClient
         );
       }
 
+      const inputTokens =
+        nonNegativeInteger(
+          payload.prompt_eval_count,
+        );
+      const outputTokens =
+        nonNegativeInteger(
+          payload.eval_count,
+        );
+      const totalTokens =
+        inputTokens + outputTokens;
+
       const completedAt = new Date();
       return {
         success: true,
@@ -93,11 +116,12 @@ export class HttpOllamaExecutionClient
           toolCallProposals: [],
           usage: {
             elapsedMs: completedAt.getTime() - startedAt.getTime(),
-            tokensUsed: 0,
+            tokensUsed: totalTokens,
             iterationsUsed: 1,
-            inputTokens: 0,
-            outputTokens: 0,
+            inputTokens,
+            outputTokens,
             estimatedCost: 0,
+            reportedCostUsd: 0,
           },
           metadata: {
             requestId: request.id,
