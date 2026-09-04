@@ -53,8 +53,20 @@ class TestTransport
         text: "",
         body: {
           data: [
-            { id: "auto/coding" },
+            {
+              id: "auto/coding",
+              context_length: 200_000,
+              supported_parameters: [
+                "tools",
+                "tool_choice",
+                "response_format",
+              ],
+              architecture: {
+                input_modalities: ["text", "image"],
+              },
+            },
             { id: "kr/claude-sonnet-4.5" },
+            { id: "embed-vector" },
           ],
         },
       };
@@ -143,7 +155,11 @@ async function runTest(): Promise<void> {
           modelId: "auto/coding",
           displayName: "OmniRoute auto/coding",
           capabilities,
+          // This intentionally has no provenance. Runtime-generated hints must
+          // never become trusted execution metadata merely because they exist.
           contextWindowTokens: 200_000,
+          supportsToolCalling: true,
+          supportsStructuredOutput: true,
         },
       ],
     },
@@ -162,8 +178,17 @@ async function runTest(): Promise<void> {
     adapter.listModels().length === 1,
     "Configured gateway model was not registered.",
   );
+  const preDiscovery = adapter.getModel("auto/coding")?.identity;
+  assert(
+    preDiscovery?.contextWindowTokens === 0 &&
+      preDiscovery.supportsToolCalling === false &&
+      preDiscovery.supportsStructuredOutput === false &&
+      preDiscovery.inputModalities.length === 1 &&
+      preDiscovery.inputModalities[0] === "text",
+    "Unproven configured metadata must fail closed instead of inheriting optimistic defaults.",
+  );
 
-  console.log("GATEWAY-001 provider registration: SUCCESS");
+  console.log("GATEWAY-001 provider registration and fail-closed metadata: SUCCESS");
 
   const health = await adapter.health();
   assert(health.ok, "Gateway health probe failed.");
@@ -171,8 +196,43 @@ async function runTest(): Promise<void> {
     health.models.includes("auto/coding"),
     "Gateway model discovery did not preserve remote model ids.",
   );
+  assert(
+    !health.codingModels.includes("embed-vector"),
+    "Embedding-only model must not enter the chat/coding catalog.",
+  );
 
-  console.log("GATEWAY-002 /v1/models health discovery: SUCCESS");
+  const enriched = adapter.getModel("auto/coding")?.identity;
+  const enrichedMetadata = adapter.getModelMetadata("auto/coding");
+  assert(
+    enriched?.contextWindowTokens === 200_000 &&
+      enriched.supportsToolCalling === true &&
+      enriched.supportsStructuredOutput === true &&
+      enriched.inputModalities.includes("image"),
+    "Gateway-reported model metadata did not enrich the configured seed.",
+  );
+  assert(
+    enrichedMetadata?.origin === "configured" &&
+      enrichedMetadata.contextWindowTokens.source === "gateway-reported" &&
+      enrichedMetadata.supportsToolCalling.source === "gateway-reported" &&
+      enrichedMetadata.supportsStructuredOutput.source === "gateway-reported" &&
+      enrichedMetadata.inputModalities.source === "gateway-reported",
+    "Gateway-reported metadata provenance was not preserved.",
+  );
+
+  const opaqueDiscovered = adapter.getModel("kr/claude-sonnet-4.5")?.identity;
+  const opaqueMetadata = adapter.getModelMetadata("kr/claude-sonnet-4.5");
+  assert(
+    opaqueDiscovered?.contextWindowTokens === 0 &&
+      opaqueDiscovered.supportsToolCalling === false &&
+      opaqueDiscovered.supportsStructuredOutput === false &&
+      opaqueDiscovered.inputModalities.length === 1 &&
+      opaqueDiscovered.inputModalities[0] === "text" &&
+      opaqueMetadata?.origin === "discovered" &&
+      opaqueMetadata.contextWindowTokens.source === "unknown",
+    "Opaque discovered aliases must remain reachable without invented metadata.",
+  );
+
+  console.log("GATEWAY-002 /v1/models metadata discovery and provenance: SUCCESS");
 
   const result = await adapter.execute(
     "auto/coding",
@@ -229,6 +289,89 @@ async function runTest(): Promise<void> {
 
   console.log("GATEWAY-005 malformed response governance: SUCCESS");
 
+  transport.mode = "success";
+  const dynamicResult = await adapter.execute(
+    "provider/new-opaque-alias",
+    request(),
+  );
+  assert(
+    dynamicResult.success,
+    "Dynamic opaque aliases must remain usable for plain text/coding requests.",
+  );
+  const dynamicIdentity = adapter.getModel("provider/new-opaque-alias")?.identity;
+  const dynamicMetadata = adapter.getModelMetadata("provider/new-opaque-alias");
+  assert(
+    dynamicIdentity?.contextWindowTokens === 0 &&
+      dynamicIdentity.supportsToolCalling === false &&
+      dynamicIdentity.supportsStructuredOutput === false &&
+      dynamicMetadata?.origin === "dynamic" &&
+      dynamicMetadata.supportsToolCalling.source === "unknown",
+    "Dynamic aliases must not inherit invented gateway capabilities.",
+  );
+
+  const unsafeToolRequest: ModelExecutionRequest = {
+    ...request(),
+    id: "request-gateway-tool-safety",
+    allowToolProposals: true,
+    toolDefinitions: [
+      {
+        toolId: "repo.read",
+        description: "Read a repository file.",
+        inputSchema: { type: "object" },
+      },
+    ],
+  };
+  const rejectedToolUse = await adapter.execute(
+    "provider/another-opaque-alias",
+    unsafeToolRequest,
+  );
+  assert(
+    !rejectedToolUse.success &&
+      rejectedToolUse.failure?.code === "CAPABILITY_MISMATCH",
+    "Opaque dynamic aliases must fail closed when tool support is unverified.",
+  );
+
+  console.log("GATEWAY-006 dynamic alias metadata safety: SUCCESS");
+
+  const trustedConfigured = new OpenAiCompatibleGatewayAdapter(
+    {
+      id: "trusted-config",
+      name: "Trusted Config",
+      gatewayKind: "openai-compatible",
+      baseUrl: "http://127.0.0.1:9999/v1",
+      discoverModels: false,
+      models: [
+        {
+          modelId: "verified/local-model",
+          capabilities,
+          inputModalities: ["text", "image"],
+          contextWindowTokens: 64_000,
+          supportsToolCalling: true,
+          supportsStructuredOutput: true,
+          metadataProvenance: {
+            inputModalities: "configured",
+            contextWindowTokens: "configured",
+            supportsToolCalling: "configured",
+            supportsStructuredOutput: "configured",
+          },
+        },
+      ],
+    },
+    new TestTransport(),
+  );
+  const trustedIdentity = trustedConfigured.getModel("verified/local-model")?.identity;
+  const trustedMetadata = trustedConfigured.getModelMetadata("verified/local-model");
+  assert(
+    trustedIdentity?.contextWindowTokens === 64_000 &&
+      trustedIdentity.supportsToolCalling === true &&
+      trustedIdentity.supportsStructuredOutput === true &&
+      trustedIdentity.inputModalities.includes("image") &&
+      trustedMetadata?.contextWindowTokens.source === "configured",
+    "Explicitly proven configured metadata must remain available to routing and execution.",
+  );
+
+  console.log("GATEWAY-007 explicit configured metadata provenance: SUCCESS");
+
   const nineRouter = new OpenAiCompatibleGatewayAdapter(
     {
       id: "9router-local",
@@ -254,7 +397,7 @@ async function runTest(): Promise<void> {
     "9Router model was not usable through the shared adapter.",
   );
 
-  console.log("GATEWAY-006 9Router implementation: SUCCESS");
+  console.log("GATEWAY-008 9Router implementation: SUCCESS");
   console.log("K.I.N.G.S. OPENAI-COMPATIBLE GATEWAYS: SUCCESS");
 }
 
