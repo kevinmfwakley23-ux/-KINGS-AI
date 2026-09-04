@@ -34,9 +34,18 @@ import {
   DurableGatewayUsageLedger,
   gatewayUsageObservationFromResult,
 } from "../../core/workforce/gateway-usage-ledger";
+import {
+  authorizePairingToken,
+  createOwnerHttpAuthState,
+  isOwnerRequestAuthorized,
+  ownerPairingCookieHeaders,
+  pairingPathFromUrl,
+  pairingTokenFromUrl,
+  protectedApiPath,
+} from "./owner-http-auth";
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
-const bindHost = process.env.KINGS_CODING_MACHINE_BIND ?? "0.0.0.0";
+const bindHost = process.env.KINGS_CODING_MACHINE_BIND ?? "127.0.0.1";
 const publicHost = process.env.KINGS_CODING_MACHINE_HOST ?? "localhost";
 const stateRoot = process.env.KINGS_STATE_ROOT ?? join(process.cwd(), ".kings");
 const workspaceRoot =
@@ -54,7 +63,7 @@ const publicFile = join(process.cwd(), "ui/project-owner/index.html");
 const forgeFile = join(process.cwd(), "ui/project-owner/authors-forge.html");
 const manifestFile = join(process.cwd(), "ui/project-owner/manifest.webmanifest");
 const serviceWorkerFile = join(process.cwd(), "ui/project-owner/service-worker.js");
-const runtimeBuild = "kings-gateway-first-v7";
+const runtimeBuild = "kings-gateway-first-v8-authenticated";
 
 async function body(request: import("node:http").IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -183,11 +192,31 @@ function json(
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
   });
   res.end(JSON.stringify(value));
 }
 
+function unauthorized(
+  res: import("node:http").ServerResponse,
+  message = "Owner authentication is required.",
+): void {
+  res.writeHead(401, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    "referrer-policy": "no-referrer",
+    "www-authenticate": 'Bearer realm="K.I.N.G.S. Owner"',
+    "x-content-type-options": "nosniff",
+  });
+  res.end(JSON.stringify({ ok: false, message }));
+}
+
 async function main(): Promise<void> {
+  const ownerAuth = createOwnerHttpAuthState({
+    bindHost,
+    token: process.env.KINGS_OWNER_TOKEN,
+  });
   const usageLedger = new DurableGatewayUsageLedger(usageFile);
   const [initialGatewayRuntime, initialOllama, processIsolation] = await Promise.all([
     loadKingsAiGatewayRuntime(),
@@ -291,7 +320,51 @@ async function main(): Promise<void> {
 
   const server = createServer(async (req, res) => {
     try {
-      if (req.method === "GET" && req.url === "/health") {
+      const requestUrl = new URL(req.url ?? "/", `http://${publicHost}`);
+      const pathname = requestUrl.pathname;
+      const pairingToken = pairingTokenFromUrl(req.url);
+
+      if (
+        req.method === "GET" &&
+        ownerAuth.required &&
+        (pathname === "/" || pathname === "/authors-forge") &&
+        pairingToken
+      ) {
+        if (!authorizePairingToken(pairingToken, ownerAuth)) {
+          unauthorized(res, "The K.I.N.G.S. owner pairing token is invalid.");
+          return;
+        }
+        res.writeHead(303, {
+          ...ownerPairingCookieHeaders({ token: pairingToken }),
+          location: pairingPathFromUrl(req.url),
+        });
+        res.end();
+        return;
+      }
+
+      if (
+        ownerAuth.required &&
+        protectedApiPath(pathname) &&
+        !isOwnerRequestAuthorized(req, ownerAuth)
+      ) {
+        unauthorized(res);
+        return;
+      }
+
+      if (
+        ownerAuth.required &&
+        req.method === "GET" &&
+        (pathname === "/" || pathname === "/authors-forge") &&
+        !isOwnerRequestAuthorized(req, ownerAuth)
+      ) {
+        unauthorized(
+          res,
+          "This K.I.N.G.S. LAN runtime is paired to its owner. Open the pairing URL printed by the host launcher.",
+        );
+        return;
+      }
+
+      if (req.method === "GET" && pathname === "/health") {
         const refreshed = await refreshAiRuntime();
         const readiness = readinessFor(refreshed);
         json(res, 200, {
@@ -303,6 +376,7 @@ async function main(): Promise<void> {
           product: "K.I.N.G.S. AI Coding Machine",
           runtimeBuild,
           routingMode: "gateway-first",
+          ownerAuthRequired: ownerAuth.required,
           projectsRoot: workspaceRoot,
           continuityFile,
           usageFile,
@@ -338,7 +412,7 @@ async function main(): Promise<void> {
         return;
       }
 
-      if (req.method === "GET" && req.url === "/ready") {
+      if (req.method === "GET" && pathname === "/ready") {
         const refreshed = await refreshAiRuntime();
         const readiness = readinessFor(refreshed);
         json(res, readiness.ready ? 200 : 503, {
@@ -346,13 +420,14 @@ async function main(): Promise<void> {
           ready: readiness.ready,
           runtimeBuild,
           routingMode: "gateway-first",
+          ownerAuthRequired: ownerAuth.required,
           readiness,
           automaticRoute: selectAutomaticCodingRoute(refreshed.gateways),
         });
         return;
       }
 
-      if (req.method === "GET" && req.url === "/api/models") {
+      if (req.method === "GET" && pathname === "/api/models") {
         const refreshed = await refreshAiRuntime();
         const automaticRoute = selectAutomaticCodingRoute(refreshed.gateways);
         const localModels = enableOllamaFallback && refreshed.ollama.ok
@@ -363,6 +438,7 @@ async function main(): Promise<void> {
               modelId,
               displayName: `Local fallback: ${modelId}`,
               codingEligible: true,
+              documentedCodingRoute: false,
               verifiedCodingRoute: false,
               availabilityVerified: true,
               local: true,
@@ -384,6 +460,9 @@ async function main(): Promise<void> {
             })),
             ...localModels,
           ],
+          // Keep the older browser field temporarily while the owner UI cache
+          // rolls forward. Both fields contain the same real runtime result.
+          localRuntime: refreshed.ollama,
           localFallback: refreshed.ollama,
           gateways: refreshed.gateways.gateways.map(({ adapter, health }) => ({
             providerId: adapter.descriptor.id,
@@ -398,7 +477,7 @@ async function main(): Promise<void> {
         return;
       }
 
-      if (req.method === "GET" && req.url === "/api/usage") {
+      if (req.method === "GET" && pathname === "/api/usage") {
         const summary = await usageLedger.summarize();
         json(res, 200, {
           ok: true,
@@ -412,40 +491,44 @@ async function main(): Promise<void> {
 
       if (
         req.method === "GET" &&
-        (req.url === "/" || req.url === "/authors-forge")
+        (pathname === "/" || pathname === "/authors-forge")
       ) {
-        const file = req.url === "/authors-forge" ? forgeFile : publicFile;
+        const file = pathname === "/authors-forge" ? forgeFile : publicFile;
         const html = await readFile(file, "utf8");
         res.writeHead(200, {
           "content-type": "text/html; charset=utf-8",
           "cache-control": "no-store",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
         });
         res.end(html);
         return;
       }
 
-      if (req.method === "GET" && req.url === "/manifest.webmanifest") {
+      if (req.method === "GET" && pathname === "/manifest.webmanifest") {
         const manifest = await readFile(manifestFile, "utf8");
         res.writeHead(200, {
           "content-type": "application/manifest+json; charset=utf-8",
           "cache-control": "no-cache",
+          "x-content-type-options": "nosniff",
         });
         res.end(manifest);
         return;
       }
 
-      if (req.method === "GET" && req.url === "/service-worker.js") {
+      if (req.method === "GET" && pathname === "/service-worker.js") {
         const worker = await readFile(serviceWorkerFile, "utf8");
         res.writeHead(200, {
           "content-type": "text/javascript; charset=utf-8",
           "cache-control": "no-cache",
           "service-worker-allowed": "/",
+          "x-content-type-options": "nosniff",
         });
         res.end(worker);
         return;
       }
 
-      if (req.method === "POST" && req.url === "/api/project-owner/missions") {
+      if (req.method === "POST" && pathname === "/api/project-owner/missions") {
         const incoming = (await body(req)) as Parameters<ProjectOwnerMachineApi["handle"]>[0];
         const route =
           incoming.action === "execute-next" &&
@@ -465,14 +548,17 @@ async function main(): Promise<void> {
         return;
       }
 
-      if (req.method === "POST" && req.url === "/api/authors-forge") {
+      if (req.method === "POST" && pathname === "/api/authors-forge") {
         const request = (await body(req)) as AuthorsForgeRequest;
         const result = forgeApi.handle(request);
         json(res, result.ok ? 200 : 400, result);
         return;
       }
 
-      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      res.writeHead(404, {
+        "content-type": "text/plain; charset=utf-8",
+        "x-content-type-options": "nosniff",
+      });
       res.end("Not Found");
     } catch (error) {
       json(res, 500, {
@@ -496,6 +582,7 @@ async function main(): Promise<void> {
     console.log(`Models: http://${publicHost}:${port}/api/models`);
     console.log(`Usage: http://${publicHost}:${port}/api/usage`);
     console.log(`Bind: ${bindHost}:${port}`);
+    console.log(`Owner authentication required: ${ownerAuth.required}`);
     console.log(`Projects: ${workspaceRoot}`);
     console.log(`Mission state: ${continuityFile}`);
     console.log(`Gateway usage ledger: ${usageFile}`);
