@@ -21,6 +21,12 @@ export interface ModelRoutingRequest {
   requiredOutputModality?: IntelligenceModality;
   requireStructuredOutput?: boolean;
   requireToolCalling?: boolean;
+  /**
+   * Minimum model context window required for the assembled execution request.
+   * This is a hard capacity boundary: K.I.N.G.S. must not knowingly route a
+   * request to a model that cannot fit the required context.
+   */
+  requiredContextTokens?: number;
   preferInternal?: boolean;
   preferExternal?: boolean;
   preferredProviderId?: ID;
@@ -59,6 +65,7 @@ export interface ModelRoutingCandidate {
   costBasis: ModelCostBasis;
   latencyMs: number;
   reliability: number;
+  contextWindowTokens: number;
   internal: boolean;
 }
 
@@ -109,7 +116,8 @@ export class ModelRouter {
       .filter((match) =>
         this.supportsModalities(match, request) &&
         this.supportsStructuredOutput(match, request) &&
-        this.supportsToolCalling(match, request),
+        this.supportsToolCalling(match, request) &&
+        this.supportsContextWindow(match, request),
       )
       .map((match) => this.toCandidate(match))
       .filter((candidate) =>
@@ -138,7 +146,7 @@ export class ModelRouter {
         selected: false,
         reason: requested
           ? `Requested model route "${requested}" is unavailable or does not satisfy the routing requirements and policy constraints.`
-          : "No available model satisfies the verification, capability, provider, reliability, latency, and cost routing policies.",
+          : "No available model satisfies the verification, capability, context-window, provider, reliability, latency, and cost routing policies.",
         candidates: [],
       };
     }
@@ -174,6 +182,7 @@ export class ModelRouter {
         (estimatedCost === null ? "unknown" : "configured-estimate"),
       latencyMs: metric?.latencyMs ?? Number.MAX_SAFE_INTEGER,
       reliability: metric?.reliability ?? 0,
+      contextWindowTokens: match.model.contextWindowTokens,
       internal:
         match.model.providerKind === "internal-local" ||
         match.model.providerKind === "internal-self-hosted",
@@ -238,6 +247,14 @@ export class ModelRouter {
     return !request.requireToolCalling || match.model.supportsToolCalling;
   }
 
+  private supportsContextWindow(
+    match: ModelCapabilityMatch,
+    request: ModelRoutingRequest,
+  ): boolean {
+    return request.requiredContextTokens === undefined ||
+      match.model.contextWindowTokens >= request.requiredContextTokens;
+  }
+
   private compareCandidates(
     left: ModelRoutingCandidate,
     right: ModelRoutingCandidate,
@@ -284,7 +301,7 @@ export class ModelRouter {
       ? "cost unknown (not treated as free)"
       : `estimated cost ${candidate.estimatedCost} (${candidate.costBasis})`;
     const performance =
-      `reliability ${candidate.reliability}; latency ${candidate.latencyMs}ms`;
+      `reliability ${candidate.reliability}; latency ${candidate.latencyMs}ms; context ${candidate.contextWindowTokens} tokens`;
     if (request.preferredProviderId || request.preferredModelId) {
       const verification = request.allowUnverifiedExplicitSelection
         ? "explicit live-catalog selection under post-generation verification"
@@ -317,6 +334,18 @@ export class ModelRouter {
     if (minimumStrength < 0 || minimumStrength > 100) {
       throw new Error(
         "K.I.N.G.S. Model Router: minimum capability strength must be between 0 and 100",
+      );
+    }
+    if (
+      request.requiredContextTokens !== undefined &&
+      (
+        !Number.isFinite(request.requiredContextTokens) ||
+        !Number.isInteger(request.requiredContextTokens) ||
+        request.requiredContextTokens < 1
+      )
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Model Router: required context tokens must be a positive integer",
       );
     }
     if (
