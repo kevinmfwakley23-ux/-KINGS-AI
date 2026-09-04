@@ -8,6 +8,7 @@ import type {
 
 import type {
   ModelExecutionRequest,
+  ModelRequestMessage,
   ModelToolDefinition,
 } from "./model-interface";
 
@@ -52,15 +53,76 @@ export interface ModelDrivenCodingExecutionRequest {
     >;
 }
 
-function trimDiagnostics(
+function trimBounded(
   value: string,
-  limit = 20_000,
+  limit: number,
+  marker: string,
 ): string {
   if (value.length <= limit) {
     return value;
   }
 
-  return `${value.slice(0, limit)}\n...[diagnostics truncated by K.I.N.G.S.]`;
+  return `${value.slice(0, limit)}\n...[${marker} truncated by K.I.N.G.S.]`;
+}
+
+function trimDiagnostics(
+  value: string,
+  limit = 20_000,
+): string {
+  return trimBounded(
+    value,
+    limit,
+    "diagnostics",
+  );
+}
+
+/**
+ * Build one bounded repair turn without replaying prior failed repair turns.
+ *
+ * The original system/task/repository context stays stable for prompt caching
+ * and correctness. Only the latest generated proposal and latest executable
+ * verification evidence are carried forward. This prevents retry history from
+ * growing the model context on every iteration.
+ */
+export function buildBoundedRepairMessages(
+  originalMessages: readonly ModelRequestMessage[],
+  previousModelContent: string,
+  diagnostics: string,
+  completedIteration: number,
+): ModelRequestMessage[] {
+  return [
+    ...originalMessages.map((message) => ({
+      ...message,
+      toolCalls: message.toolCalls
+        ? message.toolCalls.map((proposal) => ({
+            ...proposal,
+            arguments: { ...proposal.arguments },
+          }))
+        : undefined,
+    })),
+    {
+      role: "assistant",
+      content: trimBounded(
+        previousModelContent,
+        12_000,
+        "previous generated FILE blocks",
+      ),
+    },
+    {
+      role: "user",
+      content: [
+        `K.I.N.G.S. real build/test verification failed after coding iteration ${completedIteration}.`,
+        "Diagnose the actual failure below and repair the project.",
+        "Return ONLY complete FILE blocks. Use [replace] for existing files that must change and [create] for new files.",
+        "Do not weaken, delete, skip, fake, or replace the acceptance tests merely to get green. Fix the product so the real checks pass.",
+        "If K.I.N.G.S. reports an uncovered acceptance criterion, add a genuine executable test or launch/smoke path that exercises that criterion.",
+        "Do not emit commentary outside FILE blocks.",
+        "",
+        "REAL VERIFICATION DIAGNOSTICS:",
+        trimDiagnostics(diagnostics),
+      ].join("\n"),
+    },
+  ];
 }
 
 function isNonRetryablePolicyFailure(
@@ -150,9 +212,9 @@ export class ModelDrivenCodingExecutionAuthority {
     ) {
       /*
        * Recalculate capacity on every repair iteration. Verification feedback,
-       * previous generated code, and provider-visible tool schemas all grow the
-       * request. Reusing the first route can therefore overflow a smaller model
-       * later in the same governed coding loop.
+       * previous generated code, and provider-visible tool schemas all affect
+       * the request. The bounded repair builder prevents historical retries
+       * from accumulating, while capacity routing still protects each turn.
        */
       const contextCapacity =
         estimateModelContextCapacity(
@@ -247,7 +309,6 @@ export class ModelDrivenCodingExecutionAuthority {
 
         modelRequest = this.createRepairRequest(
           initialModelRequest,
-          modelRequest,
           previousModelContent,
           diagnostics ||
             "The project did not pass K.I.N.G.S. project-aware completion verification.",
@@ -271,7 +332,6 @@ export class ModelDrivenCodingExecutionAuthority {
 
         modelRequest = this.createRepairRequest(
           initialModelRequest,
-          modelRequest,
           previousModelContent,
           caught.message,
           iteration,
@@ -315,8 +375,6 @@ export class ModelDrivenCodingExecutionAuthority {
   private createRepairRequest(
     original:
       ModelExecutionRequest,
-    previous:
-      ModelExecutionRequest,
     previousModelContent:
       string,
     diagnostics:
@@ -332,32 +390,13 @@ export class ModelDrivenCodingExecutionAuthority {
       ...original,
       id:
         `${original.id}-repair-${repairNumber}`,
-      messages: [
-        ...previous.messages,
-        {
-          role:
-            "assistant",
-          content:
-            previousModelContent.length > 12_000
-              ? `${previousModelContent.slice(0, 12_000)}\n...[previous generated FILE blocks truncated]`
-              : previousModelContent,
-        },
-        {
-          role:
-            "user",
-          content: [
-            `K.I.N.G.S. real build/test verification failed after coding iteration ${completedIteration}.`,
-            "Diagnose the actual failure below and repair the project.",
-            "Return ONLY complete FILE blocks. Use [replace] for existing files that must change and [create] for new files.",
-            "Do not weaken, delete, skip, fake, or replace the acceptance tests merely to get green. Fix the product so the real checks pass.",
-            "If K.I.N.G.S. reports an uncovered acceptance criterion, add a genuine executable test or launch/smoke path that exercises that criterion.",
-            "Do not emit commentary outside FILE blocks.",
-            "",
-            "REAL VERIFICATION DIAGNOSTICS:",
-            trimDiagnostics(diagnostics),
-          ].join("\n"),
-        },
-      ],
+      messages:
+        buildBoundedRepairMessages(
+          original.messages,
+          previousModelContent,
+          diagnostics,
+          completedIteration,
+        ),
       temperature:
         Math.min(
           original.temperature ?? 0.1,
