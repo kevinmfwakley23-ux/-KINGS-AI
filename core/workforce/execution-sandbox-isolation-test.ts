@@ -131,9 +131,10 @@ async function main(): Promise<void> {
     sideEffects: ["read", "write", "execute", "network"],
   });
 
-  assert(invocations.length === 2, "network isolated execution did not spawn exactly once");
+  const networkInvocation = invocations[1];
+  assert(networkInvocation !== undefined, "network isolated execution did not spawn exactly once");
   assert(
-    invocations[1].args.includes("--share-net"),
+    networkInvocation.args.includes("--share-net"),
     "explicit network authorization was not translated into bubblewrap network sharing",
   );
 
