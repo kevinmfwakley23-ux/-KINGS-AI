@@ -32,11 +32,18 @@ export interface ResilientModelExecutionOutcome {
   modelId?: ID;
 }
 
+export type ModelRouteResultObserver = (
+  providerId: ID,
+  modelId: ID,
+  result: ModelExecutionResult,
+) => void | Promise<void>;
+
 export interface ResilientModelExecutionOptions {
   failureThreshold?: number;
   cooldownMs?: number;
   maximumAttempts?: number;
   now?: () => number;
+  observeResult?: ModelRouteResultObserver;
 }
 
 interface CircuitState {
@@ -59,6 +66,7 @@ export class ResilientModelExecutionAuthority {
   private readonly cooldownMs: number;
   private readonly maximumAttempts: number;
   private readonly now: () => number;
+  private readonly observeResult?: ModelRouteResultObserver;
 
   constructor(
     private readonly providers: ProviderAdapterRegistry,
@@ -71,6 +79,7 @@ export class ResilientModelExecutionAuthority {
     this.maximumAttempts =
       options.maximumAttempts ?? 8;
     this.now = options.now ?? Date.now;
+    this.observeResult = options.observeResult;
 
     if (
       this.failureThreshold < 1 ||
@@ -159,6 +168,11 @@ export class ResilientModelExecutionAuthority {
         request,
       );
       lastResult = result;
+      await this.observeSafely(
+        candidate.providerId,
+        candidate.modelId,
+        result,
+      );
 
       if (
         result.success &&
@@ -253,6 +267,20 @@ export class ResilientModelExecutionAuthority {
       if (key.startsWith(`${providerId}::`)) {
         this.circuit.delete(key);
       }
+    }
+  }
+
+  private async observeSafely(
+    providerId: ID,
+    modelId: ID,
+    result: ModelExecutionResult,
+  ): Promise<void> {
+    if (!this.observeResult) return;
+    try {
+      await this.observeResult(providerId, modelId, result);
+    } catch {
+      // Route-learning telemetry is advisory. It must never change or block
+      // the governed execution result that produced the evidence.
     }
   }
 
