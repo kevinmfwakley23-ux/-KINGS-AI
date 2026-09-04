@@ -1,4 +1,4 @@
-const CACHE = "kings-ai-shell-v2";
+const CACHE = "kings-ai-shell-v3";
 const SHELL = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
