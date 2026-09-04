@@ -118,7 +118,7 @@ async function runTest(): Promise<void> {
   const openRouterDefinition = definitions.find((item) => item.id === "openrouter");
   assert(
     openRouterDefinition?.gatewayKind === "openrouter" &&
-    openRouterDefinition.models?.some((model) => model.modelId === "openrouter/free"),
+    openRouterDefinition.models?.some((model) => model.modelId === "openrouter/free") === true,
     "OpenRouter must seed its documented free router as a first-class K.I.N.G.S. route.",
   );
   console.log("GATEWAY-RUNTIME-001 local + routed + direct economy-provider config: SUCCESS");
