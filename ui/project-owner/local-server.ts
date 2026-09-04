@@ -32,6 +32,7 @@ import {
 } from "../../core/workforce/provider-adapters";
 import {
   DurableGatewayUsageLedger,
+  gatewayUsageObservationFromResult,
 } from "../../core/workforce/gateway-usage-ledger";
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
@@ -204,23 +205,14 @@ async function main(): Promise<void> {
     _request,
     result,
   ) => {
-    if (!gatewayProviderIds.has(providerId) || !result.success || !result.response) {
-      return;
-    }
-    const response = result.response;
-    await usageLedger.record({
-      requestId: response.requestId,
-      providerRequestId: response.metadata.providerRequestId,
+    if (!gatewayProviderIds.has(providerId)) return;
+    const observation = gatewayUsageObservationFromResult(
       providerId,
-      modelId: modelIdValue,
-      startedAt: response.metadata.startedAt,
-      completedAt: response.metadata.completedAt,
-      inputTokens: response.usage.inputTokens,
-      outputTokens: response.usage.outputTokens,
-      totalTokens: response.usage.tokensUsed,
-      costStatus: "unknown",
-      source: "provider-response",
-    });
+      modelIdValue,
+      result,
+    );
+    if (!observation) return;
+    await usageLedger.record(observation);
   });
 
   const registry = new WorkforceRegistry();
@@ -371,7 +363,8 @@ async function main(): Promise<void> {
               modelId,
               displayName: `Local fallback: ${modelId}`,
               codingEligible: true,
-              verifiedCodingRoute: true,
+              verifiedCodingRoute: false,
+              availabilityVerified: true,
               local: true,
               fallbackOnly: true,
             }]
