@@ -36,6 +36,7 @@ import type {
 } from "./model-interface";
 
 import type {
+  ModelCostPreference,
   ModelRoutingRequest,
 } from "./model-routing";
 
@@ -67,6 +68,18 @@ export interface ProjectOwnerMachineApiRequest {
   missionId?: ID;
   preferredProviderId?: ID;
   preferredModelId?: ID;
+  /**
+   * Owner-controlled economics policy for this execution. Economy is the
+   * default. Free-only and local-only are hard routing boundaries; quality is
+   * an explicit opt-in escalation policy.
+   */
+  costPreference?: ModelCostPreference;
+  /**
+   * Optional hard route-cost ceiling. Unknown price is not represented as zero;
+   * the ModelRouter remains the authority that decides whether a route has
+   * sufficient cost evidence to satisfy the ceiling.
+   */
+  maximumEstimatedCost?: number;
   editor?: EngineeringRepairEditor;
   buildTestOptions?: ConstructorParameters<
     typeof import("./coding-work-unit-execution").CodingWorkUnitExecutionAuthority
@@ -473,6 +486,8 @@ export class ProjectOwnerMachineApi {
             minimumCapabilityStrength: 70,
             requiredInputModality: "text",
             requiredOutputModality: "text",
+            costPreference: request.costPreference ?? "economy",
+            maximumEstimatedCost: request.maximumEstimatedCost,
             preferExternal: !explicitModel,
             preferredProviderId: request.preferredProviderId,
             preferredModelId: request.preferredModelId,
