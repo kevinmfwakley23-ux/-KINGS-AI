@@ -20,6 +20,12 @@ export const REPOSITORY_INSPECTION_TOOL_ID =
 const DEFAULT_EXCLUDED_SEGMENTS = [
   ".git",
   ".kings",
+  ".env",
+  ".npmrc",
+  ".pypirc",
+  ".netrc",
+  "id_rsa",
+  "id_ed25519",
   "node_modules",
   "dist",
   "build",
@@ -71,6 +77,16 @@ const TEXT_FILENAMES = new Set([
   "Procfile",
   "README",
   "LICENSE",
+]);
+
+const SENSITIVE_FILENAMES = new Set([
+  ".npmrc",
+  ".pypirc",
+  ".netrc",
+  "id_rsa",
+  "id_ed25519",
+  "credentials",
+  "credentials.json",
 ]);
 
 export interface RepositoryInspectionToolOptions {
@@ -238,8 +254,10 @@ export class RepositoryInspectionToolAdapter implements ToolAdapter {
     source: KnowledgeSource,
   ): Promise<unknown> {
     const inspection = await inspector.inspect(source);
-    const files = inspection.files
-      .filter((entry) => !entry.isDirectory)
+    const visibleFiles = inspection.files.filter(
+      (entry) => !entry.isDirectory && !isSensitivePath(entry.relativePath),
+    );
+    const files = visibleFiles
       .slice(0, this.maxListResults)
       .map((entry) => ({
         path: entry.relativePath,
@@ -250,9 +268,8 @@ export class RepositoryInspectionToolAdapter implements ToolAdapter {
       operation: "list",
       files,
       returned: files.length,
-      discovered: inspection.files.filter((entry) => !entry.isDirectory).length,
-      truncated:
-        inspection.files.filter((entry) => !entry.isDirectory).length > files.length,
+      discovered: visibleFiles.length,
+      truncated: visibleFiles.length > files.length,
     };
   }
 
@@ -262,6 +279,11 @@ export class RepositoryInspectionToolAdapter implements ToolAdapter {
     argumentsValue: Record<string, unknown>,
   ): Promise<unknown> {
     const path = requiredString(argumentsValue.path, "path");
+    if (isSensitivePath(path)) {
+      throw new Error(
+        `K.I.N.G.S. Repository Inspection Tool: sensitive credential path "${path}" cannot be exposed to a model.`,
+      );
+    }
     const startLine = boundedInteger(argumentsValue.startLine, 1, 1, 10_000_000);
     const maxLines = boundedInteger(
       argumentsValue.maxLines,
@@ -309,6 +331,7 @@ export class RepositoryInspectionToolAdapter implements ToolAdapter {
     const candidates = inspection.files
       .filter((entry) =>
         !entry.isDirectory &&
+        !isSensitivePath(entry.relativePath) &&
         entry.sizeBytes <= this.maxFileBytes &&
         this.isTextPath(entry.relativePath),
       )
@@ -423,6 +446,20 @@ function boundedInteger(
     );
   }
   return value;
+}
+
+function isSensitivePath(path: string): boolean {
+  const normalized = path.replaceAll("\\", "/").toLowerCase();
+  const name = basename(normalized);
+  return name === ".env" ||
+    name.startsWith(".env.") ||
+    SENSITIVE_FILENAMES.has(name) ||
+    name.endsWith(".pem") ||
+    name.endsWith(".key") ||
+    name.endsWith(".p12") ||
+    name.endsWith(".pfx") ||
+    name.includes("service-account") ||
+    name.includes("service_account");
 }
 
 function boundPreview(value: string): string {
