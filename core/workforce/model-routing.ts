@@ -44,6 +44,12 @@ export interface ModelRoutingRequest {
   preferExternal?: boolean;
   preferredProviderId?: ID;
   preferredModelId?: ID;
+  /**
+   * Explicit owner model selection may choose a model below an automatic
+   * capability-strength floor. Required capability names, modality, context,
+   * provider policy, tool compatibility, sandboxing, and post-execution
+   * verification remain authoritative.
+   */
   allowUnverifiedExplicitSelection?: boolean;
   /**
    * Allows a live, available, capability-matched model whose benchmark status is
@@ -116,10 +122,17 @@ export class ModelRouter {
         explicitSelection &&
         request.allowUnverifiedExplicitSelection === true
       );
+    const automaticStrengthFloor =
+      request.minimumCapabilityStrength ?? 0;
+    const effectiveMinimumStrength =
+      explicitSelection &&
+      request.allowUnverifiedExplicitSelection === true
+        ? 0
+        : automaticStrengthFloor;
 
     const matches = this.capabilityRegistry.discover({
       requiredCapabilities: request.requiredCapabilities,
-      minimumStrength: request.minimumCapabilityStrength ?? 0,
+      minimumStrength: effectiveMinimumStrength,
       verifiedOnly: !unverifiedSelectionAllowed,
       availableOnly: true,
       providerId: request.preferredProviderId,
@@ -383,7 +396,7 @@ export class ModelRouter {
       `cost preference ${request.costPreference ?? "economy"}; ${candidate.zeroMarginalCost ? "zero marginal token cost" : "metered route"}`;
     if (request.preferredProviderId || request.preferredModelId) {
       const verification = request.allowUnverifiedExplicitSelection
-        ? "explicit live-catalog selection under post-generation verification"
+        ? "explicit owner model selection under post-generation verification"
         : "explicit verified model selection";
       return `${verification} ${candidate.providerId}/${candidate.modelId}; ${economy}; ${cost}; ${performance}; capability strength ${candidate.capabilityStrength}`;
     }
