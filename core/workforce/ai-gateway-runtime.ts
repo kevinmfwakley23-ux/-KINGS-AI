@@ -1,4 +1,7 @@
-import type { IntelligenceCapability } from "./model-interface";
+import type {
+  IntelligenceCapability,
+  IntelligenceProviderKind,
+} from "./model-interface";
 import {
   DEFAULT_GATEWAY_CODING_CAPABILITIES,
   OpenAiCompatibleGatewayAdapter,
@@ -59,6 +62,7 @@ interface JsonGatewayDefinition {
   baseUrl?: string;
   apiKey?: string;
   models?: string[];
+  providerKind?: IntelligenceProviderKind;
 }
 
 interface DirectGatewayPreset {
@@ -195,7 +199,7 @@ function parseJsonGateways(
       gatewayKind: item.gatewayKind ?? "openai-compatible",
       baseUrl: item.baseUrl,
       apiKey: item.apiKey,
-      providerKind: "external-routed",
+      providerKind: item.providerKind ?? "external-routed",
       models: (item.models ?? []).map((modelId) => configuredModel(modelId)),
       discoverModels: true,
       allowDynamicModels: true,
@@ -232,6 +236,29 @@ function configuredDirectGatewayDefinitions(
       (definition): definition is OpenAiCompatibleGatewayConfig =>
         definition !== undefined,
     );
+}
+
+function configuredLocalOpenAiGateway(
+  env: NodeJS.ProcessEnv,
+): OpenAiCompatibleGatewayConfig | undefined {
+  const baseUrl = env.KINGS_LOCAL_OPENAI_URL?.trim();
+  if (!baseUrl) return undefined;
+
+  return {
+    id: "local-openai",
+    name:
+      env.KINGS_LOCAL_OPENAI_NAME?.trim() ||
+      "Local OpenAI-Compatible AI",
+    gatewayKind: "openai-compatible",
+    baseUrl,
+    apiKey: env.KINGS_LOCAL_OPENAI_KEY?.trim() || undefined,
+    providerKind: "internal-self-hosted",
+    models: csv(env.KINGS_LOCAL_OPENAI_MODELS).map(
+      (modelId) => configuredModel(modelId),
+    ),
+    discoverModels: true,
+    allowDynamicModels: true,
+  };
 }
 
 export function configuredGatewayDefinitions(
@@ -271,6 +298,11 @@ export function configuredGatewayDefinitions(
       discoverModels: true,
       allowDynamicModels: true,
     });
+  }
+
+  const localOpenAi = configuredLocalOpenAiGateway(env);
+  if (localOpenAi) {
+    definitions.push(localOpenAi);
   }
 
   definitions.push(
