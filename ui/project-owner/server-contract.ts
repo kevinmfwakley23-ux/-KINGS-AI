@@ -30,8 +30,9 @@ import type { IntelligenceCapability } from "../../core/workforce/model-interfac
 import type { Mission, Task } from "../../core/workforce/types";
 import type { WorkUnitContract } from "../../core/workforce/work-unit-contract";
 import type { MissionPlan } from "../../core/workforce/mission-continuity";
-import type {
-  SandboxBubblewrapIsolation,
+import {
+  EXECUTION_SANDBOX_TOOL_ID,
+  type SandboxBubblewrapIsolation,
 } from "../../core/workforce/execution-sandbox";
 import {
   registerKingsAiGatewayRuntime,
@@ -41,9 +42,18 @@ import {
 } from "../../core/workforce/ai-gateway-runtime";
 import { AdaptiveModelRoutingAuthority } from "../../core/workforce/adaptive-model-routing";
 import { ResilientModelExecutionAuthority } from "../../core/workforce/resilient-model-execution";
+import { GovernedModelToolLoop } from "../../core/workforce/governed-model-tool-loop";
+import type { ToolGateway } from "../../core/workforce/tool-gateway";
+import {
+  REPOSITORY_INSPECTION_TOOL_DEFINITION,
+  REPOSITORY_INSPECTION_TOOL_ID,
+} from "../../core/workforce/repository-inspection-tool";
 import {
   GitHubRepositoryWorkspaceAuthority,
 } from "../../core/workforce/github-repository-workspace";
+
+export const PROJECT_OWNER_CODING_AGENT_ID =
+  "agent-project-owner-coding-engineer";
 
 export interface ProjectOwnerMachineApiHandler {
   handle(
@@ -59,6 +69,7 @@ export interface ProjectOwnerRuntimeOptions {
   allowBuildNetwork?: boolean;
   localModelAvailable?: boolean;
   processIsolation?: SandboxBubblewrapIsolation;
+  toolGateway?: ToolGateway;
   initialRoutingMetrics?: ReadonlyMap<string, ModelRoutingMetrics>;
   recordRoutingMetric?: (
     providerId: string,
@@ -70,6 +81,66 @@ export interface ProjectOwnerRuntimeOptions {
 type BuildTestOptions = ConstructorParameters<
   typeof import("../../core/workforce/coding-work-unit-execution").CodingWorkUnitExecutionAuthority
 >[1];
+
+function ensureProjectOwnerWorkforceDefinitions(
+  registry: import("../../core/workforce/registry").WorkforceRegistry,
+): void {
+  if (!registry.getTool(EXECUTION_SANDBOX_TOOL_ID)) {
+    registry.registerTool({
+      id: EXECUTION_SANDBOX_TOOL_ID,
+      name: "Execution Sandbox",
+      description:
+        "Governed build/test execution boundary for verified project work.",
+      capabilities: ["build-test", "execute", "state-changing"],
+      enabled: true,
+    });
+  }
+
+  if (!registry.getTool(REPOSITORY_INSPECTION_TOOL_ID)) {
+    registry.registerTool({
+      ...REPOSITORY_INSPECTION_TOOL_DEFINITION,
+      capabilities: [...REPOSITORY_INSPECTION_TOOL_DEFINITION.capabilities],
+    });
+  }
+
+  const existingAgent = registry.getAgent(PROJECT_OWNER_CODING_AGENT_ID);
+  if (!existingAgent) {
+    registry.registerAgent({
+      id: PROJECT_OWNER_CODING_AGENT_ID,
+      name: "K.I.N.G.S. Project Owner Coding Engineer",
+      role: "coding-engineer",
+      description:
+        "Production coding agent operating only through owner-approved tasks, work units, repository inspection, and the verified build/test boundary.",
+      capabilities: [
+        "reasoning",
+        "planning",
+        "coding",
+        "debugging",
+        "source-inspection",
+        "verification",
+        "recovery",
+        "tool-use",
+      ],
+      toolIds: [
+        EXECUTION_SANDBOX_TOOL_ID,
+        REPOSITORY_INSPECTION_TOOL_ID,
+      ],
+      status: "available",
+    });
+    return;
+  }
+
+  for (const toolId of [
+    EXECUTION_SANDBOX_TOOL_ID,
+    REPOSITORY_INSPECTION_TOOL_ID,
+  ]) {
+    if (!existingAgent.toolIds.includes(toolId)) {
+      throw new Error(
+        `K.I.N.G.S. Project Owner: existing coding agent "${PROJECT_OWNER_CODING_AGENT_ID}" is missing required tool authorization "${toolId}".`,
+      );
+    }
+  }
+}
 
 function detectGitHubRepository(
   input: ProjectOwnerDesignInput,
@@ -125,6 +196,7 @@ function createVisionTask(
       ? `Build ${input.projectName} from GitHub repository`
       : `Build ${input.projectName}`,
     description: objective,
+    assignedAgentId: PROJECT_OWNER_CODING_AGENT_ID,
     requiredCapabilities: [
       "reasoning",
       "planning",
@@ -134,7 +206,10 @@ function createVisionTask(
       "verification",
       "recovery",
     ],
-    requiredToolIds: ["tool-execution-sandbox"],
+    requiredToolIds: [
+      EXECUTION_SANDBOX_TOOL_ID,
+      REPOSITORY_INSPECTION_TOOL_ID,
+    ],
     status: "ready",
     dependencyIds: [],
     inputReferences: input.repository
@@ -158,7 +233,10 @@ function createVisionTask(
     role: "coding-engineer",
     objective,
     capabilityIds: ["engineering-project"],
-    allowedToolIds: ["tool-execution-sandbox"],
+    allowedToolIds: [
+      EXECUTION_SANDBOX_TOOL_ID,
+      REPOSITORY_INSPECTION_TOOL_ID,
+    ],
     allowedPaths: ["."],
     budget: {
       maxTimeMs: 300_000,
@@ -350,11 +428,24 @@ export class ProjectOwnerMachineServerController
         },
       },
     );
+    const governedToolLoop = runtime.toolGateway
+      ? new GovernedModelToolLoop(
+          resilientExecution,
+          runtime.toolGateway,
+          {
+            maxToolRounds: 3,
+            maxToolCalls: 8,
+            maxModelVisibleToolBytes: 65_536,
+            maxElapsedMs: 120_000,
+          },
+        )
+      : undefined;
     const modelDrivenCoding = new ModelDrivenCodingExecutionAuthority(
       machine,
       router,
       this.providers,
       resilientExecution,
+      governedToolLoop,
     );
 
     this.editor = new EngineeringRepairEditor(
@@ -524,6 +615,7 @@ export function createDefaultProjectOwnerMissionFactory(
   registry: import("../../core/workforce/registry").WorkforceRegistry,
   workUnits: import("../../core/workforce/work-unit-registry").WorkUnitRegistry,
 ): ProjectOwnerMissionFactory {
+  ensureProjectOwnerWorkforceDefinitions(registry);
   return {
     create(input) {
       return buildMissionFromVision(input, registry, workUnits);
