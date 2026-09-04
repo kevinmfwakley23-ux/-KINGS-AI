@@ -39,12 +39,17 @@ class CatalogTransport implements OpenAiCompatibleGatewayTransport {
               "paid/frontier-coder",
               "image/flux-pro",
             ]
-          : [
-              "cx/gpt-codex",
-              "kr/qwen3-coder-next",
-              "gh/claude-sonnet",
-              "audio/tts-1",
-            ];
+          : this.providerId === "local-openai"
+            ? [
+                "local/qwen-coder",
+                "local/small-helper",
+              ]
+            : [
+                "cx/gpt-codex",
+                "kr/qwen3-coder-next",
+                "gh/claude-sonnet",
+                "audio/tts-1",
+              ];
       return {
         status: 200,
         text: "",
@@ -71,6 +76,8 @@ async function runTest(): Promise<void> {
     KINGS_9ROUTER_URL: "http://127.0.0.1:30128",
     KINGS_9ROUTER_KEY: "test-nine",
     KINGS_9ROUTER_MODELS: "stale/configured-coder",
+    KINGS_LOCAL_OPENAI_URL: "http://127.0.0.1:1234/v1",
+    KINGS_LOCAL_OPENAI_NAME: "Test Local Inference",
     KINGS_OPENROUTER_KEY: "test-openrouter",
     KINGS_GROQ_KEY: "test-groq",
     KINGS_CEREBRAS_KEY: "test-cerebras",
@@ -82,12 +89,13 @@ async function runTest(): Promise<void> {
 
   const definitions = configuredGatewayDefinitions(env);
   assert(
-    definitions.length === 9,
-    "OmniRoute, 9Router, and seven direct provider pools must all configure.",
+    definitions.length === 10,
+    "OmniRoute, 9Router, local OpenAI-compatible inference, and seven direct provider pools must all configure.",
   );
   for (const providerId of [
     "omniroute",
     "9router",
+    "local-openai",
     "openrouter",
     "groq",
     "cerebras",
@@ -101,13 +109,19 @@ async function runTest(): Promise<void> {
       `Direct/provider definition missing: ${providerId}`,
     );
   }
+  const localDefinition = definitions.find((item) => item.id === "local-openai");
+  assert(
+    localDefinition?.providerKind === "internal-self-hosted" &&
+    localDefinition.baseUrl === "http://127.0.0.1:1234/v1",
+    "Local OpenAI-compatible inference must be classified as internal/self-hosted rather than metered cloud AI.",
+  );
   const openRouterDefinition = definitions.find((item) => item.id === "openrouter");
   assert(
     openRouterDefinition?.gatewayKind === "openrouter" &&
     openRouterDefinition.models?.some((model) => model.modelId === "openrouter/free"),
     "OpenRouter must seed its documented free router as a first-class K.I.N.G.S. route.",
   );
-  console.log("GATEWAY-RUNTIME-001 OmniRoute + 9Router + direct economy-provider config: SUCCESS");
+  console.log("GATEWAY-RUNTIME-001 local + routed + direct economy-provider config: SUCCESS");
 
   const runtime = await loadKingsAiGatewayRuntime({
     env,
@@ -116,7 +130,7 @@ async function runTest(): Promise<void> {
     },
   });
 
-  assert(runtime.gateways.length === 9, "Gateway runtime did not load all configured provider pools.");
+  assert(runtime.gateways.length === 10, "Gateway runtime did not load all configured provider pools.");
   assert(
     runtime.catalog.some(
       (entry) =>
@@ -140,6 +154,14 @@ async function runTest(): Promise<void> {
         entry.modelId === "kr/qwen3-coder-next",
     ),
     "Direct OpenAI-compatible provider discovery did not feed the common catalog.",
+  );
+  assert(
+    runtime.catalog.some(
+      (entry) =>
+        entry.providerId === "local-openai" &&
+        entry.modelId === "local/qwen-coder",
+    ),
+    "Local OpenAI-compatible model discovery did not feed the common catalog.",
   );
   assert(
     !runtime.catalog.some((entry) => entry.modelId === "image/flux-pro"),
@@ -201,7 +223,7 @@ async function runTest(): Promise<void> {
   const metrics = new Map<string, ModelRoutingMetrics>();
   registerKingsAiGatewayRuntime(runtime, providers, capabilities, metrics);
 
-  assert(providers.list().length === 9, "Every provider adapter must be registered.");
+  assert(providers.list().length === 10, "Every provider adapter must be registered.");
   assert(
     capabilities.get("omniroute", "auto/coding") !== undefined,
     "OmniRoute auto/coding route was not registered in KINGS intelligence.",
@@ -213,6 +235,11 @@ async function runTest(): Promise<void> {
   assert(
     capabilities.get("openrouter", "openrouter/free") !== undefined,
     "OpenRouter free route was not registered in KINGS intelligence.",
+  );
+  const localCapability = capabilities.get("local-openai", "local/qwen-coder");
+  assert(
+    localCapability?.model.providerKind === "internal-self-hosted",
+    "Local compatible models must stay marked internal so economy routing knows their marginal API-token cost is zero.",
   );
   assert(
     capabilities.get("9router", "stale/configured-coder") === undefined,
