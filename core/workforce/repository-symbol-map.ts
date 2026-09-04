@@ -133,6 +133,17 @@ function moduleCandidates(fromPath: string, specifier: string): string[] {
   ];
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function symbolReferencesName(symbol: RepositorySymbolRecord, name: string): boolean {
+  if (!name) return false;
+  const escaped = escapeRegExp(name);
+  const pattern = new RegExp(`(^|[^A-Za-z0-9_$])${escaped}(?=$|[^A-Za-z0-9_$])`);
+  return pattern.test(symbol.text);
+}
+
 export class RepositorySymbolDependencyMap {
   build(sources: readonly RepositorySymbolSource[]): RepositorySymbolSnapshot {
     const files = new Map<string, string>();
@@ -317,9 +328,20 @@ export class RepositorySymbolDependencyMap {
       const next = new Set<string>();
       for (const edge of snapshot.imports) {
         if (!edge.resolvedPath || !frontier.has(edge.fromPath)) continue;
+
+        const sourceSymbols = selectedSymbols.filter(
+          (symbol) => symbol.path === edge.fromPath,
+        );
+        const referencedNames = edge.importedNames.filter(
+          (importedName) => sourceSymbols.some(
+            (symbol) => symbolReferencesName(symbol, importedName),
+          ),
+        );
+        if (referencedNames.length === 0) continue;
+
         if (!dependencyFiles.has(edge.resolvedPath)) next.add(edge.resolvedPath);
         dependencyFiles.add(edge.resolvedPath);
-        for (const importedName of edge.importedNames) {
+        for (const importedName of referencedNames) {
           const exact = snapshot.symbols.find(
             (symbol) => symbol.path === edge.resolvedPath &&
               (symbol.name === importedName || symbol.name.endsWith(`.${importedName}`)),
