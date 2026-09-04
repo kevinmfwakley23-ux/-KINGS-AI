@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { mkdir, realpath } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { access, mkdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 
@@ -67,15 +67,27 @@ function safeSegment(
   const normalized = raw
     .replace(/[^A-Za-z0-9_-]+/g, "-")
     .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, maxLength);
+    .replace(/^-+|-+$/g, "");
 
   if (!normalized) {
     throw new Error(
       `K.I.N.G.S. Parallel Worktrees: ${label} cannot produce a safe worktree segment.`,
     );
   }
-  return normalized;
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  const digest = createHash("sha256")
+    .update(raw)
+    .digest("hex")
+    .slice(0, 10);
+  const prefixLength = Math.max(1, maxLength - digest.length - 1);
+  const prefix = normalized
+    .slice(0, prefixLength)
+    .replace(/-+$/g, "") || "x";
+  return `${prefix}-${digest}`;
 }
 
 function pathInside(root: string, candidate: string): boolean {
@@ -87,19 +99,38 @@ function safeRelativePath(value: string): string {
   const normalized = value
     .trim()
     .replaceAll("\\", "/")
-    .replace(/^\.\//, "");
+    .replace(/^(?:\.\/)+/, "");
+  const segments = normalized.split("/");
 
   if (
     !normalized ||
+    normalized === "." ||
     normalized.startsWith("/") ||
-    normalized.split("/").includes("..")
+    segments.includes("..") ||
+    segments[0]?.toLowerCase() === ".git" ||
+    /[\u0000-\u001f\u007f]/.test(normalized)
   ) {
     throw new Error(
-      `K.I.N.G.S. Parallel Worktrees: commit path "${value}" is outside the governed worktree.`,
+      `K.I.N.G.S. Parallel Worktrees: commit path "${value}" is outside or invalid for the governed worktree.`,
     );
   }
 
   return normalized;
+}
+
+function literalPathspec(path: string): string {
+  return `:(literal)${path}`;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return false;
+    throw error;
+  }
 }
 
 export class ParallelGitWorktreeAuthority {
@@ -178,35 +209,38 @@ export class ParallelGitWorktreeAuthority {
     }
 
     const branch = `kings-parallel/${instanceSegment}`;
-    try {
-      await this.git([
-        "-C",
-        this.repositoryRoot,
-        "worktree",
-        "add",
-        "-b",
-        branch,
-        target,
-        baseSha,
-      ]);
-    } catch (error) {
-      await this.git([
-        "-C",
-        this.repositoryRoot,
-        "worktree",
-        "remove",
-        "--force",
-        target,
-      ]).catch(() => undefined);
-      await this.git([
-        "-C",
-        this.repositoryRoot,
-        "branch",
-        "-D",
-        branch,
-      ]).catch(() => undefined);
-      throw error;
+    const branchRef = `refs/heads/${branch}`;
+    const { stdout: existingBranchStdout } = await this.git([
+      "-C",
+      this.repositoryRoot,
+      "for-each-ref",
+      "--format=%(refname)",
+      branchRef,
+    ]);
+    if (existingBranchStdout.trim()) {
+      throw new Error(
+        `K.I.N.G.S. Parallel Worktrees: execution branch "${branch}" already exists; refusing to overwrite preserved work.`,
+      );
     }
+    if (await pathExists(target)) {
+      throw new Error(
+        `K.I.N.G.S. Parallel Worktrees: execution target "${target}" already exists; refusing to reuse it.`,
+      );
+    }
+
+    // Deliberately avoid destructive cleanup on a failed worktree-add. If Git
+    // fails after creating partial state, preserving it is safer than deleting a
+    // branch/path that may belong to a competing process using the same IDs.
+    await this.git([
+      "-C",
+      this.repositoryRoot,
+      "worktree",
+      "add",
+      "-b",
+      branch,
+      target,
+      baseSha,
+    ]);
 
     return {
       taskId,
@@ -271,13 +305,14 @@ export class ParallelGitWorktreeAuthority {
 
     const target = await this.requireGovernedWorktree(worktree);
     const safePaths = [...new Set(paths.map(safeRelativePath))];
+    const pathspecs = safePaths.map(literalPathspec);
 
     await this.git([
       "-C",
       target,
       "add",
       "--",
-      ...safePaths,
+      ...pathspecs,
     ]);
 
     const { stdout: stagedStdout } = await this.git([
@@ -286,11 +321,12 @@ export class ParallelGitWorktreeAuthority {
       "diff",
       "--cached",
       "--name-only",
+      "-z",
       "--",
-      ...safePaths,
+      ...pathspecs,
     ]);
     const committedPaths = stagedStdout
-      .split(/\r?\n/)
+      .split("\u0000")
       .map((path) => path.trim())
       .filter(Boolean);
     if (committedPaths.length === 0) {
@@ -307,8 +343,9 @@ export class ParallelGitWorktreeAuthority {
       "commit",
       "-m",
       message.trim(),
+      "--only",
       "--",
-      ...committedPaths,
+      ...pathspecs,
     ]);
 
     const state = await this.inspect(worktree);
