@@ -12,6 +12,10 @@ import type {
 } from "./model-interface";
 
 import {
+  estimateModelContextCapacity,
+} from "./model-context-capacity";
+
+import {
   ModelRouter,
   type ModelRoutingRequest,
 } from "./model-routing";
@@ -122,26 +126,12 @@ export class ModelDrivenCodingExecutionAuthority {
     const initialModelRequest = toolsActive
       ? this.withGovernedTools(request.modelRequest)
       : request.modelRequest;
-    const routingRequest: ModelRoutingRequest = toolsActive
+    const baseRoutingRequest: ModelRoutingRequest = toolsActive
       ? {
           ...request.routing,
           requireToolCalling: true,
         }
       : request.routing;
-
-    const route =
-      this.router.route(
-        routingRequest,
-      );
-
-    if (
-      !route.selected ||
-      route.candidates.length === 0
-    ) {
-      throw new Error(
-        `K.I.N.G.S. Model Driven Coding: no model route is available. ${route.reason}`,
-      );
-    }
 
     const maxIterations = Math.max(
       1,
@@ -158,6 +148,37 @@ export class ModelDrivenCodingExecutionAuthority {
       iteration <= maxIterations;
       iteration += 1
     ) {
+      /*
+       * Recalculate capacity on every repair iteration. Verification feedback,
+       * previous generated code, and provider-visible tool schemas all grow the
+       * request. Reusing the first route can therefore overflow a smaller model
+       * later in the same governed coding loop.
+       */
+      const contextCapacity =
+        estimateModelContextCapacity(
+          modelRequest,
+        );
+      const routingRequest: ModelRoutingRequest = {
+        ...baseRoutingRequest,
+        requiredContextTokens: Math.max(
+          baseRoutingRequest.requiredContextTokens ?? 0,
+          contextCapacity.requiredContextTokens,
+        ),
+      };
+      const route =
+        this.router.route(
+          routingRequest,
+        );
+
+      if (
+        !route.selected ||
+        route.candidates.length === 0
+      ) {
+        throw new Error(
+          `K.I.N.G.S. Model Driven Coding: no model route can fit iteration ${iteration} requiring approximately ${routingRequest.requiredContextTokens} context tokens. ${route.reason}`,
+        );
+      }
+
       const execution =
         await this.executeModel(
           route.candidates,
