@@ -37,9 +37,9 @@ jobs:
       KINGS_GITHUB_TOKEN: ${{ secrets.KINGS_GITHUB_TOKEN }}
       KINGS_LIVE_PROVIDER_ID: ${{ inputs.provider_id }}
       KINGS_LIVE_MODEL_ID: ${{ inputs.model_id }}
-      KINGS_STATE_ROOT: ${{ runner.temp }}/kings-state
-      KINGS_CODING_MACHINE_WORKSPACE: ${{ runner.temp }}/kings-state/projects
-      KINGS_GATEWAY_USAGE_FILE: ${{ runner.temp }}/kings-state/gateway-usage.jsonl
+      KINGS_STATE_ROOT: /tmp/kings-state
+      KINGS_CODING_MACHINE_WORKSPACE: /tmp/kings-state/projects
+      KINGS_GATEWAY_USAGE_FILE: /tmp/kings-state/gateway-usage.jsonl
       KINGS_BWRAP_PATH: /usr/bin/bwrap
       KINGS_ENABLE_OLLAMA_FALLBACK: "0"
 
