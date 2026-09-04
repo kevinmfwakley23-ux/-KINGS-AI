@@ -51,6 +51,31 @@ async function pathExecutable(path) {
   }
 }
 
+function isLoopbackBind(host) {
+  const normalized = String(host ?? "").trim().toLowerCase();
+  return normalized === "127.0.0.1" ||
+    normalized === "localhost" ||
+    normalized === "::1";
+}
+
+function checkOwnerNetworkSecurity() {
+  const bindHost = process.env.KINGS_CODING_MACHINE_BIND?.trim() || "127.0.0.1";
+  if (isLoopbackBind(bindHost)) {
+    pass(`Owner HTTP runtime is loopback-only by default (${bindHost}).`);
+    return;
+  }
+
+  const token = process.env.KINGS_OWNER_TOKEN?.trim();
+  if (!token || token.length < 24) {
+    fail(
+      `Owner HTTP runtime is configured for non-loopback bind ${bindHost}, but KINGS_OWNER_TOKEN is missing or shorter than 24 characters. Refusing unauthenticated LAN code-execution exposure.`,
+    );
+    return;
+  }
+
+  pass(`Owner HTTP runtime LAN exposure is protected by an owner credential (${bindHost}).`);
+}
+
 async function detectBubblewrap() {
   const configured = process.env.KINGS_BWRAP_PATH?.trim();
   const candidates = configured ? [configured] : ["/usr/bin/bwrap", "/bin/bwrap"];
@@ -241,6 +266,8 @@ async function main() {
   const git = command("git", ["--version"]);
   if (git.ok) pass(git.stdout || "Git is available.");
   else fail(`Git is required for repository work (${git.error?.message || git.stderr || "not found"}).`);
+
+  checkOwnerNetworkSecurity();
 
   const bwrap = await detectBubblewrap();
   if (bwrap) {
