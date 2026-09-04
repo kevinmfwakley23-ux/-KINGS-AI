@@ -81,15 +81,14 @@ function isExcluded(
     );
 
   return excluded.some(
-    (segment) =>
-      normalized ===
-        segment ||
-      normalized.startsWith(
-        `${segment}/`,
-      ) ||
-      normalized.includes(
-        `/${segment}/`,
-      ),
+    (segment) => {
+      const normalizedSegment = normalizeRelativePath(segment);
+      if (!normalizedSegment) return false;
+      return normalized === normalizedSegment ||
+        normalized.startsWith(`${normalizedSegment}/`) ||
+        normalized.includes(`/${normalizedSegment}/`) ||
+        normalized.endsWith(`/${normalizedSegment}`);
+    },
   );
 }
 
