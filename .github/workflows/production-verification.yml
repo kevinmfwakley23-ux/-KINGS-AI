@@ -44,6 +44,7 @@ jobs:
           name: kings-focused-workforce-report-${{ github.run_id }}
           path: .kings-focused-test-report.txt
           if-no-files-found: ignore
+          include-hidden-files: true
           retention-days: 14
 
   live-production:
