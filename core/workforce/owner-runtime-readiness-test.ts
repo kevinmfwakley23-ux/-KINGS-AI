@@ -140,13 +140,18 @@ async function main(): Promise<void> {
   assert.match(serverSource, /requestBodyLimitBytes/);
   assert.match(
     serverSource,
+    /controller\.handle\(incoming\)/,
+    "KINGS Auto must reach the core router without being pinned by the HTTP layer",
+  );
+  assert.doesNotMatch(
+    serverSource,
     /preferredProviderId:\s*route\.providerId/,
-    "unselected coding missions must receive the live gateway route",
+    "HTTP Auto routing must not collapse the superhost failover candidate pool",
   );
   assert.match(
     serverSource,
     /defaultModel:\s*automaticRoute/,
-    "model API must default to gateway route rather than local Ollama",
+    "model API must expose the preferred gateway route without forcing execution to stay pinned to it",
   );
 
   const statusSource = await readFile(
@@ -165,6 +170,7 @@ async function main(): Promise<void> {
   console.log("K.I.N.G.S. OWNER RUNTIME → 9ROUTER DEFAULT ROUTE: SUCCESS");
   console.log("K.I.N.G.S. OWNER RUNTIME → UNVERIFIED DOCUMENTED OMNIROUTE DEFAULT: SUCCESS");
   console.log("K.I.N.G.S. OWNER RUNTIME → GATEWAY-FIRST HEALTH CONTRACT: SUCCESS");
+  console.log("K.I.N.G.S. OWNER RUNTIME → MULTI-ROUTE AUTO FAILOVER CONTRACT: SUCCESS");
   console.log("K.I.N.G.S. OWNER RUNTIME → DURABLE USAGE API CONTRACT: SUCCESS");
   console.log("K.I.N.G.S. OWNER RUNTIME → BOUNDED JSON API CONTRACT: SUCCESS");
   console.log("K.I.N.G.S. OWNER STATUS → LIVE READINESS PROBE: SUCCESS");
