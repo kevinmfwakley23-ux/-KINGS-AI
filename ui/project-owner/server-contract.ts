@@ -429,15 +429,32 @@ export class ProjectOwnerMachineServerController
   setLocalModelAvailability(available: boolean): void {
     this.localModel.identity.available = available;
     this.localAdapter.descriptor.available = available;
-    this.metrics.set(
-      this.localMetricKey,
-      {
-        estimatedCost: 0,
-        costBasis: "configured-estimate",
-        latencyMs: 1_000,
-        reliability: available ? 85 : 20,
-      },
-    );
+    // Availability is a live health signal, not performance evidence. Keep the
+    // adaptive reliability/latency/cost metric intact so a health refresh cannot
+    // erase what K.I.N.G.S. learned from real executions. Unavailable models are
+    // already excluded by the capability router through model.available.
+  }
+
+  routingMetricsSnapshot(): ReadonlyArray<{
+    providerId: string;
+    modelId: string;
+    metric: ModelRoutingMetrics;
+  }> {
+    return Array.from(this.metrics.entries())
+      .map(([key, metric]) => {
+        const separator = key.indexOf("::");
+        return {
+          providerId: separator >= 0 ? key.slice(0, separator) : "unknown",
+          modelId: separator >= 0 ? key.slice(separator + 2) : key,
+          metric: { ...metric },
+        };
+      })
+      .sort((left, right) => {
+        const providerOrder = left.providerId.localeCompare(right.providerId);
+        return providerOrder !== 0
+          ? providerOrder
+          : left.modelId.localeCompare(right.modelId);
+      });
   }
 
   synchronizeGatewayRuntime(
