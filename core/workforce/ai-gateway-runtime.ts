@@ -205,9 +205,6 @@ function buildGatewayCatalog(
           codingEligible:
             health.codingModels.includes(model.modelId) || documentedCodingRoute,
           documentedCodingRoute,
-          // Documentation or successful /v1/models discovery proves that the
-          // route exists. It does not prove that the route can complete a real
-          // K.I.N.G.S. coding acceptance. Verification is earned separately.
           verifiedCodingRoute: false,
         };
       }),
@@ -296,16 +293,19 @@ function registerOrRefreshModelRoute(
     existing.model.available = model.available;
   }
 
-  // Gateway model price is deliberately unknown unless a later provider response
-  // or verified pricing source supplies it. Unknown is never encoded as $0.
-  metrics.set(
-    modelRoutingMetricKey(adapter.descriptor.id, model.modelId),
-    {
+  const metricKey = modelRoutingMetricKey(
+    adapter.descriptor.id,
+    model.modelId,
+  );
+  if (!metrics.has(metricKey)) {
+    // Initial catalog values are only seeds. Once real execution evidence has
+    // adapted a route, routine health/catalog refreshes must not erase it.
+    metrics.set(metricKey, {
       costBasis: "unknown",
       latencyMs: verified ? 800 : 1_200,
       reliability: health.ok ? verified ? 94 : 80 : 25,
-    },
-  );
+    });
+  }
 
   return !existing;
 }
