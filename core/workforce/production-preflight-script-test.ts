@@ -107,6 +107,8 @@ async function main(): Promise<void> {
   assert(source.includes("checkUsageLedger"), "preflight does not verify durable gateway accounting storage");
   assert(source.includes("checkOptionalOllamaFallback"), "preflight does not model Ollama as optional fallback");
   assert(source.includes("checkGateways"), "preflight does not check configured AI gateways");
+  assert(source.includes("checkOwnerNetworkSecurity"), "preflight does not verify owner HTTP exposure security");
+  assert(source.includes("KINGS_OWNER_TOKEN"), "preflight does not require an owner credential for LAN exposure");
   assert(source.includes("firstClassUsable"), "preflight does not require first-class OmniRoute/9Router readiness");
   assert(source.includes("Ollama alone"), "preflight does not explicitly reject local-only production readiness");
   assert(source.includes("did not identify itself as Bubblewrap"));
@@ -143,6 +145,8 @@ async function main(): Promise<void> {
     KINGS_ENABLE_OLLAMA_FALLBACK: "",
     KINGS_CODING_MACHINE_MODEL: "qwen2.5-coder:1.5b",
     KINGS_CODING_MACHINE_OLLAMA_URL: "http://127.0.0.1:9",
+    KINGS_CODING_MACHINE_BIND: "127.0.0.1",
+    KINGS_OWNER_TOKEN: "",
     KINGS_OMNIROUTE_URL: "",
     KINGS_OMNIROUTE_KEY: "",
     KINGS_9ROUTER_URL: "",
@@ -199,6 +203,40 @@ async function main(): Promise<void> {
         gatewayReady.stdout.includes("9router live API is reachable: 3 total model ids") &&
           gatewayReady.stdout.includes("Gateway AI fabric is ready: 1 first-class gateway, 3 live model ids discovered"),
         "preflight did not positively prove the live first-class gateway catalog",
+      );
+      assert(
+        gatewayReady.stdout.includes("Owner HTTP runtime is loopback-only by default"),
+        "preflight did not positively prove safe default network exposure",
+      );
+
+      const unauthenticatedLan = await runPreflight(root, preflightPath, {
+        ...baselineEnvironment,
+        KINGS_9ROUTER_URL: nineRouter.baseUrl,
+        KINGS_CODING_MACHINE_BIND: "0.0.0.0",
+        KINGS_OWNER_TOKEN: "",
+      });
+      assert(
+        unauthenticatedLan.status !== 0,
+        "preflight allowed unauthenticated LAN code-execution exposure",
+      );
+      assert(
+        `${unauthenticatedLan.stdout}\n${unauthenticatedLan.stderr}`.includes("Refusing unauthenticated LAN code-execution exposure"),
+        "LAN auth failure did not explain the security boundary",
+      );
+
+      const authenticatedLan = await runPreflight(root, preflightPath, {
+        ...baselineEnvironment,
+        KINGS_9ROUTER_URL: nineRouter.baseUrl,
+        KINGS_CODING_MACHINE_BIND: "0.0.0.0",
+        KINGS_OWNER_TOKEN: "owner-token-abcdefghijklmnopqrstuvwxyz012345",
+      });
+      assert(
+        authenticatedLan.status === 0,
+        `preflight rejected authenticated LAN operation: ${authenticatedLan.stderr || authenticatedLan.stdout}`,
+      );
+      assert(
+        authenticatedLan.stdout.includes("LAN exposure is protected by an owner credential"),
+        "preflight did not positively prove owner-authenticated LAN operation",
       );
     } finally {
       await nineRouter.close();
@@ -261,6 +299,9 @@ async function main(): Promise<void> {
   console.log("K.I.N.G.S. PREFLIGHT → NO-GATEWAY FAIL-CLOSED: SUCCESS");
   console.log("K.I.N.G.S. PREFLIGHT → OLLAMA-ONLY NOT PRODUCTION READY: SUCCESS");
   console.log("K.I.N.G.S. PREFLIGHT → 9ROUTER LIVE CATALOG READY: SUCCESS");
+  console.log("K.I.N.G.S. PREFLIGHT → LOOPBACK SAFE DEFAULT: SUCCESS");
+  console.log("K.I.N.G.S. PREFLIGHT → UNAUTHENTICATED LAN FAIL-CLOSED: SUCCESS");
+  console.log("K.I.N.G.S. PREFLIGHT → AUTHENTICATED LAN READY: SUCCESS");
   console.log("K.I.N.G.S. PREFLIGHT → CUSTOM-ONLY FAIL-CLOSED: SUCCESS");
   console.log("K.I.N.G.S. PREFLIGHT → EMPTY GATEWAY FAIL-CLOSED: SUCCESS");
   console.log("K.I.N.G.S. PREFLIGHT → USAGE LEDGER WRITEABILITY: SUCCESS");
