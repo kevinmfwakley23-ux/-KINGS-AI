@@ -473,11 +473,11 @@ export class ProjectOwnerMachineApi {
             minimumCapabilityStrength: 70,
             requiredInputModality: "text",
             requiredOutputModality: "text",
-            preferInternal: !explicitModel,
+            preferExternal: !explicitModel,
             preferredProviderId: request.preferredProviderId,
             preferredModelId: request.preferredModelId,
             allowUnverifiedExplicitSelection: explicitModel,
-            maximumEstimatedCost: 0,
+            allowUnverifiedUnderPostExecutionVerification: !explicitModel,
           };
 
           const result = await this.modelDrivenCoding.execute(
