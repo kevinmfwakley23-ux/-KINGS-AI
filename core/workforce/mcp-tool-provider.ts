@@ -101,7 +101,12 @@ export class GovernedMcpToolProvider {
         if (!existing.enabled) reenabled += 1;
         existing.name = remote.title?.trim() || remote.name;
         existing.description = this.descriptionFor(remote);
-        existing.capabilities = ["mcp", "remote-tool"];
+        existing.capabilities = [
+          "mcp",
+          "remote-tool",
+          "external-content",
+          "untrusted-output",
+        ];
         existing.enabled = true;
       }
 
@@ -143,7 +148,15 @@ export class GovernedMcpToolProvider {
       id: toolId,
       name: remote.title?.trim() || remote.name,
       description: this.descriptionFor(remote),
-      capabilities: ["mcp", "remote-tool"],
+      // Remote MCP output is always treated as untrusted external content at
+      // the K.I.N.G.S. host boundary. Tool annotations can inform UX later,
+      // but a remote server cannot declare itself trusted through metadata.
+      capabilities: [
+        "mcp",
+        "remote-tool",
+        "external-content",
+        "untrusted-output",
+      ],
       enabled: true,
     };
   }
