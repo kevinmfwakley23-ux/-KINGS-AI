@@ -42,15 +42,29 @@ export type ModelRequestMessageRole =
   | "assistant"
   | "tool";
 
-export interface ModelRequestMessage {
-  role: ModelRequestMessageRole;
-  content: string;
-}
-
 export interface ModelToolCallProposal {
   id: ID;
   toolId: ID;
   arguments: Record<string, unknown>;
+  /** Present when a provider emitted malformed/non-object JSON arguments. */
+  argumentParseError?: string;
+}
+
+export interface ModelRequestMessage {
+  role: ModelRequestMessageRole;
+  content: string;
+  /** Required for a tool-result message that answers one provider tool call. */
+  toolCallId?: ID;
+  /** Preserves assistant tool calls when continuing a provider-native tool loop. */
+  toolCalls?: readonly ModelToolCallProposal[];
+}
+
+export interface ModelToolDefinition {
+  /** Internal K.I.N.G.S. tool id. Provider-facing aliases are derived by adapters. */
+  toolId: ID;
+  description: string;
+  /** JSON Schema for arguments. Validation remains mandatory at K.I.N.G.S. boundaries. */
+  inputSchema: Record<string, unknown>;
 }
 
 export interface ModelExecutionRequest {
@@ -65,6 +79,10 @@ export interface ModelExecutionRequest {
   temperature?: number;
   requireStructuredOutput?: boolean;
   allowToolProposals: boolean;
+  /** Tools the model may propose. Absence means no provider-native tool advertisement. */
+  toolDefinitions?: readonly ModelToolDefinition[];
+  /** Defaults false in K.I.N.G.S. so side-effecting tools are not parallelized accidentally. */
+  parallelToolCalls?: boolean;
 }
 
 export interface ModelIdentity {
