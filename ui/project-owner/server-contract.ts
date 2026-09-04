@@ -39,6 +39,8 @@ import {
   type KingsAiGatewayRuntime,
   type KingsGatewayRuntimeSynchronization,
 } from "../../core/workforce/ai-gateway-runtime";
+import { AdaptiveModelRoutingAuthority } from "../../core/workforce/adaptive-model-routing";
+import { ResilientModelExecutionAuthority } from "../../core/workforce/resilient-model-execution";
 import {
   GitHubRepositoryWorkspaceAuthority,
 } from "../../core/workforce/github-repository-workspace";
@@ -318,10 +320,20 @@ export class ProjectOwnerMachineServerController
     }
 
     const router = new ModelRouter(this.capabilities, this.metrics);
+    const adaptiveRouting = new AdaptiveModelRoutingAuthority(this.metrics);
+    const resilientExecution = new ResilientModelExecutionAuthority(
+      this.providers,
+      {
+        observeResult(providerId, observedModelId, result) {
+          adaptiveRouting.observe(providerId, observedModelId, result);
+        },
+      },
+    );
     const modelDrivenCoding = new ModelDrivenCodingExecutionAuthority(
       machine,
       router,
       this.providers,
+      resilientExecution,
     );
 
     this.editor = new EngineeringRepairEditor(
