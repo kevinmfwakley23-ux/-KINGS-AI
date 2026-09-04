@@ -9,6 +9,7 @@ import { WorkforceRegistry } from "../../core/workforce/registry";
 import { WorkUnitRegistry } from "../../core/workforce/work-unit-registry";
 import { KingsCodingMachine } from "../../core/workforce/kings-coding-machine";
 import { DurableMissionContinuityStore } from "../../core/workforce/durable-mission-continuity-store";
+import { DurableModelRoutingMetricsStore } from "../../core/workforce/durable-model-routing-metrics";
 import type { ProjectOwnerExecutionContext } from "../../core/workforce/project-owner-machine-api";
 import type { SandboxBubblewrapIsolation } from "../../core/workforce/execution-sandbox";
 import {
@@ -59,6 +60,8 @@ const continuityFile =
   process.env.KINGS_CODING_MACHINE_STATE ?? join(stateRoot, "mission-continuity.json");
 const usageFile =
   process.env.KINGS_GATEWAY_USAGE_FILE ?? join(stateRoot, "gateway-usage.jsonl");
+const routingMetricsFile =
+  process.env.KINGS_ROUTING_METRICS_FILE ?? join(stateRoot, "routing-metrics.json");
 const enableOllamaFallback = process.env.KINGS_ENABLE_OLLAMA_FALLBACK === "1";
 const ollamaBaseUrl =
   process.env.KINGS_CODING_MACHINE_OLLAMA_URL ?? "http://127.0.0.1:11434";
@@ -71,7 +74,7 @@ const publicFile = join(process.cwd(), "ui/project-owner/index.html");
 const forgeFile = join(process.cwd(), "ui/project-owner/authors-forge.html");
 const manifestFile = join(process.cwd(), "ui/project-owner/manifest.webmanifest");
 const serviceWorkerFile = join(process.cwd(), "ui/project-owner/service-worker.js");
-const runtimeBuild = "kings-gateway-first-v10-superhost-failover";
+const runtimeBuild = "kings-gateway-first-v11-durable-adaptive-superhost";
 
 async function isExecutable(path: string): Promise<boolean> {
   try {
@@ -219,10 +222,19 @@ async function main(): Promise<void> {
     token: process.env.KINGS_OWNER_TOKEN,
   });
   const usageLedger = new DurableGatewayUsageLedger(usageFile);
-  const [initialGatewayRuntime, initialOllama, processIsolation] = await Promise.all([
+  const routingMetricsStore = new DurableModelRoutingMetricsStore(
+    routingMetricsFile,
+  );
+  const [
+    initialGatewayRuntime,
+    initialOllama,
+    processIsolation,
+    initialRoutingMetrics,
+  ] = await Promise.all([
     loadKingsAiGatewayRuntime(),
     checkOllama(),
     detectProcessIsolation(),
+    routingMetricsStore.load(),
   ]);
   let gatewayRuntime = initialGatewayRuntime;
   const gatewayProviderIds = new Set(
@@ -273,6 +285,14 @@ async function main(): Promise<void> {
       allowBuildNetwork,
       localModelAvailable: enableOllamaFallback && initialOllama.ok,
       processIsolation,
+      initialRoutingMetrics,
+      recordRoutingMetric(providerId, observedModelId, metric) {
+        return routingMetricsStore.record(
+          providerId,
+          observedModelId,
+          metric,
+        );
+      },
     },
   );
   const forgeApi = new AuthorsForgeApi();
@@ -376,12 +396,14 @@ async function main(): Promise<void> {
           name: "kings.local",
           product: "K.I.N.G.S. AI Coding Machine",
           runtimeBuild,
-          routingMode: "gateway-first",
+          routingMode: "gateway-first-adaptive",
           ownerAuthRequired: ownerAuth.required,
           requestBodyLimitBytes,
           projectsRoot: workspaceRoot,
           continuityFile,
           usageFile,
+          routingMetricsFile,
+          learnedRoutingMetrics: (await routingMetricsStore.snapshot()).length,
           allowBuildNetwork,
           processIsolation: processIsolation
             ? {
@@ -421,7 +443,7 @@ async function main(): Promise<void> {
           ok: readiness.ready,
           ready: readiness.ready,
           runtimeBuild,
-          routingMode: "gateway-first",
+          routingMode: "gateway-first-adaptive",
           ownerAuthRequired: ownerAuth.required,
           readiness,
           automaticRoute: selectAutomaticCodingRoute(refreshed.gateways),
@@ -450,7 +472,7 @@ async function main(): Promise<void> {
 
         json(res, 200, {
           ok: true,
-          routingMode: "gateway-first",
+          routingMode: "gateway-first-adaptive",
           codingReady: Boolean(automaticRoute),
           defaultModel: automaticRoute,
           automaticRoute,
@@ -587,12 +609,14 @@ async function main(): Promise<void> {
     console.log(`Projects: ${workspaceRoot}`);
     console.log(`Mission state: ${continuityFile}`);
     console.log(`Gateway usage ledger: ${usageFile}`);
-    console.log("Routing mode: GATEWAY FIRST / MULTI-ROUTE FAILOVER");
+    console.log(`Adaptive routing metrics: ${routingMetricsFile}`);
+    console.log(`Restored learned routes: ${initialRoutingMetrics.size}`);
+    console.log("Routing mode: GATEWAY FIRST / MULTI-ROUTE FAILOVER / ADAPTIVE");
     console.log(`Optional Ollama fallback enabled: ${enableOllamaFallback}`);
     console.log(`Optional local fallback routable: ${initialOllama.ok}`);
     console.log(`AI gateways: ${gatewayRuntime.gateways.length}`);
     console.log(`Gateway model catalog: ${gatewayRuntime.catalog.length}`);
-    console.log(`Preferred automatic coding route: ${selectAutomaticCodingRoute(gatewayRuntime)?.label ?? "UNAVAILABLE"}`);
+    console.log(`Preferred catalog coding route: ${selectAutomaticCodingRoute(gatewayRuntime)?.label ?? "UNAVAILABLE"}`);
     console.log(`Host process isolation: ${processIsolation ? `${processIsolation.kind} (${processIsolation.executable})` : "UNAVAILABLE — GitHub execution blocked"}`);
     console.log(`Production ready: ${initialReadiness.ready}`);
     if (!initialReadiness.ready) {
