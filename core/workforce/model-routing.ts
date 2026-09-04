@@ -14,6 +14,12 @@ export type ModelCostBasis =
   | "configured-estimate"
   | "unknown";
 
+export type ModelCostPreference =
+  | "economy"
+  | "free-only"
+  | "local-only"
+  | "quality";
+
 export interface ModelRoutingRequest {
   requiredCapabilities: IntelligenceCapability[];
   minimumCapabilityStrength?: number;
@@ -27,6 +33,13 @@ export interface ModelRoutingRequest {
    * request to a model that cannot fit the required context.
    */
   requiredContextTokens?: number;
+  /**
+   * Owner cost policy. Economy is the default and prefers zero-marginal-cost
+   * local/verified-free routes before the cheapest known paid route. Free-only
+   * and local-only are hard filters. Quality intentionally ranks capability and
+   * reliability before price while retaining every other policy boundary.
+   */
+  costPreference?: ModelCostPreference;
   preferInternal?: boolean;
   preferExternal?: boolean;
   preferredProviderId?: ID;
@@ -67,6 +80,7 @@ export interface ModelRoutingCandidate {
   reliability: number;
   contextWindowTokens: number;
   internal: boolean;
+  zeroMarginalCost: boolean;
 }
 
 export interface ModelRoutingDecision {
@@ -121,7 +135,8 @@ export class ModelRouter {
       )
       .map((match) => this.toCandidate(match))
       .filter((candidate) =>
-        this.satisfiesRoutePolicy(candidate, request),
+        this.satisfiesRoutePolicy(candidate, request) &&
+        this.satisfiesCostPreference(candidate, request.costPreference ?? "economy"),
       )
       .filter((candidate) => {
         if (request.maximumEstimatedCost === undefined) return true;
@@ -142,11 +157,12 @@ export class ModelRouter {
         request.preferredProviderId,
         request.preferredModelId,
       ].filter(Boolean).join("/");
+      const preference = request.costPreference ?? "economy";
       return {
         selected: false,
         reason: requested
           ? `Requested model route "${requested}" is unavailable or does not satisfy the routing requirements and policy constraints.`
-          : "No available model satisfies the verification, capability, context-window, provider, reliability, latency, and cost routing policies.",
+          : `No available model satisfies the verification, capability, context-window, provider, reliability, latency, cost, and ${preference} routing policies.`,
         candidates: [],
       };
     }
@@ -172,20 +188,27 @@ export class ModelRouter {
       metric?.estimatedCost !== undefined && Number.isFinite(metric.estimatedCost)
         ? metric.estimatedCost
         : null;
+    const costBasis = metric?.costBasis ??
+      (estimatedCost === null ? "unknown" : "configured-estimate");
+    const internal =
+      match.model.providerKind === "internal-local" ||
+      match.model.providerKind === "internal-self-hosted";
+    const zeroMarginalCost =
+      internal ||
+      costBasis === "verified-free" ||
+      (estimatedCost === 0 && costBasis !== "unknown");
 
     return {
       modelId: match.model.modelId,
       providerId: match.model.providerId,
       capabilityStrength: match.weakestRequiredStrength,
       estimatedCost,
-      costBasis: metric?.costBasis ??
-        (estimatedCost === null ? "unknown" : "configured-estimate"),
+      costBasis,
       latencyMs: metric?.latencyMs ?? Number.MAX_SAFE_INTEGER,
       reliability: metric?.reliability ?? 0,
       contextWindowTokens: match.model.contextWindowTokens,
-      internal:
-        match.model.providerKind === "internal-local" ||
-        match.model.providerKind === "internal-self-hosted",
+      internal,
+      zeroMarginalCost,
     };
   }
 
@@ -213,6 +236,19 @@ export class ModelRouter {
       candidate.latencyMs > request.maximumLatencyMs
     ) {
       return false;
+    }
+    return true;
+  }
+
+  private satisfiesCostPreference(
+    candidate: ModelRoutingCandidate,
+    preference: ModelCostPreference,
+  ): boolean {
+    if (preference === "local-only") {
+      return candidate.internal;
+    }
+    if (preference === "free-only") {
+      return candidate.zeroMarginalCost;
     }
     return true;
   }
@@ -260,16 +296,69 @@ export class ModelRouter {
     right: ModelRoutingCandidate,
     request: ModelRoutingRequest,
   ): number {
-    if (request.preferExternal && left.internal !== right.internal) {
-      return left.internal ? 1 : -1;
-    }
-    if (request.preferInternal && left.internal !== right.internal) {
-      return left.internal ? -1 : 1;
+    const preference = request.costPreference ?? "economy";
+
+    if (preference === "quality") {
+      if (request.preferExternal && left.internal !== right.internal) {
+        return left.internal ? 1 : -1;
+      }
+      if (request.preferInternal && left.internal !== right.internal) {
+        return left.internal ? -1 : 1;
+      }
+      if (left.capabilityStrength !== right.capabilityStrength) {
+        return right.capabilityStrength - left.capabilityStrength;
+      }
+      if (left.reliability !== right.reliability) {
+        return right.reliability - left.reliability;
+      }
+      const cost = this.compareCost(left, right);
+      if (cost !== 0) return cost;
+      if (left.latencyMs !== right.latencyMs) {
+        return left.latencyMs - right.latencyMs;
+      }
+    } else {
+      if (left.zeroMarginalCost !== right.zeroMarginalCost) {
+        return left.zeroMarginalCost ? -1 : 1;
+      }
+      const cost = this.compareCost(left, right);
+      if (cost !== 0) return cost;
+      if (request.preferExternal && left.internal !== right.internal) {
+        return left.internal ? 1 : -1;
+      }
+      if (request.preferInternal && left.internal !== right.internal) {
+        return left.internal ? -1 : 1;
+      }
+      if (left.reliability !== right.reliability) {
+        return right.reliability - left.reliability;
+      }
+      if (left.capabilityStrength !== right.capabilityStrength) {
+        return right.capabilityStrength - left.capabilityStrength;
+      }
+      if (left.latencyMs !== right.latencyMs) {
+        return left.latencyMs - right.latencyMs;
+      }
     }
 
-    const leftCostKnown = left.estimatedCost !== null;
-    const rightCostKnown = right.estimatedCost !== null;
-    if (leftCostKnown && rightCostKnown && left.estimatedCost !== right.estimatedCost) {
+    if (left.providerId !== right.providerId) {
+      return left.providerId.localeCompare(right.providerId);
+    }
+    return left.modelId.localeCompare(right.modelId);
+  }
+
+  private compareCost(
+    left: ModelRoutingCandidate,
+    right: ModelRoutingCandidate,
+  ): number {
+    const leftKnown = left.estimatedCost !== null;
+    const rightKnown = right.estimatedCost !== null;
+    if (leftKnown !== rightKnown) {
+      return leftKnown ? -1 : 1;
+    }
+    if (
+      leftKnown &&
+      rightKnown &&
+      left.estimatedCost !== right.estimatedCost
+    ) {
       return (left.estimatedCost as number) - (right.estimatedCost as number);
     }
     if (left.costBasis === "verified-free" && right.costBasis !== "verified-free") {
@@ -278,19 +367,7 @@ export class ModelRouter {
     if (right.costBasis === "verified-free" && left.costBasis !== "verified-free") {
       return 1;
     }
-    if (left.reliability !== right.reliability) {
-      return right.reliability - left.reliability;
-    }
-    if (left.capabilityStrength !== right.capabilityStrength) {
-      return right.capabilityStrength - left.capabilityStrength;
-    }
-    if (left.latencyMs !== right.latencyMs) {
-      return left.latencyMs - right.latencyMs;
-    }
-    if (left.providerId !== right.providerId) {
-      return left.providerId.localeCompare(right.providerId);
-    }
-    return left.modelId.localeCompare(right.modelId);
+    return 0;
   }
 
   private buildReason(
@@ -302,21 +379,23 @@ export class ModelRouter {
       : `estimated cost ${candidate.estimatedCost} (${candidate.costBasis})`;
     const performance =
       `reliability ${candidate.reliability}; latency ${candidate.latencyMs}ms; context ${candidate.contextWindowTokens} tokens`;
+    const economy =
+      `cost preference ${request.costPreference ?? "economy"}; ${candidate.zeroMarginalCost ? "zero marginal token cost" : "metered route"}`;
     if (request.preferredProviderId || request.preferredModelId) {
       const verification = request.allowUnverifiedExplicitSelection
         ? "explicit live-catalog selection under post-generation verification"
         : "explicit verified model selection";
-      return `${verification} ${candidate.providerId}/${candidate.modelId}; ${cost}; ${performance}; capability strength ${candidate.capabilityStrength}`;
+      return `${verification} ${candidate.providerId}/${candidate.modelId}; ${economy}; ${cost}; ${performance}; capability strength ${candidate.capabilityStrength}`;
     }
     if (request.allowUnverifiedUnderPostExecutionVerification) {
-      return `governed model selection under independent post-execution verification; ${candidate.providerId}/${candidate.modelId}; ${cost}; ${performance}; capability strength ${candidate.capabilityStrength}`;
+      return `governed model selection under independent post-execution verification; ${candidate.providerId}/${candidate.modelId}; ${economy}; ${cost}; ${performance}; capability strength ${candidate.capabilityStrength}`;
     }
-    const preference = request.preferExternal && !candidate.internal
-      ? "preferred external gateway intelligence"
+    const providerPreference = request.preferExternal && !candidate.internal
+      ? "preferred external intelligence"
       : request.preferInternal && candidate.internal
         ? "preferred internal intelligence"
         : "capable available verified model";
-    return `${preference}; ${cost}; ${performance}; capability strength ${candidate.capabilityStrength}`;
+    return `${providerPreference}; ${economy}; ${cost}; ${performance}; capability strength ${candidate.capabilityStrength}`;
   }
 
   private validateRequest(request: ModelRoutingRequest): void {
@@ -328,6 +407,16 @@ export class ModelRouter {
     if (request.preferInternal && request.preferExternal) {
       throw new Error(
         "K.I.N.G.S. Model Router: internal and external routing cannot both be preferred",
+      );
+    }
+    if (
+      request.costPreference !== undefined &&
+      !["economy", "free-only", "local-only", "quality"].includes(
+        request.costPreference,
+      )
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Model Router: unsupported cost preference",
       );
     }
     const minimumStrength = request.minimumCapabilityStrength ?? 0;
