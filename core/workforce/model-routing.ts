@@ -26,6 +26,13 @@ export interface ModelRoutingRequest {
   preferredProviderId?: ID;
   preferredModelId?: ID;
   allowUnverifiedExplicitSelection?: boolean;
+  /**
+   * Allows a live, available, capability-matched model whose benchmark status is
+   * still unverified to participate in automatic routing only when the caller
+   * has an independent post-execution verification boundary. This does not
+   * promote the capability to verified and does not bypass cost ceilings.
+   */
+  allowUnverifiedUnderPostExecutionVerification?: boolean;
   maximumEstimatedCost?: number;
 }
 
@@ -74,12 +81,17 @@ export class ModelRouter {
     const explicitSelection = Boolean(
       request.preferredProviderId || request.preferredModelId,
     );
+    const unverifiedSelectionAllowed =
+      request.allowUnverifiedUnderPostExecutionVerification === true ||
+      (
+        explicitSelection &&
+        request.allowUnverifiedExplicitSelection === true
+      );
 
     const matches = this.capabilityRegistry.discover({
       requiredCapabilities: request.requiredCapabilities,
       minimumStrength: request.minimumCapabilityStrength ?? 0,
-      verifiedOnly:
-        !(explicitSelection && request.allowUnverifiedExplicitSelection),
+      verifiedOnly: !unverifiedSelectionAllowed,
       availableOnly: true,
       providerId: request.preferredProviderId,
       modelId: request.preferredModelId,
@@ -97,9 +109,9 @@ export class ModelRouter {
         if (candidate.estimatedCost !== null) {
           return candidate.estimatedCost <= request.maximumEstimatedCost;
         }
-        // An explicit live-catalog choice may have unknown KINGS-side pricing
-        // because the gateway itself owns subscription/free-tier accounting.
-        // We allow that explicit route without pretending its cost is zero.
+        // Only an explicit live-catalog choice may pass an unknown KINGS-side
+        // price through a caller-supplied cost ceiling. Automatic routing must
+        // not silently treat an unknown price as affordable.
         return explicitSelection && request.allowUnverifiedExplicitSelection === true;
       })
       .sort((left, right) =>
@@ -116,8 +128,8 @@ export class ModelRouter {
         reason: requested
           ? `Requested model route "${requested}" is unavailable or does not satisfy the routing requirements.`
           : request.maximumEstimatedCost !== undefined
-            ? "No available verified model with known cost satisfies the routing requirements and cost ceiling."
-            : "No available verified model satisfies the routing requirements.",
+            ? "No available model with acceptable verification state and known cost satisfies the routing requirements and cost ceiling."
+            : "No available model with acceptable verification state satisfies the routing requirements.",
         candidates: [],
       };
     }
@@ -240,6 +252,9 @@ export class ModelRouter {
         : "explicit verified model selection";
       return `${verification} ${candidate.providerId}/${candidate.modelId}; ${cost}; reliability ${candidate.reliability}; capability strength ${candidate.capabilityStrength}`;
     }
+    if (request.allowUnverifiedUnderPostExecutionVerification) {
+      return `governed model selection under independent post-execution verification; ${candidate.providerId}/${candidate.modelId}; ${cost}; reliability ${candidate.reliability}; capability strength ${candidate.capabilityStrength}`;
+    }
     const preference = request.preferExternal && !candidate.internal
       ? "preferred external gateway intelligence"
       : request.preferInternal && candidate.internal
@@ -279,7 +294,7 @@ export class ModelRouter {
       !request.preferredModelId
     ) {
       throw new Error(
-        "K.I.N.G.S. Model Router: unverified routing is only allowed for an explicit provider/model selection",
+        "K.I.N.G.S. Model Router: unverified explicit routing requires an explicit provider/model selection",
       );
     }
   }
