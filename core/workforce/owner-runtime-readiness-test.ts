@@ -127,9 +127,12 @@ async function main(): Promise<void> {
     join(process.cwd(), "ui", "project-owner", "local-server.ts"),
     "utf8",
   );
-  assert.match(serverSource, /routingMode:\s*"gateway-first"/);
+  assert.match(serverSource, /routingMode:\s*"gateway-first-adaptive"/);
   assert.match(serverSource, /KINGS_ENABLE_OLLAMA_FALLBACK/);
   assert.match(serverSource, /DurableGatewayUsageLedger/);
+  assert.match(serverSource, /DurableModelRoutingMetricsStore/);
+  assert.match(serverSource, /routingMetricsStore\.load\(\)/);
+  assert.match(serverSource, /recordRoutingMetric\(providerId, observedModelId, metric\)/);
   assert.match(serverSource, /pathname === "\/api\/usage"/);
   assert.match(serverSource, /selectAutomaticCodingRoute/);
   assert.match(serverSource, /ok:\s*readiness\.ready/);
@@ -151,7 +154,7 @@ async function main(): Promise<void> {
   assert.match(
     serverSource,
     /defaultModel:\s*automaticRoute/,
-    "model API must expose the preferred gateway route without forcing execution to stay pinned to it",
+    "model API must expose the preferred catalog route without forcing execution to stay pinned to it",
   );
 
   const statusSource = await readFile(
@@ -171,6 +174,7 @@ async function main(): Promise<void> {
   console.log("K.I.N.G.S. OWNER RUNTIME → UNVERIFIED DOCUMENTED OMNIROUTE DEFAULT: SUCCESS");
   console.log("K.I.N.G.S. OWNER RUNTIME → GATEWAY-FIRST HEALTH CONTRACT: SUCCESS");
   console.log("K.I.N.G.S. OWNER RUNTIME → MULTI-ROUTE AUTO FAILOVER CONTRACT: SUCCESS");
+  console.log("K.I.N.G.S. OWNER RUNTIME → DURABLE ADAPTIVE ROUTING CONTRACT: SUCCESS");
   console.log("K.I.N.G.S. OWNER RUNTIME → DURABLE USAGE API CONTRACT: SUCCESS");
   console.log("K.I.N.G.S. OWNER RUNTIME → BOUNDED JSON API CONTRACT: SUCCESS");
   console.log("K.I.N.G.S. OWNER STATUS → LIVE READINESS PROBE: SUCCESS");
