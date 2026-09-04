@@ -19,14 +19,29 @@ export interface ParallelGitWorktreeOptions {
 }
 
 function safeSegment(value: string): string {
-  const normalized = value
-    .trim()
+  const raw = value.trim();
+  if (
+    !raw ||
+    raw.includes("/") ||
+    raw.includes("\\") ||
+    raw === "." ||
+    raw === ".." ||
+    raw.startsWith(".")
+  ) {
+    throw new Error(
+      "K.I.N.G.S. Parallel Worktrees: task id contains path or traversal syntax.",
+    );
+  }
+
+  const normalized = raw
     .replace(/[^A-Za-z0-9._-]+/g, "-")
-    .replace(/^\.+/, "")
     .replace(/-+/g, "-")
     .slice(0, 96);
-  if (!normalized) {
-    throw new Error("K.I.N.G.S. Parallel Worktrees: task id cannot produce a safe worktree segment.");
+
+  if (!normalized || normalized.startsWith("-")) {
+    throw new Error(
+      "K.I.N.G.S. Parallel Worktrees: task id cannot produce a safe worktree segment.",
+    );
   }
   return normalized;
 }
