@@ -43,6 +43,11 @@ import {
   pairingTokenFromUrl,
   protectedApiPath,
 } from "./owner-http-auth";
+import {
+  JsonBodyReadError,
+  readJsonBody,
+  resolveJsonBodyLimitBytes,
+} from "./http-json-body";
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
 const bindHost = process.env.KINGS_CODING_MACHINE_BIND ?? "127.0.0.1";
@@ -59,18 +64,14 @@ const ollamaBaseUrl =
   process.env.KINGS_CODING_MACHINE_OLLAMA_URL ?? "http://127.0.0.1:11434";
 const modelId = process.env.KINGS_CODING_MACHINE_MODEL ?? "qwen2.5-coder:1.5b";
 const allowBuildNetwork = process.env.KINGS_BUILD_NETWORK !== "0";
+const requestBodyLimitBytes = resolveJsonBodyLimitBytes(
+  process.env.KINGS_MAX_JSON_BODY_BYTES,
+);
 const publicFile = join(process.cwd(), "ui/project-owner/index.html");
 const forgeFile = join(process.cwd(), "ui/project-owner/authors-forge.html");
 const manifestFile = join(process.cwd(), "ui/project-owner/manifest.webmanifest");
 const serviceWorkerFile = join(process.cwd(), "ui/project-owner/service-worker.js");
-const runtimeBuild = "kings-gateway-first-v8-authenticated";
-
-async function body(request: import("node:http").IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) chunks.push(Buffer.from(chunk));
-  if (!chunks.length) return undefined;
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-}
+const runtimeBuild = "kings-gateway-first-v9-bounded-api";
 
 async function isExecutable(path: string): Promise<boolean> {
   try {
@@ -377,6 +378,7 @@ async function main(): Promise<void> {
           runtimeBuild,
           routingMode: "gateway-first",
           ownerAuthRequired: ownerAuth.required,
+          requestBodyLimitBytes,
           projectsRoot: workspaceRoot,
           continuityFile,
           usageFile,
@@ -460,9 +462,6 @@ async function main(): Promise<void> {
             })),
             ...localModels,
           ],
-          // Keep the older browser field temporarily while the owner UI cache
-          // rolls forward. Both fields contain the same real runtime result.
-          localRuntime: refreshed.ollama,
           localFallback: refreshed.ollama,
           gateways: refreshed.gateways.gateways.map(({ adapter, health }) => ({
             providerId: adapter.descriptor.id,
@@ -529,7 +528,10 @@ async function main(): Promise<void> {
       }
 
       if (req.method === "POST" && pathname === "/api/project-owner/missions") {
-        const incoming = (await body(req)) as Parameters<ProjectOwnerMachineApi["handle"]>[0];
+        const incoming = (await readJsonBody(
+          req,
+          requestBodyLimitBytes,
+        )) as Parameters<ProjectOwnerMachineApi["handle"]>[0];
         const route =
           incoming.action === "execute-next" &&
           !incoming.preferredProviderId &&
@@ -549,7 +551,10 @@ async function main(): Promise<void> {
       }
 
       if (req.method === "POST" && pathname === "/api/authors-forge") {
-        const request = (await body(req)) as AuthorsForgeRequest;
+        const request = (await readJsonBody(
+          req,
+          requestBodyLimitBytes,
+        )) as AuthorsForgeRequest;
         const result = forgeApi.handle(request);
         json(res, result.ok ? 200 : 400, result);
         return;
@@ -561,6 +566,14 @@ async function main(): Promise<void> {
       });
       res.end("Not Found");
     } catch (error) {
+      if (error instanceof JsonBodyReadError) {
+        json(res, error.statusCode, {
+          ok: false,
+          message: error.message,
+        });
+        return;
+      }
+
       json(res, 500, {
         ok: false,
         message: error instanceof Error ? error.message : String(error),
@@ -583,6 +596,7 @@ async function main(): Promise<void> {
     console.log(`Usage: http://${publicHost}:${port}/api/usage`);
     console.log(`Bind: ${bindHost}:${port}`);
     console.log(`Owner authentication required: ${ownerAuth.required}`);
+    console.log(`Owner API JSON limit: ${requestBodyLimitBytes} bytes`);
     console.log(`Projects: ${workspaceRoot}`);
     console.log(`Mission state: ${continuityFile}`);
     console.log(`Gateway usage ledger: ${usageFile}`);
