@@ -77,6 +77,8 @@ async function main(): Promise<void> {
     objectives: [
       "Execute a ready task.",
       "Promote successful execution through TaskControl.",
+      "Hold exclusive running state for the full execution window.",
+      "Fail closed when the execution port throws.",
     ],
     sourceReferences: [],
     createdAt:
@@ -106,10 +108,22 @@ async function main(): Promise<void> {
       new Date().toISOString(),
   };
 
+  const throwingTask: Task = {
+    ...task,
+    id: "task-control-004-throws",
+    name: "Task Execution Exception Test",
+    description:
+      "Verify that an execution exception cannot strand a task in running state.",
+    expectedOutputs: [
+      "fail-closed task state after execution exception",
+    ],
+  };
+
   registry.registerTool(tool);
   registry.registerAgent(agent);
   registry.registerMission(mission);
   registry.registerTask(task);
+  registry.registerTask(throwingTask);
 
   const taskControl =
     new TaskControl(
@@ -132,11 +146,17 @@ async function main(): Promise<void> {
       workUnitRegistry,
     );
 
+  const observedStatuses: string[] = [];
   const executionController =
     new TaskExecutionController(
       registry,
       taskControl,
-      workforceExecutor,
+      {
+        execute: async (taskId) => {
+          observedStatuses.push(task.status);
+          return workforceExecutor.execute(taskId);
+        },
+      },
     );
 
   const result =
@@ -147,6 +167,11 @@ async function main(): Promise<void> {
   assert(
     result.status === "success",
     "Workforce execution should succeed.",
+  );
+
+  assert(
+    observedStatuses[0] === "running",
+    "Task must be marked running before execution-port work begins.",
   );
 
   assert(
@@ -176,8 +201,48 @@ async function main(): Promise<void> {
     "A completed task must not be executed again.",
   );
 
+  const throwingController =
+    new TaskExecutionController(
+      registry,
+      taskControl,
+      {
+        execute: async () => {
+          assert(
+            throwingTask.status === "running",
+            "Throwing execution port must still observe an owned running task.",
+          );
+          throw new Error("forced execution-port failure");
+        },
+      },
+    );
+
+  let executionErrorPreserved = false;
+  try {
+    await throwingController.execute(
+      throwingTask.id,
+    );
+  } catch (error) {
+    executionErrorPreserved =
+      error instanceof Error &&
+      error.message === "forced execution-port failure";
+  }
+
+  assert(
+    executionErrorPreserved,
+    "Execution-port exception should be preserved for diagnosis.",
+  );
+
+  assert(
+    throwingTask.status === "failed",
+    "Execution-port exception must transition an in-flight task to failed.",
+  );
+
   console.log(
     "Controlled execution: SUCCESS",
+  );
+
+  console.log(
+    "Running state held before adapter work: SUCCESS",
   );
 
   console.log(
@@ -185,7 +250,7 @@ async function main(): Promise<void> {
   );
 
   console.log(
-    "TaskControl owns completion transition: SUCCESS",
+    "Execution exception fails task closed: SUCCESS",
   );
 
   console.log(
