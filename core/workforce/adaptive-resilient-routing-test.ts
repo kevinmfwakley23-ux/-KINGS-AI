@@ -195,8 +195,15 @@ async function main(): Promise<void> {
   );
   assert.match(controllerSource, /AdaptiveModelRoutingAuthority/);
   assert.match(controllerSource, /ResilientModelExecutionAuthority/);
-  assert.match(controllerSource, /observeResult\(providerId, observedModelId, result\)/);
-  assert.match(controllerSource, /adaptiveRouting\.observe\(providerId, observedModelId, result\)/);
+  assert.match(
+    controllerSource,
+    /observeResult\(providerId, observedModelId, result\)/,
+  );
+  assert.match(
+    controllerSource,
+    /adaptiveRouting\.observe\(\s*providerId,\s*observedModelId,\s*result,?\s*\)/,
+    "adaptive observer wiring should be detected independent of source formatting",
+  );
 
   console.log("K.I.N.G.S. SUPERHOST → LIVE FAILURE EVIDENCE LEARNED: SUCCESS");
   console.log("K.I.N.G.S. SUPERHOST → LIVE SUCCESS EVIDENCE LEARNED: SUCCESS");
