@@ -38,8 +38,6 @@ async function main(): Promise<void> {
       commitUserEmail: "kings-worktree-test@example.invalid",
     });
 
-    // The same logical task may be retried or run under a new execution id.
-    // Each execution must receive a distinct worktree and branch.
     const left = await authority.prepare(
       "implement-feature",
       "HEAD",
@@ -93,11 +91,31 @@ async function main(): Promise<void> {
 
     await authority.remove(left);
 
-    // Removing a clean worktree must preserve its result branch so a later
-    // verification/merge authority can inspect and integrate it.
     assert.equal(
       await gitOutput(repository, ["show", `${left.branch}:shared.txt`]),
       "left-agent\n",
+    );
+
+    // Reusing the exact execution identity must fail without deleting the
+    // already-preserved result branch.
+    let branchCollisionRejected = false;
+    try {
+      await authority.prepare(
+        "implement-feature",
+        "HEAD",
+        "execution-left",
+      );
+    } catch (error) {
+      branchCollisionRejected =
+        error instanceof Error &&
+        error.message.includes("already exists") &&
+        error.message.includes("refusing to overwrite preserved work");
+    }
+    assert.equal(branchCollisionRejected, true);
+    assert.equal(
+      await gitOutput(repository, ["show", `${left.branch}:shared.txt`]),
+      "left-agent\n",
+      "collision handling must not delete the earlier execution result",
     );
 
     let commitEscapeRejected = false;
@@ -110,12 +128,33 @@ async function main(): Promise<void> {
     } catch (error) {
       commitEscapeRejected =
         error instanceof Error &&
-        error.message.includes("outside the governed worktree");
+        error.message.includes("outside or invalid for the governed worktree");
     }
     assert.equal(
       commitEscapeRejected,
       true,
       "commit path traversal must fail before Git stages anything",
+    );
+
+    // Git wildcard/pathspec syntax must be treated literally rather than being
+    // allowed to broaden a selected-file commit.
+    await writeFile(join(retry.path, "safe-a.txt"), "a\n", "utf8");
+    await writeFile(join(retry.path, "safe-b.txt"), "b\n", "utf8");
+    let wildcardBroadenRejected = false;
+    try {
+      await authority.commitChanges(
+        retry,
+        ["*.txt"],
+        "must not expand wildcard",
+      );
+    } catch {
+      wildcardBroadenRejected = true;
+    }
+    assert.equal(wildcardBroadenRejected, true);
+    assert.equal(
+      (await gitOutput(retry.path, ["diff", "--cached", "--name-only"])).trim(),
+      "",
+      "literal pathspec handling must not stage files matched only by wildcard syntax",
     );
 
     await authority.remove(retry, {
@@ -152,8 +191,9 @@ async function main(): Promise<void> {
     console.log("PARALLEL-WORKTREES-002 base checkout remains untouched: SUCCESS");
     console.log("PARALLEL-WORKTREES-003 dirty work cannot be silently destroyed: SUCCESS");
     console.log("PARALLEL-WORKTREES-004 committed agent branch survives worktree cleanup: SUCCESS");
-    console.log("PARALLEL-WORKTREES-005 explicit discard removes abandoned branch: SUCCESS");
-    console.log("PARALLEL-WORKTREES-006 task/execution/commit path traversal rejected: SUCCESS");
+    console.log("PARALLEL-WORKTREES-005 repeated execution identity cannot erase preserved branch: SUCCESS");
+    console.log("PARALLEL-WORKTREES-006 explicit discard removes abandoned branch: SUCCESS");
+    console.log("PARALLEL-WORKTREES-007 traversal and wildcard pathspec broadening rejected: SUCCESS");
     console.log("K.I.N.G.S. PARALLEL GIT WORKTREE LIFECYCLE: SUCCESS");
   } finally {
     await rm(root, { recursive: true, force: true });
