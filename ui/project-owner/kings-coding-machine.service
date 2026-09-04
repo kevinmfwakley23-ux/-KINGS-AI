@@ -1,18 +1,27 @@
 [Unit]
-Description=KINGS Coding Machine local owner server
-After=network.target
+Description=K.I.N.G.S. AI adaptive superhost owner runtime
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/KINGS-AI
-Environment=KINGS_CODING_MACHINE_PORT=8787
-Environment=KINGS_CODING_MACHINE_HOST=kings.local
-Environment=KINGS_CODING_MACHINE_MODEL=qwen2.5-coder:1.5b
-Environment=KINGS_CODING_MACHINE_WORKSPACE=%h/KINGS-AI
-Environment=PATH=%h/.config/nvm/versions/node/v24.19.0/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=%h/.config/nvm/versions/node/v24.19.0/bin/node %h/KINGS-AI/.kings-ui-build/ui/project-owner/local-server.js
+WorkingDirectory="@KINGS_ROOT@"
+Environment="KINGS_CODING_MACHINE_PORT=@PORT@"
+Environment="KINGS_CODING_MACHINE_BIND=@BIND@"
+Environment="KINGS_CODING_MACHINE_HOST=@HOST@"
+Environment="KINGS_STATE_ROOT=@STATE_ROOT@"
+Environment="KINGS_CODING_MACHINE_NODE=@NODE_BIN@"
+Environment="KINGS_CODING_MACHINE_NPM=@NPM_BIN@"
+Environment="KINGS_CODING_MACHINE_OPEN_UI=0"
+Environment="PATH=@NODE_DIR@:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/usr/bin/env bash "@KINGS_ROOT@/ui/project-owner/start-local.sh"
 Restart=on-failure
 RestartSec=2
+TimeoutStartSec=180
+TimeoutStopSec=30
+UMask=0077
+PrivateTmp=true
+ProtectSystem=full
 
 [Install]
 WantedBy=default.target
