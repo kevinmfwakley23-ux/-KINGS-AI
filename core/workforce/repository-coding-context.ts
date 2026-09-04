@@ -2,9 +2,12 @@ import {
   RepositoryInspector,
   type RepositoryFileSummary,
 } from "./repository-inspector";
-import type {
-  KnowledgeSource,
-} from "./types";
+import type { KnowledgeSource } from "./types";
+import {
+  RepositorySymbolDependencyMap,
+  type RepositorySymbolSource,
+} from "./repository-symbol-map";
+import { ModelVisibleContextCompressionAuthority } from "./model-visible-context-compression";
 
 export interface RepositoryCodingContextRequest {
   workspaceRoot: string;
@@ -24,77 +27,41 @@ export interface RepositoryCodingContextResult {
   excludedSensitiveFiles: number;
   contentRankedFiles: number;
   truncated: boolean;
+  symbolIndexedFiles?: number;
+  selectedSymbols?: number;
+  contextCharactersSaved?: number;
 }
 
 const EXCLUDED = [
-  ".git",
-  ".kings",
-  "node_modules",
-  "dist",
-  "build",
-  "coverage",
-  "target",
-  ".next",
-  ".cache",
-  "vendor",
+  ".git", ".kings", "node_modules", "dist", "build", "coverage",
+  "target", ".next", ".cache", "vendor",
 ];
-
 const TEXT_EXTENSIONS = [
-  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
-  ".json", ".md", ".txt", ".html", ".css", ".scss",
-  ".py", ".rs", ".go", ".java", ".kt", ".kts",
-  ".c", ".h", ".cpp", ".hpp", ".sql", ".sh",
-  ".yaml", ".yml", ".toml", ".xml", ".gradle",
+  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts",
+  ".json", ".md", ".txt", ".html", ".css", ".scss", ".py", ".rs",
+  ".go", ".java", ".kt", ".kts", ".c", ".h", ".cpp", ".hpp",
+  ".sql", ".sh", ".yaml", ".yml", ".toml", ".xml", ".gradle",
 ];
-
+const AST_EXTENSIONS = /\.(?:[cm]?[jt]sx?)$/i;
 const IMPORTANT_NAMES = new Set([
-  "readme.md",
-  "agents.md",
-  "contributing.md",
-  "package.json",
-  "tsconfig.json",
-  "pyproject.toml",
-  "requirements.txt",
-  "cargo.toml",
-  "go.mod",
-  "pom.xml",
-  "build.gradle",
-  "build.gradle.kts",
-  "dockerfile",
-  "compose.yml",
-  "compose.yaml",
-  ".github/copilot-instructions.md",
-  ".github/workflows/ci.yml",
-  ".github/workflows/ci.yaml",
+  "readme.md", "agents.md", "contributing.md", "package.json", "tsconfig.json",
+  "pyproject.toml", "requirements.txt", "cargo.toml", "go.mod", "pom.xml",
+  "build.gradle", "build.gradle.kts", "dockerfile", "compose.yml", "compose.yaml",
+  ".github/copilot-instructions.md", ".github/workflows/ci.yml", ".github/workflows/ci.yaml",
 ]);
 
 function isSensitivePath(path: string): boolean {
   const normalized = path.replaceAll("\\", "/").toLowerCase();
   const name = normalized.split("/").at(-1) ?? normalized;
-
-  if (
+  return (
     name === ".env" ||
     name.startsWith(".env.") ||
-    [".npmrc", ".pypirc", ".netrc"].includes(name)
-  ) {
-    return true;
-  }
-
-  if (
+    [".npmrc", ".pypirc", ".netrc"].includes(name) ||
     /^(?:id_(?:rsa|dsa|ecdsa|ed25519))(?:\.pub)?$/i.test(name) ||
-    /\.(?:pem|key|p12|pfx|jks|keystore)$/i.test(name)
-  ) {
-    return true;
-  }
-
-  if (
+    /\.(?:pem|key|p12|pfx|jks|keystore)$/i.test(name) ||
     /(?:^|[._-])(?:credential|credentials|secret|secrets)(?:[._-]|$)/i.test(name) ||
     /^(?:service-account|service_account|firebase-adminsdk)[^/]*\.json$/i.test(name)
-  ) {
-    return true;
-  }
-
-  return false;
+  );
 }
 
 function escapeRegExp(value: string): string {
@@ -106,26 +73,16 @@ function redactSensitiveFileReferences(
   sensitiveFiles: readonly RepositoryFileSummary[],
 ): string {
   const references = new Set<string>();
-
   for (const file of sensitiveFiles) {
     const normalized = file.relativePath.replaceAll("\\", "/");
     const name = normalized.split("/").at(-1);
     references.add(normalized);
     if (name) references.add(name);
   }
-
   let redacted = content;
-  const orderedReferences = [...references]
-    .filter(Boolean)
-    .sort((left, right) => right.length - left.length);
-
-  for (const reference of orderedReferences) {
-    redacted = redacted.replace(
-      new RegExp(escapeRegExp(reference), "gi"),
-      "[REDACTED SENSITIVE PATH]",
-    );
+  for (const reference of [...references].filter(Boolean).sort((a, b) => b.length - a.length)) {
+    redacted = redacted.replace(new RegExp(escapeRegExp(reference), "gi"), "[REDACTED SENSITIVE PATH]");
   }
-
   return redacted;
 }
 
@@ -133,46 +90,32 @@ function terms(value: string): Set<string> {
   return new Set(
     value
       .toLowerCase()
-      .split(/[^a-z0-9_-]+/)
+      .split(/[^a-z0-9_$-]+/)
       .map((term) => term.trim())
       .filter((term) => term.length >= 3)
       .filter((term) => ![
-        "the", "and", "for", "with", "that", "this", "from",
-        "into", "build", "project", "application", "code",
+        "the", "and", "for", "with", "that", "this", "from", "into",
+        "build", "project", "application", "code",
       ].includes(term)),
   );
 }
 
 function isTextCandidate(file: RepositoryFileSummary): boolean {
-  if (
-    file.isDirectory ||
-    file.sizeBytes <= 0 ||
-    file.sizeBytes > 200_000 ||
-    isSensitivePath(file.relativePath)
-  ) {
+  if (file.isDirectory || file.sizeBytes <= 0 || file.sizeBytes > 200_000 || isSensitivePath(file.relativePath)) {
     return false;
   }
   const lower = file.relativePath.toLowerCase();
-  if (IMPORTANT_NAMES.has(lower)) return true;
-  return TEXT_EXTENSIONS.some((extension) => lower.endsWith(extension));
+  return IMPORTANT_NAMES.has(lower) || TEXT_EXTENSIONS.some((extension) => lower.endsWith(extension));
 }
 
 function isRepositoryInstructionPath(path: string): boolean {
   const lower = path.toLowerCase();
-  return (
-    lower === "agents.md" ||
-    lower.endsWith("/agents.md") ||
-    lower === "contributing.md" ||
-    lower.endsWith("/contributing.md") ||
-    lower === ".github/copilot-instructions.md" ||
-    /^\.github\/instructions\/.*\.md$/.test(lower)
-  );
+  return lower === "agents.md" || lower.endsWith("/agents.md") ||
+    lower === "contributing.md" || lower.endsWith("/contributing.md") ||
+    lower === ".github/copilot-instructions.md" || /^\.github\/instructions\/.*\.md$/.test(lower);
 }
 
-function scorePath(
-  path: string,
-  objectiveTerms: Set<string>,
-): number {
+function scorePath(path: string, objectiveTerms: Set<string>): number {
   const lower = path.toLowerCase();
   let score = 0;
   if (IMPORTANT_NAMES.has(lower)) score += 100;
@@ -180,17 +123,12 @@ function scorePath(
   if (/^(src|app|apps|packages|core|lib|server|client|api)\//.test(lower)) score += 30;
   if (/(?:^|\/)(test|tests|spec|__tests__)(?:\/|\.)/.test(lower)) score += 18;
   if (/index\.|main\.|server\.|app\.|router\.|config\./.test(lower)) score += 14;
-  for (const term of objectiveTerms) {
-    if (lower.includes(term)) score += 12;
-  }
+  for (const term of objectiveTerms) if (lower.includes(term)) score += 12;
   score -= Math.min(20, lower.split("/").length * 2);
   return score;
 }
 
-function scoreContent(
-  content: string,
-  objectiveTerms: Set<string>,
-): number {
+function scoreContent(content: string, objectiveTerms: Set<string>): number {
   if (objectiveTerms.size === 0) return 0;
   const lower = content.toLowerCase();
   let matchedTerms = 0;
@@ -207,22 +145,17 @@ function scoreContent(
 }
 
 export class RepositoryCodingContextAuthority {
-  async build(
-    request: RepositoryCodingContextRequest,
-  ): Promise<RepositoryCodingContextResult> {
-    const maxContextCharacters = Math.max(
-      4_000,
-      Math.min(request.maxContextCharacters ?? 28_000, 80_000),
-    );
+  constructor(
+    private readonly symbolMap: RepositorySymbolDependencyMap = new RepositorySymbolDependencyMap(),
+    private readonly compressor: ModelVisibleContextCompressionAuthority =
+      new ModelVisibleContextCompressionAuthority(),
+  ) {}
+
+  async build(request: RepositoryCodingContextRequest): Promise<RepositoryCodingContextResult> {
+    const maxContextCharacters = Math.max(4_000, Math.min(request.maxContextCharacters ?? 28_000, 80_000));
     const maxFiles = Math.max(1, Math.min(request.maxFiles ?? 18, 50));
-    const maxSearchFiles = Math.max(
-      maxFiles,
-      Math.min(request.maxSearchFiles ?? 500, 1_000),
-    );
-    const maxSearchBytes = Math.max(
-      1_000_000,
-      Math.min(request.maxSearchBytes ?? 24_000_000, 64_000_000),
-    );
+    const maxSearchFiles = Math.max(maxFiles, Math.min(request.maxSearchFiles ?? 500, 1_000));
+    const maxSearchBytes = Math.max(1_000_000, Math.min(request.maxSearchBytes ?? 24_000_000, 64_000_000));
     const sourceId = `repository-${request.missionId}`;
     const source: KnowledgeSource = {
       id: sourceId,
@@ -234,7 +167,6 @@ export class RepositoryCodingContextAuthority {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-
     const inspector = new RepositoryInspector({
       projectRoot: request.workspaceRoot,
       allowedSourceIds: [sourceId],
@@ -248,56 +180,66 @@ export class RepositoryCodingContextAuthority {
 
     const inspection = await inspector.inspect(source);
     const allFiles = inspection.files.filter((file) => !file.isDirectory);
-    const sensitiveFiles = allFiles.filter((file) =>
-      isSensitivePath(file.relativePath),
-    );
-    const files = allFiles.filter((file) =>
-      !isSensitivePath(file.relativePath),
-    );
-    const objectiveTerms = terms(
-      `${request.objective} ${request.requirements.join(" ")}`,
-    );
+    const sensitiveFiles = allFiles.filter((file) => isSensitivePath(file.relativePath));
+    const files = allFiles.filter((file) => !isSensitivePath(file.relativePath));
+    const objectiveTerms = terms(`${request.objective} ${request.requirements.join(" ")}`);
     const textCandidates = files.filter(isTextCandidate);
     const contentScores = new Map<string, number>();
+    const safeContent = new Map<string, string>();
     let searchedBytes = 0;
     let contentRankedFiles = 0;
 
     const searchOrder = [...textCandidates].sort((left, right) => {
-      const pathDifference = scorePath(right.relativePath, objectiveTerms) -
-        scorePath(left.relativePath, objectiveTerms);
-      if (pathDifference !== 0) return pathDifference;
-      return left.sizeBytes - right.sizeBytes;
+      const pathDifference = scorePath(right.relativePath, objectiveTerms) - scorePath(left.relativePath, objectiveTerms);
+      return pathDifference !== 0 ? pathDifference : left.sizeBytes - right.sizeBytes;
     });
-
     for (const file of searchOrder) {
       if (contentRankedFiles >= maxSearchFiles) break;
       if (searchedBytes + file.sizeBytes > maxSearchBytes) continue;
       searchedBytes += file.sizeBytes;
       try {
-        const rawContent = await inspector.readTextFile(source, file.relativePath);
-        const content = redactSensitiveFileReferences(rawContent, sensitiveFiles);
-        contentScores.set(
-          file.relativePath,
-          scoreContent(content, objectiveTerms),
+        const content = redactSensitiveFileReferences(
+          await inspector.readTextFile(source, file.relativePath),
+          sensitiveFiles,
         );
+        safeContent.set(file.relativePath, content);
+        contentScores.set(file.relativePath, scoreContent(content, objectiveTerms));
         contentRankedFiles += 1;
       } catch {
-        // A file that changes or becomes unreadable during inspection is omitted
-        // from ranking; executable verification remains authoritative.
+        // A file that changes during inspection is omitted. Executable verification remains authoritative.
       }
     }
 
-    const candidates = [...textCandidates]
-      .sort((left, right) => {
-        const score =
-          scorePath(right.relativePath, objectiveTerms) +
-          (contentScores.get(right.relativePath) ?? 0) -
-          scorePath(left.relativePath, objectiveTerms) -
-          (contentScores.get(left.relativePath) ?? 0);
-        return score !== 0
-          ? score
-          : left.relativePath.localeCompare(right.relativePath);
-      });
+    const candidates = [...textCandidates].sort((left, right) => {
+      const rightScore = scorePath(right.relativePath, objectiveTerms) + (contentScores.get(right.relativePath) ?? 0);
+      const leftScore = scorePath(left.relativePath, objectiveTerms) + (contentScores.get(left.relativePath) ?? 0);
+      return rightScore !== leftScore ? rightScore - leftScore : left.relativePath.localeCompare(right.relativePath);
+    });
+
+    const symbolSources: RepositorySymbolSource[] = [];
+    for (const [path, content] of safeContent) {
+      if (AST_EXTENSIONS.test(path)) symbolSources.push({ path, content });
+    }
+    const symbolSnapshot = this.symbolMap.build(symbolSources);
+    const symbolSelection = this.symbolMap.select(symbolSnapshot, {
+      objective: request.objective,
+      requirements: request.requirements,
+      maxSymbols: Math.max(4, Math.min(maxFiles, 18)),
+      maxContextCharacters: Math.max(2_000, Math.floor(maxContextCharacters * 0.55)),
+      dependencyDepth: 1,
+    });
+    const symbolAnchors = [
+      ...symbolSelection.selectedSymbols.map((symbol) => symbol.name),
+      ...symbolSelection.selectedSymbols.map((symbol) => symbol.path),
+    ];
+    const compressedSymbols = this.compressor.compress({
+      id: `repository-symbol-context-${request.missionId}`,
+      taskId: `repository-context-${request.missionId}`,
+      agentId: "agent-project-owner-coding-engineer",
+      kind: "repository",
+      content: symbolSelection.context,
+      requiredAnchors: symbolAnchors,
+    });
 
     const tree = files
       .slice(0, 700)
@@ -310,25 +252,54 @@ export class RepositoryCodingContextAuthority {
       `Files discovered for safe model context: ${files.length}`,
       `Sensitive files excluded from model context: ${sensitiveFiles.length}`,
       `Source files content-ranked for this task: ${contentRankedFiles}`,
+      `TypeScript/JavaScript files symbol-indexed: ${symbolSnapshot.files.length}`,
+      `Task-relevant symbols selected: ${symbolSelection.selectedSymbols.length}`,
       "",
       "REPOSITORY INVENTORY:",
       tree,
     ];
     let used = sections.join("\n").length;
-    let truncated = files.length > 700 || contentRankedFiles < textCandidates.length;
+    let truncated = files.length > 700 || contentRankedFiles < textCandidates.length || symbolSelection.truncated;
     const inspectedFiles: string[] = [];
+    const inspectedSet = new Set<string>();
+    const noteInspected = (path: string) => {
+      if (!inspectedSet.has(path)) {
+        inspectedSet.add(path);
+        inspectedFiles.push(path);
+      }
+    };
+
+    if (symbolSelection.selectedSymbols.length > 0) {
+      const block = `\n\n${compressedSymbols.optimizedOutput}`;
+      if (used + block.length <= maxContextCharacters) {
+        sections.push(block);
+        used += block.length;
+        for (const symbol of symbolSelection.selectedSymbols) noteInspected(symbol.path);
+      } else {
+        truncated = true;
+      }
+    }
 
     for (const file of candidates) {
       if (inspectedFiles.length >= maxFiles) {
         truncated = true;
         break;
       }
-      let content: string;
-      try {
-        const rawContent = await inspector.readTextFile(source, file.relativePath);
-        content = redactSensitiveFileReferences(rawContent, sensitiveFiles);
-      } catch {
+      const lower = file.relativePath.toLowerCase();
+      const representedBySymbols = AST_EXTENSIONS.test(file.relativePath) && inspectedSet.has(file.relativePath);
+      if (representedBySymbols && !IMPORTANT_NAMES.has(lower) && !isRepositoryInstructionPath(lower)) {
         continue;
+      }
+      let content = safeContent.get(file.relativePath);
+      if (content === undefined) {
+        try {
+          content = redactSensitiveFileReferences(
+            await inspector.readTextFile(source, file.relativePath),
+            sensitiveFiles,
+          );
+        } catch {
+          continue;
+        }
       }
       const header = `\n\nSOURCE FILE: ${file.relativePath}\n${
         isRepositoryInstructionPath(file.relativePath)
@@ -345,7 +316,7 @@ export class RepositoryCodingContextAuthority {
         : content;
       sections.push(`${header}${excerpt}`);
       used += header.length + excerpt.length;
-      inspectedFiles.push(file.relativePath);
+      noteInspected(file.relativePath);
       if (content.length > excerpt.length) truncated = true;
     }
 
@@ -354,10 +325,9 @@ export class RepositoryCodingContextAuthority {
         "\n\nSECURITY NOTICE: K.I.N.G.S. detected sensitive repository files and intentionally withheld both their names and contents from model context. References to those detected sensitive paths inside otherwise-safe source were redacted as well. Never request, infer, reproduce, or overwrite credentials or secrets from unavailable source.",
       );
     }
-
     if (truncated) {
       sections.push(
-        "\n\nCONTEXT NOTICE: Repository context was bounded for model safety. The inventory above remains authoritative; do not invent unseen source. Modify only files whose required behavior can be established from the provided source and executable verification.",
+        "\n\nCONTEXT NOTICE: Repository context was bounded for model safety and token economy. The inventory remains authoritative; do not invent unseen source. Modify only files whose required behavior can be established from provided symbols/source and executable verification.",
       );
     }
 
@@ -368,6 +338,9 @@ export class RepositoryCodingContextAuthority {
       excludedSensitiveFiles: sensitiveFiles.length,
       contentRankedFiles,
       truncated,
+      symbolIndexedFiles: symbolSnapshot.files.length,
+      selectedSymbols: symbolSelection.selectedSymbols.length,
+      contextCharactersSaved: compressedSymbols.charactersSaved,
     };
   }
 }
