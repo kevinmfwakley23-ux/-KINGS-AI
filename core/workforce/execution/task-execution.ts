@@ -41,25 +41,49 @@ export class TaskExecutionController {
       );
     }
 
-    const execution =
-      await this.executionPort.execute(
-        taskId,
-      );
+    // Execution ownership begins before any adapter/tool work starts. Keeping
+    // the task in "running" for the entire execution window prevents an
+    // expired lease from making an in-flight task look claimable again.
+    this.taskControl.transition(
+      taskId,
+      "running",
+    );
 
-    if (
-      execution.status === "success"
-    ) {
-      this.taskControl.transition(
-        taskId,
-        "completed",
-      );
-    } else {
-      this.taskControl.transition(
-        taskId,
-        "failed",
-      );
+    try {
+      const execution =
+        await this.executionPort.execute(
+          taskId,
+        );
+
+      if (
+        execution.status === "success"
+      ) {
+        this.taskControl.transition(
+          taskId,
+          "completed",
+        );
+      } else {
+        this.taskControl.transition(
+          taskId,
+          "failed",
+        );
+      }
+
+      return execution;
+    } catch (error) {
+      const current =
+        this.registry.getTask(taskId);
+
+      if (
+        current?.status === "running"
+      ) {
+        this.taskControl.transition(
+          taskId,
+          "failed",
+        );
+      }
+
+      throw error;
     }
-
-    return execution;
   }
 }
