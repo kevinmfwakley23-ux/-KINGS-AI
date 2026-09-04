@@ -35,10 +35,8 @@ import type {
 } from "../../core/workforce/execution-sandbox";
 import {
   registerKingsAiGatewayRuntime,
-  selectKingsAiGatewayCodingRoute,
   synchronizeKingsAiGatewayRuntime,
   type KingsAiGatewayRuntime,
-  type KingsGatewayCodingRoute,
   type KingsGatewayRuntimeSynchronization,
 } from "../../core/workforce/ai-gateway-runtime";
 import {
@@ -234,7 +232,6 @@ export class ProjectOwnerMachineServerController
   private readonly localModel: OllamaIntelligenceModel;
   private readonly localAdapter: GovernedInternalIntelligenceAdapter;
   private readonly localMetricKey: string;
-  private gatewayDefaultRoute?: KingsGatewayCodingRoute;
 
   constructor(
     machine: KingsCodingMachine,
@@ -317,9 +314,6 @@ export class ProjectOwnerMachineServerController
         this.providers,
         this.capabilities,
         this.metrics,
-      );
-      this.gatewayDefaultRoute = selectKingsAiGatewayCodingRoute(
-        runtime.gatewayRuntime,
       );
     }
 
@@ -416,14 +410,12 @@ export class ProjectOwnerMachineServerController
   synchronizeGatewayRuntime(
     runtime: KingsAiGatewayRuntime,
   ): KingsGatewayRuntimeSynchronization {
-    const synchronization = synchronizeKingsAiGatewayRuntime(
+    return synchronizeKingsAiGatewayRuntime(
       runtime,
       this.providers,
       this.capabilities,
       this.metrics,
     );
-    this.gatewayDefaultRoute = selectKingsAiGatewayCodingRoute(runtime);
-    return synchronization;
   }
 
   hasProcessIsolation(): boolean {
@@ -445,28 +437,10 @@ export class ProjectOwnerMachineServerController
       return this.api.handle(normalizedRequest);
     }
 
-    const fallbackRoute = this.localModel.identity.available
-      ? {
-          providerId: this.localModel.identity.providerId,
-          modelId: this.localModel.identity.modelId,
-        }
-      : undefined;
-    const defaultRoute = this.gatewayDefaultRoute ?? fallbackRoute;
-    const routedRequest =
-      !normalizedRequest.preferredProviderId &&
-      !normalizedRequest.preferredModelId &&
-      defaultRoute
-        ? {
-            ...normalizedRequest,
-            preferredProviderId: defaultRoute.providerId,
-            preferredModelId: defaultRoute.modelId,
-          }
-        : normalizedRequest;
-
-    if (!this.hasProcessIsolation() && routedRequest.missionId) {
+    if (!this.hasProcessIsolation() && normalizedRequest.missionId) {
       const snapshot = await this.api.handle({
         action: "snapshot",
-        missionId: routedRequest.missionId,
+        missionId: normalizedRequest.missionId,
       });
       if (snapshot.repository) {
         return {
@@ -479,10 +453,10 @@ export class ProjectOwnerMachineServerController
     }
 
     return this.api.handle({
-      ...routedRequest,
-      editor: routedRequest.editor ?? this.editor,
+      ...normalizedRequest,
+      editor: normalizedRequest.editor ?? this.editor,
       buildTestOptions:
-        routedRequest.buildTestOptions ?? this.buildTestOptions,
+        normalizedRequest.buildTestOptions ?? this.buildTestOptions,
     });
   }
 }
