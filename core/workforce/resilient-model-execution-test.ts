@@ -202,6 +202,7 @@ function candidate(
     modelId,
     capabilityStrength: 90 - rank,
     estimatedCost: rank,
+    costBasis: "configured-estimate",
     latencyMs: 100 + rank,
     reliability: 90 - rank,
     internal: false,
