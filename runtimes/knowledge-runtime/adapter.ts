@@ -388,18 +388,15 @@ export function createDefaultKnowledgeRuntimeAdapter():
   const runtimeRoot =
     resolve(
       __dirname,
-      "../../../../..",
+      "../../..",
     );
 
+  const pythonExecutable =
+    process.env.KINGS_AI_PYTHON ??
+    "python3";
+
   return new PythonKnowledgeRuntimeAdapter(
-    resolve(
-      runtimeRoot,
-      "runtimes",
-      "knowledge-ingestion",
-      ".venv",
-      "bin",
-      "python",
-    ),
+    pythonExecutable,
     resolve(
       runtimeRoot,
       "runtimes",

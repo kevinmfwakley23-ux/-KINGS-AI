@@ -1,323 +1,96 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import tempfile
 from pathlib import Path
 
 from retriever import KnowledgeRetriever
 
 
-PROJECT_ROOT = (
-    Path.home() / "kings-collectibles-1"
-)
-
-EXTRACTED_ROOT = (
-    PROJECT_ROOT
-    / "knowledge"
-    / "indexes"
-    / "extracted"
-)
-
-
-def require(
-    condition: bool,
-    message: str,
-) -> None:
+def require(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
 
 
+def write_source(root: Path, source_id: str, source_type: str, authority: str, text: str) -> None:
+    payload = {
+        "sourceId": source_id,
+        "title": f"{source_id} title",
+        "type": source_type,
+        "authority": authority,
+        "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "path": f"/fixtures/{source_id}.md",
+        "pages": [{"page": 1, "text": text}],
+    }
+    (root / f"{source_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
 def main() -> None:
-    retriever = KnowledgeRetriever(
-        EXTRACTED_ROOT
-    )
-
-    # ------------------------------------------------------------
-    # Basic retrieval
-    # ------------------------------------------------------------
-
-    results = retriever.search(
-        "Collector's Kingdom",
-        limit=5,
-    )
-
-    require(
-        len(results) > 0,
-        "Collector's Kingdom returned no results.",
-    )
-
-    print(
-        "Collector's Kingdom retrieval: SUCCESS"
-    )
-
-    # ------------------------------------------------------------
-    # Provenance
-    # ------------------------------------------------------------
-
-    result = results[0]
-
-    required_fields = [
-        "sourceId",
-        "title",
-        "type",
-        "authority",
-        "sha256",
-        "path",
-        "page",
-        "text",
-    ]
-
-    for field in required_fields:
-        require(
-            field in result,
-            f"Missing provenance field: {field}",
+    with tempfile.TemporaryDirectory(prefix="kings-knowledge-test-") as directory:
+        extracted_root = Path(directory)
+        write_source(
+            extracted_root,
+            "blueprint-fixture",
+            "blueprint",
+            "product-blueprint",
+            "Collector's Kingdom includes the Vault collector collection and Keeper collector guidance.",
+        )
+        write_source(
+            extracted_root,
+            "construction-fixture",
+            "construction-document",
+            "construction-document",
+            "Collector's Kingdom construction document defines the collector domain and Vault.",
+        )
+        write_source(
+            extracted_root,
+            "directive-fixture",
+            "build-directive",
+            "ai-build-directive",
+            "Keeper Framework build directive for Collector's Kingdom.",
         )
 
-    require(
-        result["page"] >= 1,
-        "Invalid page provenance.",
-    )
+        retriever = KnowledgeRetriever(extracted_root)
 
-    require(
-        len(result["sha256"]) == 64,
-        "Invalid SHA-256 provenance.",
-    )
+        results = retriever.search("Collector's Kingdom", limit=5)
+        require(len(results) > 0, "Collector's Kingdom returned no results.")
+        result = results[0]
+        for field in ["sourceId", "title", "type", "authority", "sha256", "path", "page", "text"]:
+            require(field in result, f"Missing provenance field: {field}")
+        require(result["page"] >= 1, "Invalid page provenance.")
+        require(len(result["sha256"]) == 64, "Invalid SHA-256 provenance.")
 
-    print(
-        "Provenance fields: SUCCESS"
-    )
+        vault_results = retriever.search("Vault collector collection", limit=10)
+        require(any("vault" in item["text"].lower() for item in vault_results), "Vault query returned no Vault evidence.")
 
-    # ------------------------------------------------------------
-    # Vault retrieval
-    # ------------------------------------------------------------
+        keeper_results = retriever.search("Keeper collector guidance", limit=10)
+        require(any("keeper" in item["text"].lower() for item in keeper_results), "Keeper query returned no Keeper evidence.")
 
-    vault_results = retriever.search(
-        "Vault collector collection",
-        limit=10,
-    )
+        blueprint_results = retriever.search("Collector's Kingdom", limit=20, source_type="blueprint")
+        require(len(blueprint_results) > 0, "Blueprint filter returned no results.")
+        require(all(item["type"] == "blueprint" and item["authority"] == "product-blueprint" for item in blueprint_results), "Blueprint filter provenance is invalid.")
 
-    require(
-        len(vault_results) > 0,
-        "Vault query returned no results.",
-    )
+        construction_results = retriever.search("Collector's Kingdom", limit=20, source_type="construction-document")
+        require(len(construction_results) > 0, "Construction-document filter returned no results.")
+        require(all(item["authority"] == "construction-document" for item in construction_results), "Construction authority is invalid.")
 
-    require(
-        any(
-            "vault"
-            in item["text"].lower()
-            for item in vault_results
-        ),
-        "Vault query returned no Vault evidence.",
-    )
+        directive_results = retriever.search("Keeper Framework", limit=10, source_type="build-directive")
+        require(len(directive_results) > 0, "Build-directive filter returned no results.")
+        require(all(item["authority"] == "ai-build-directive" for item in directive_results), "Build-directive authority is invalid.")
 
-    print(
-        "Vault retrieval: SUCCESS"
-    )
+        require(retriever.search("Collector's Kingdom", source_type="repository") == [], "Repository filter unexpectedly returned project documents.")
+        require(len(retriever.search("Kingdom", limit=3)) <= 3, "Result limit was not respected.")
 
-    # ------------------------------------------------------------
-    # Keeper retrieval
-    # ------------------------------------------------------------
+        for invalid_query in ("", "---"):
+            try:
+                retriever.search(invalid_query)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"Invalid query was not rejected: {invalid_query!r}")
 
-    keeper_results = retriever.search(
-        "Keeper collector guidance",
-        limit=10,
-    )
-
-    require(
-        len(keeper_results) > 0,
-        "Keeper query returned no results.",
-    )
-
-    require(
-        any(
-            "keeper"
-            in item["text"].lower()
-            for item in keeper_results
-        ),
-        "Keeper query returned no Keeper evidence.",
-    )
-
-    print(
-        "Keeper retrieval: SUCCESS"
-    )
-
-    # ------------------------------------------------------------
-    # Blueprint filtering
-    # ------------------------------------------------------------
-
-    blueprint_results = retriever.search(
-        "Collector's Kingdom",
-        limit=20,
-        source_type="blueprint",
-    )
-
-    require(
-        len(blueprint_results) > 0,
-        "Blueprint filter returned no results.",
-    )
-
-    require(
-        all(
-            item["type"] == "blueprint"
-            for item in blueprint_results
-        ),
-        "Blueprint filter returned another source type.",
-    )
-
-    require(
-        all(
-            item["authority"] == "product-blueprint"
-            for item in blueprint_results
-        ),
-        "Blueprint filter returned incorrect authority.",
-    )
-
-    print(
-        "Blueprint source filter: SUCCESS"
-    )
-
-    # ------------------------------------------------------------
-    # Construction-document filtering
-    # ------------------------------------------------------------
-
-    construction_results = retriever.search(
-        "Collector's Kingdom",
-        limit=20,
-        source_type="construction-document",
-    )
-
-    require(
-        len(construction_results) > 0,
-        "Construction-document filter returned no results.",
-    )
-
-    require(
-        all(
-            item["type"] == "construction-document"
-            for item in construction_results
-        ),
-        "Construction-document filter returned another source type.",
-    )
-
-    require(
-        all(
-            item["authority"] == "construction-document"
-            for item in construction_results
-        ),
-        "Construction-document filter returned incorrect authority.",
-    )
-
-    print(
-        "Construction-document source filter: SUCCESS"
-    )
-
-    # ------------------------------------------------------------
-    # Build-directive filtering
-    # ------------------------------------------------------------
-
-    directive_results = retriever.search(
-        "Keeper Framework",
-        limit=10,
-        source_type="build-directive",
-    )
-
-    require(
-        len(directive_results) > 0,
-        "Build-directive filter returned no results.",
-    )
-
-    require(
-        all(
-            item["type"] == "build-directive"
-            for item in directive_results
-        ),
-        "Build-directive filter returned another source type.",
-    )
-
-    require(
-        all(
-            item["authority"] == "ai-build-directive"
-            for item in directive_results
-        ),
-        "Build-directive filter returned incorrect authority.",
-    )
-
-    print(
-        "Build-directive source filter: SUCCESS"
-    )
-
-    # ------------------------------------------------------------
-    # Non-matching source filter
-    # ------------------------------------------------------------
-
-    impossible_results = retriever.search(
-        "Collector's Kingdom",
-        limit=10,
-        source_type="repository",
-    )
-
-    require(
-        len(impossible_results) == 0,
-        "Repository filter unexpectedly returned project documents.",
-    )
-
-    print(
-        "Non-matching source filter: SUCCESS"
-    )
-
-    # ------------------------------------------------------------
-    # Result limit
-    # ------------------------------------------------------------
-
-    limited_results = retriever.search(
-        "Kingdom",
-        limit=3,
-    )
-
-    require(
-        len(limited_results) <= 3,
-        "Result limit was not respected.",
-    )
-
-    print(
-        "Result limit: SUCCESS"
-    )
-
-    # ------------------------------------------------------------
-    # Empty query rejection
-    # ------------------------------------------------------------
-
-    try:
-        retriever.search("")
-    except ValueError:
-        pass
-    else:
-        raise AssertionError(
-            "Empty query was not rejected."
-        )
-
-    print(
-        "Empty query rejection: SUCCESS"
-    )
-
-    # ------------------------------------------------------------
-    # Meaningless query rejection
-    # ------------------------------------------------------------
-
-    try:
-        retriever.search("---")
-    except ValueError:
-        pass
-    else:
-        raise AssertionError(
-            "Meaningless query was not rejected."
-        )
-
-    print(
-        "Meaningless query rejection: SUCCESS"
-    )
-
-    print(
-        "Knowledge retrieval tests: SUCCESS"
-    )
+    print("Knowledge retrieval tests: SUCCESS")
 
 
 if __name__ == "__main__":

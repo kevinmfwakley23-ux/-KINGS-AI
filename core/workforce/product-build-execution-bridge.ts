@@ -32,6 +32,10 @@ export class ProductBuildExecutionBridge {
   }
 
   start(request: ProductBuildExecutionStartRequest): ProductBuildExecutionStartResult {
+    const existingMission = this.registry.getMission(request.mission.id);
+    if (!existingMission) {
+      this.registry.registerMission(request.mission);
+    }
     const assembly = this.assembler.assemble(request);
     const snapshot = this.coordinator.snapshot(request.mission.id);
     const firstDispatch = this.coordinator.dispatchNext(request.mission.id);
@@ -39,7 +43,7 @@ export class ProductBuildExecutionBridge {
     return {
       missionId: request.mission.id,
       assembly,
-      snapshot: this.coordinator.snapshot(request.mission.id),
+      snapshot,
       firstDispatch,
     };
   }

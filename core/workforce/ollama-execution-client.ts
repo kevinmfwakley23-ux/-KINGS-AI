@@ -65,6 +65,9 @@ export class HttpOllamaExecutionClient
                 ),
             stream:
               false,
+            ...(request.maxOutputTokens !== undefined
+              ? { options: { num_predict: request.maxOutputTokens } }
+              : {}),
           },
         );
 
@@ -88,6 +91,10 @@ export class HttpOllamaExecutionClient
           response?:
             unknown;
           done?:
+            unknown;
+          prompt_eval_count?:
+            unknown;
+          eval_count?:
             unknown;
         };
 
@@ -123,13 +130,22 @@ export class HttpOllamaExecutionClient
               completedAt.getTime() -
               startedAt.getTime(),
             tokensUsed:
-              0,
+              (typeof payload.prompt_eval_count === "number"
+                ? payload.prompt_eval_count
+                : 0) +
+              (typeof payload.eval_count === "number"
+                ? payload.eval_count
+                : 0),
             iterationsUsed:
               1,
             inputTokens:
-              0,
+              typeof payload.prompt_eval_count === "number"
+                ? payload.prompt_eval_count
+                : 0,
             outputTokens:
-              0,
+              typeof payload.eval_count === "number"
+                ? payload.eval_count
+                : 0,
             estimatedCost:
               0,
           },

@@ -1,3 +1,17 @@
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+
+import {
+  tmpdir,
+} from "node:os";
+
+import {
+  join,
+} from "node:path";
+
 import type {
   AgentDefinition,
   MemoryResult,
@@ -12,6 +26,14 @@ import {
 import {
   WorkforceExecutor,
 } from "./executor";
+
+import {
+  WorkUnitRegistry,
+} from "../work-unit-registry";
+
+import {
+  registerTestWorkUnit,
+} from "./test-work-unit";
 
 import type {
   AgentExecutionAdapter,
@@ -64,6 +86,53 @@ implements AgentExecutionAdapter
 }
 
 async function main(): Promise<void> {
+  const knowledgeRoot =
+    mkdtempSync(
+      join(
+        tmpdir(),
+        "kings-real-knowledge-",
+      ),
+    );
+
+  const fixture = {
+    sourceId:
+      "kings-collectibles-blueprints",
+    title:
+      "KINGS Collectibles Blueprint",
+    type:
+      "blueprint",
+    authority:
+      "product-blueprint",
+    sha256:
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    path:
+      "/fixtures/kings-collectibles-blueprints.md",
+    pages: [
+      {
+        page: 1,
+        text:
+          "Collector's Kingdom is authoritative KINGS Collectibles project knowledge. The Vault and Keeper framework are part of the collector experience.",
+      },
+    ],
+  };
+
+  writeFileSync(
+    join(
+      knowledgeRoot,
+      "kings-collectibles-blueprints.json",
+    ),
+    JSON.stringify(
+      fixture,
+      null,
+      2,
+    ),
+    "utf8",
+  );
+
+  process.env.KINGS_KNOWLEDGE_EXTRACTED_ROOT =
+    knowledgeRoot;
+
+  try {
   const registry =
     new WorkforceRegistry();
 
@@ -146,11 +215,20 @@ async function main(): Promise<void> {
   registry.registerMission(mission);
   registry.registerTask(task);
 
+  const workUnitRegistry =
+    new WorkUnitRegistry();
+
+  registerTestWorkUnit(
+    workUnitRegistry,
+    task.id,
+  );
+
   const executor =
     new WorkforceExecutor(
       registry,
       [executionAdapter],
       knowledgeRuntime,
+      workUnitRegistry,
     );
 
   const result =
@@ -224,6 +302,17 @@ async function main(): Promise<void> {
   console.log(
     "Real workforce-to-knowledge execution: SUCCESS",
   );
+  } finally {
+    delete process.env.KINGS_KNOWLEDGE_EXTRACTED_ROOT;
+
+    rmSync(
+      knowledgeRoot,
+      {
+        recursive: true,
+        force: true,
+      },
+    );
+  }
 }
 
 main().catch(

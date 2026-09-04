@@ -31,6 +31,13 @@ function expectPolicyError(
   assert(failed, message);
 }
 
+const baseNow = Date.now();
+const approvedAt = new Date(baseNow - 60_000).toISOString();
+const expiresAt = new Date(baseNow + 29 * 60_000).toISOString();
+const tooLateExpiresAt = new Date(baseNow + 61 * 60_000).toISOString();
+const expiredApprovedAt = new Date(baseNow - 60 * 60_000).toISOString();
+const expiredExpiresAt = new Date(baseNow - 30 * 60_000).toISOString();
+
 const authority =
   new ProjectOwnerResearchPolicyAuthority({
     ownerId: "owner-kevin",
@@ -60,10 +67,8 @@ const approval = {
   allowedHosts: [
     "doc.rust-lang.org",
   ],
-  approvedAt:
-    "2026-08-13T10:00:00.000Z",
-  expiresAt:
-    "2026-08-13T10:30:00.000Z",
+  approvedAt,
+  expiresAt,
   reason:
     "Project Owner approved official Rust documentation research for capability acquisition.",
 };
@@ -147,7 +152,7 @@ expectPolicyError(
     authority.approve({
       ...approval,
       expiresAt:
-        "2026-08-13T11:30:00.000Z",
+        tooLateExpiresAt,
     }),
   "Approval exceeding the configured maximum duration must be rejected.",
 );
@@ -173,9 +178,9 @@ expiredAuthority.approve({
   approvalId:
     "approval-expired",
   approvedAt:
-    "2026-08-12T10:00:00.000Z",
+    expiredApprovedAt,
   expiresAt:
-    "2026-08-12T10:30:00.000Z",
+    expiredExpiresAt,
 });
 
 expectPolicyError(

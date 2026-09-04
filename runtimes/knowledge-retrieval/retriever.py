@@ -1,21 +1,20 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
 
 
-PROJECT_ROOT = (
-    Path.home() / "kings-collectibles-1"
-)
+def _default_extracted_root() -> Path:
+    configured = os.environ.get("KINGS_KNOWLEDGE_EXTRACTED_ROOT")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return Path(__file__).resolve().parents[2] / "knowledge" / "indexes" / "extracted"
 
-EXTRACTED_ROOT = (
-    PROJECT_ROOT
-    / "knowledge"
-    / "indexes"
-    / "extracted"
-)
+
+EXTRACTED_ROOT = _default_extracted_root()
 
 
 class KnowledgeRetriever:
@@ -28,14 +27,19 @@ class KnowledgeRetriever:
     def _load_sources(self) -> list[dict[str, Any]]:
         records: list[dict[str, Any]] = []
 
-        for path in sorted(
-            self.extracted_root.glob("*.json")
-        ):
-            with path.open(
-                "r",
-                encoding="utf-8",
-            ) as handle:
-                records.append(json.load(handle))
+        if not self.extracted_root.exists():
+            return records
+
+        for path in sorted(self.extracted_root.glob("*.json")):
+            try:
+                with path.open("r", encoding="utf-8") as handle:
+                    record = json.load(handle)
+            except (OSError, json.JSONDecodeError) as error:
+                raise ValueError(f"Invalid knowledge index file: {path}") from error
+
+            if not isinstance(record, dict) or not isinstance(record.get("pages"), list):
+                raise ValueError(f"Knowledge index file has invalid schema: {path}")
+            records.append(record)
 
         return records
 

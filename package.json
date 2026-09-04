@@ -1,0 +1,20 @@
+{
+  "name": "kings-ai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "K.I.N.G.S. AI workforce and governed execution runtime",
+  "scripts": {
+    "clean": "node development/clean-build.mjs",
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node development/run-tests.mjs && npm run test:knowledge",
+    "test:live": "npm run build && node development/run-tests.mjs --live",
+    "test:knowledge": "python3 runtimes/knowledge-retrieval/retriever-test.py",
+    "start": "node ui/project-owner/server.mjs",
+    "platform:check": "node development/platform-check.mjs",
+    "verify": "npm run platform:check && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}
