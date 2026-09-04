@@ -1,88 +1,62 @@
-import type {
-  EngineeringRepairEditor,
-} from "./engineering-repair-editor";
-
-import type {
-  CodingWorkUnitExecutionResult,
-} from "./coding-work-unit-execution";
-
+import type { EngineeringRepairEditor } from "./engineering-repair-editor";
+import type { CodingWorkUnitExecutionResult } from "./coding-work-unit-execution";
 import type {
   ModelExecutionRequest,
   ModelRequestMessage,
   ModelToolDefinition,
 } from "./model-interface";
-
-import {
-  estimateModelContextCapacity,
-} from "./model-context-capacity";
-
+import { estimateModelContextCapacity } from "./model-context-capacity";
 import {
   ModelRouter,
+  type ModelRoutingCandidate,
   type ModelRoutingRequest,
 } from "./model-routing";
-
-import type {
-  ProviderAdapterRegistry,
-} from "./provider-adapters";
-
+import type { ProviderAdapterRegistry } from "./provider-adapters";
 import {
   ResilientModelExecutionAuthority,
   type ResilientModelExecutionOutcome,
 } from "./resilient-model-execution";
-
-import type {
-  GovernedModelToolLoop,
-} from "./governed-model-tool-loop";
-
+import type { GovernedModelToolLoop } from "./governed-model-tool-loop";
 import {
   KingsCodingMachine,
   type KingsCodingMachineModelExecutionRequest,
 } from "./kings-coding-machine";
+import {
+  InferenceBudgetAuthority,
+  type DurableInferenceEconomicsLedger,
+  type InferenceBudgetPolicy,
+  type InferenceRouteClass,
+} from "./inference-economics";
+import type { ProviderQuotaAuthority } from "./provider-quota-state";
+
+export interface ModelDrivenCodingEconomicsRuntime {
+  ledger: DurableInferenceEconomicsLedger;
+  policy: InferenceBudgetPolicy;
+  approvedPaidEscalation?: boolean;
+  quotaAuthority?: ProviderQuotaAuthority;
+}
 
 export interface ModelDrivenCodingExecutionRequest {
-  modelRequest:
-    ModelExecutionRequest;
-
-  routing:
-    ModelRoutingRequest;
-
-  machineRequest:
-    Omit<
-      KingsCodingMachineModelExecutionRequest,
-      "modelResult"
-    >;
+  modelRequest: ModelExecutionRequest;
+  routing: ModelRoutingRequest;
+  machineRequest: Omit<KingsCodingMachineModelExecutionRequest, "modelResult">;
+  economics?: ModelDrivenCodingEconomicsRuntime;
 }
 
-function trimBounded(
-  value: string,
-  limit: number,
-  marker: string,
-): string {
-  if (value.length <= limit) {
-    return value;
-  }
-
-  return `${value.slice(0, limit)}\n...[${marker} truncated by K.I.N.G.S.]`;
+function trimBounded(value: string, limit: number, marker: string): string {
+  return value.length <= limit
+    ? value
+    : `${value.slice(0, limit)}\n...[${marker} truncated by K.I.N.G.S.]`;
 }
 
-function trimDiagnostics(
-  value: string,
-  limit = 20_000,
-): string {
-  return trimBounded(
-    value,
-    limit,
-    "diagnostics",
-  );
+function trimDiagnostics(value: string, limit = 20_000): string {
+  return trimBounded(value, limit, "diagnostics");
 }
 
 /**
  * Build one bounded repair turn without replaying prior failed repair turns.
- *
- * The original system/task/repository context stays stable for prompt caching
- * and correctness. Only the latest generated proposal and latest executable
- * verification evidence are carried forward. This prevents retry history from
- * growing the model context on every iteration.
+ * The stable system/task/repository prefix remains reusable by provider prompt
+ * caches; only the latest proposal and executable verification evidence change.
  */
 export function buildBoundedRepairMessages(
   originalMessages: readonly ModelRequestMessage[],
@@ -125,9 +99,7 @@ export function buildBoundedRepairMessages(
   ];
 }
 
-function isNonRetryablePolicyFailure(
-  message: string,
-): boolean {
+function isNonRetryablePolicyFailure(message: string): boolean {
   const normalized = message.toLowerCase();
   return [
     "path escape",
@@ -142,84 +114,68 @@ function isNonRetryablePolicyFailure(
     "requires an approved and locked mission plan",
     "governed tool loop",
     "requires human input",
+    "owner approval is required",
+    "hard inference budget",
   ].some((fragment) => normalized.includes(fragment));
 }
 
+function routeClass(candidate: ModelRoutingCandidate): InferenceRouteClass {
+  if (candidate.internal) return "local";
+  if (candidate.zeroMarginalCost || candidate.costBasis === "verified-free") return "free";
+  // External routes that have not been proven zero-marginal-cost are governed as
+  // paid before fallback. Unknown price must never become an implicit free route.
+  return "paid";
+}
+
 export class ModelDrivenCodingExecutionAuthority {
-  private readonly resilientExecution:
-    ResilientModelExecutionAuthority;
+  private readonly resilientExecution: ResilientModelExecutionAuthority;
 
   constructor(
-    private readonly machine:
-      KingsCodingMachine,
-    private readonly router:
-      ModelRouter,
-    private readonly providers:
-      ProviderAdapterRegistry,
-    resilientExecution?:
-      ResilientModelExecutionAuthority,
-    private readonly governedToolLoop?:
-      GovernedModelToolLoop,
-    private readonly governedToolDefinitions:
-      readonly ModelToolDefinition[] = [],
+    private readonly machine: KingsCodingMachine,
+    private readonly router: ModelRouter,
+    private readonly providers: ProviderAdapterRegistry,
+    resilientExecution?: ResilientModelExecutionAuthority,
+    private readonly governedToolLoop?: GovernedModelToolLoop,
+    private readonly governedToolDefinitions: readonly ModelToolDefinition[] = [],
   ) {
     this.resilientExecution =
-      resilientExecution ??
-      new ResilientModelExecutionAuthority(
-        providers,
-      );
+      resilientExecution ?? new ResilientModelExecutionAuthority(providers);
   }
 
   async execute(
-    request:
-      ModelDrivenCodingExecutionRequest,
-    editor:
-      EngineeringRepairEditor,
-    buildTestOptions:
-      ConstructorParameters<
-        typeof import("./coding-work-unit-execution").CodingWorkUnitExecutionAuthority
-      >[1],
-  ):
-    Promise<CodingWorkUnitExecutionResult> {
+    request: ModelDrivenCodingExecutionRequest,
+    editor: EngineeringRepairEditor,
+    buildTestOptions: ConstructorParameters<
+      typeof import("./coding-work-unit-execution").CodingWorkUnitExecutionAuthority
+    >[1],
+  ): Promise<CodingWorkUnitExecutionResult> {
     const toolsActive = Boolean(
-      this.governedToolLoop &&
-      this.governedToolDefinitions.length > 0,
+      this.governedToolLoop && this.governedToolDefinitions.length > 0,
     );
     const initialModelRequest = toolsActive
       ? this.withGovernedTools(request.modelRequest)
       : request.modelRequest;
     const baseRoutingRequest: ModelRoutingRequest = toolsActive
-      ? {
-          ...request.routing,
-          requireToolCalling: true,
-        }
+      ? { ...request.routing, requireToolCalling: true }
       : request.routing;
-
     const maxIterations = Math.max(
       1,
       request.machineRequest.execution.workUnit.budget.maxIterations,
     );
+    const budgetAuthority = request.economics
+      ? new InferenceBudgetAuthority(
+          request.economics.ledger,
+          request.economics.policy,
+        )
+      : undefined;
 
     let modelRequest = initialModelRequest;
     let lastResult: CodingWorkUnitExecutionResult | undefined;
     let lastError: Error | undefined;
     let previousModelContent = "";
 
-    for (
-      let iteration = 1;
-      iteration <= maxIterations;
-      iteration += 1
-    ) {
-      /*
-       * Recalculate capacity on every repair iteration. Verification feedback,
-       * previous generated code, and provider-visible tool schemas all affect
-       * the request. The bounded repair builder prevents historical retries
-       * from accumulating, while capacity routing still protects each turn.
-       */
-      const contextCapacity =
-        estimateModelContextCapacity(
-          modelRequest,
-        );
+    for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
+      const contextCapacity = estimateModelContextCapacity(modelRequest);
       const routingRequest: ModelRoutingRequest = {
         ...baseRoutingRequest,
         requiredContextTokens: Math.max(
@@ -227,41 +183,77 @@ export class ModelDrivenCodingExecutionAuthority {
           contextCapacity.requiredContextTokens,
         ),
       };
-      const route =
-        this.router.route(
-          routingRequest,
-        );
-
-      if (
-        !route.selected ||
-        route.candidates.length === 0
-      ) {
+      const route = this.router.route(routingRequest);
+      if (!route.selected || route.candidates.length === 0) {
         throw new Error(
           `K.I.N.G.S. Model Driven Coding: no model route can fit iteration ${iteration} requiring approximately ${routingRequest.requiredContextTokens} context tokens. ${route.reason}`,
         );
       }
 
-      const execution =
-        await this.executeModel(
-          route.candidates,
-          modelRequest,
+      let candidates = [...route.candidates];
+      const governanceReasons: string[] = [];
+      if (request.economics?.quotaAuthority) {
+        const quota = request.economics.quotaAuthority.filter(candidates);
+        candidates = quota.candidates;
+        governanceReasons.push(
+          ...quota.excluded.map((item) =>
+            `${item.providerId}/${item.modelId}: ${item.reason}`,
+          ),
         );
+      }
+
+      if (budgetAuthority) {
+        const permitted: ModelRoutingCandidate[] = [];
+        for (const candidate of candidates) {
+          const classification = routeClass(candidate);
+          const decision = await budgetAuthority.assess({
+            missionId: modelRequest.missionId,
+            providerId: candidate.providerId,
+            modelId: candidate.modelId,
+            routeClass: classification,
+            estimatedCostUsd:
+              classification === "paid" && candidate.estimatedCost !== null
+                ? candidate.estimatedCost
+                : undefined,
+            estimatedPaidTokens:
+              classification === "paid"
+                ? contextCapacity.requiredContextTokens
+                : 0,
+            approvedPaidEscalation:
+              request.economics?.approvedPaidEscalation === true,
+          });
+          if (decision.status === "allowed") {
+            permitted.push(candidate);
+          } else {
+            governanceReasons.push(
+              `${candidate.providerId}/${candidate.modelId}: ${decision.status}: ${decision.reason}`,
+            );
+          }
+        }
+        candidates = permitted;
+      }
+
+      if (candidates.length === 0) {
+        throw new Error(
+          `K.I.N.G.S. Model Driven Coding: every route was withheld by quota/cost governance before iteration ${iteration}.${governanceReasons.length ? ` ${governanceReasons.join(" | ")}` : ""}`,
+        );
+      }
+
+      const execution = await this.executeModel(candidates, modelRequest);
+      this.observeQuotaFailures(request, execution);
+      await this.recordEconomics(request, execution, candidates);
 
       if (!execution.result.success) {
-        const attemptSummary =
-          execution.attempts
-            .map(
-              (attempt) =>
-                `${attempt.providerId}/${attempt.modelId}:${attempt.skipped ? "skipped" : attempt.failureCode ?? "failed"}`,
-            )
-            .join(", ");
-
+        const attemptSummary = execution.attempts
+          .map((attempt) =>
+            `${attempt.providerId}/${attempt.modelId}:${attempt.skipped ? "skipped" : attempt.failureCode ?? "failed"}`,
+          )
+          .join(", ");
         throw new Error(
           execution.result.failure?.message ??
             `K.I.N.G.S. Model Driven Coding: all routed model executions failed.${attemptSummary ? ` Attempts: ${attemptSummary}` : ""}`,
         );
       }
-
       if (!execution.result.response) {
         throw new Error(
           "K.I.N.G.S. Model Driven Coding: provider returned success without a model response.",
@@ -269,67 +261,39 @@ export class ModelDrivenCodingExecutionAuthority {
       }
 
       previousModelContent = execution.result.response.content;
-
       try {
-        const codingResult =
-          await this.machine.executeCodingWorkUnitFromModel(
-            {
-              ...request.machineRequest,
-              modelResult:
-                execution.result,
-            },
-            editor,
-            buildTestOptions,
-          );
-
+        const codingResult = await this.machine.executeCodingWorkUnitFromModel(
+          { ...request.machineRequest, modelResult: execution.result },
+          editor,
+          buildTestOptions,
+        );
         lastResult = codingResult;
+        if (codingResult.completed) return codingResult;
 
-        if (codingResult.completed) {
-          return codingResult;
-        }
-
-        const diagnostics =
-          codingResult.failureDiagnostics ??
-          [
-            ...codingResult.verification.unmetCriteria.map(
-              (criterion) =>
-                `UNMET ACCEPTANCE CRITERION: ${criterion}`,
+        const diagnostics = codingResult.failureDiagnostics ?? [
+          ...codingResult.verification.unmetCriteria.map(
+            (criterion) => `UNMET ACCEPTANCE CRITERION: ${criterion}`,
+          ),
+          ...codingResult.buildTest.steps
+            .filter((step) => !step.passed)
+            .map(
+              (step) =>
+                `FAILED COMMAND ${step.step.id}: ${step.execution.stderr || step.execution.stdout || `exit ${step.execution.exitCode}`}`,
             ),
-            ...codingResult.buildTest.steps
-              .filter((step) => !step.passed)
-              .map(
-                (step) =>
-                  `FAILED COMMAND ${step.step.id}: ${step.execution.stderr || step.execution.stdout || `exit ${step.execution.exitCode}`}`,
-              ),
-          ].join("\n");
-
-        if (iteration >= maxIterations) {
-          return codingResult;
-        }
-
+        ].join("\n");
+        if (iteration >= maxIterations) return codingResult;
         modelRequest = this.createRepairRequest(
           initialModelRequest,
           previousModelContent,
-          diagnostics ||
-            "The project did not pass K.I.N.G.S. project-aware completion verification.",
+          diagnostics || "The project did not pass K.I.N.G.S. project-aware completion verification.",
           iteration,
         );
       } catch (error) {
-        const caught =
-          error instanceof Error
-            ? error
-            : new Error(String(error));
+        const caught = error instanceof Error ? error : new Error(String(error));
         lastError = caught;
-
-        if (
-          isNonRetryablePolicyFailure(
-            caught.message,
-          ) ||
-          iteration >= maxIterations
-        ) {
+        if (isNonRetryablePolicyFailure(caught.message) || iteration >= maxIterations) {
           throw caught;
         }
-
         modelRequest = this.createRepairRequest(
           initialModelRequest,
           previousModelContent,
@@ -339,19 +303,65 @@ export class ModelDrivenCodingExecutionAuthority {
       }
     }
 
-    if (lastResult) {
-      return lastResult;
-    }
-
-    throw lastError ??
-      new Error(
-        "K.I.N.G.S. Model Driven Coding: coding loop ended without a verified result.",
-      );
+    if (lastResult) return lastResult;
+    throw lastError ?? new Error(
+      "K.I.N.G.S. Model Driven Coding: coding loop ended without a verified result.",
+    );
   }
 
-  private withGovernedTools(
-    request: ModelExecutionRequest,
-  ): ModelExecutionRequest {
+  private observeQuotaFailures(
+    request: ModelDrivenCodingExecutionRequest,
+    execution: ResilientModelExecutionOutcome,
+  ): void {
+    const quota = request.economics?.quotaAuthority;
+    if (!quota) return;
+    const observedAt = new Date().toISOString();
+    for (const attempt of execution.attempts) {
+      if (attempt.skipped) continue;
+      if (attempt.failureCode?.includes("429")) {
+        quota.observe({
+          providerId: attempt.providerId,
+          modelId: attempt.modelId,
+          observedAt,
+          statusCode: 429,
+        });
+      }
+    }
+  }
+
+  private async recordEconomics(
+    request: ModelDrivenCodingExecutionRequest,
+    execution: ResilientModelExecutionOutcome,
+    candidates: readonly ModelRoutingCandidate[],
+  ): Promise<void> {
+    const ledger = request.economics?.ledger;
+    const response = execution.result.response;
+    if (!ledger || !execution.result.success || !response || !execution.providerId || !execution.modelId) {
+      return;
+    }
+    const candidate = candidates.find((item) =>
+      item.providerId === execution.providerId && item.modelId === execution.modelId,
+    );
+    if (!candidate) return;
+    const classification = routeClass(candidate);
+    const totalTokens = response.usage.tokensUsed;
+    await ledger.record({
+      requestId: response.requestId,
+      missionId: request.modelRequest.missionId,
+      providerId: execution.providerId,
+      modelId: execution.modelId,
+      completedAt: response.metadata.completedAt,
+      routeClass: classification,
+      inputTokens: response.usage.inputTokens,
+      outputTokens: response.usage.outputTokens,
+      cachedTokens: response.usage.cachedTokens ?? 0,
+      totalTokens,
+      paidTokens: classification === "paid" ? totalTokens : 0,
+      actualCostUsd: response.usage.reportedCostUsd,
+    });
+  }
+
+  private withGovernedTools(request: ModelExecutionRequest): ModelExecutionRequest {
     return {
       ...request,
       allowToolProposals: true,
@@ -373,35 +383,22 @@ export class ModelDrivenCodingExecutionAuthority {
   }
 
   private createRepairRequest(
-    original:
-      ModelExecutionRequest,
-    previousModelContent:
-      string,
-    diagnostics:
-      string,
-    completedIteration:
-      number,
-  ):
-    ModelExecutionRequest {
-    const repairNumber =
-      completedIteration + 1;
-
+    original: ModelExecutionRequest,
+    previousModelContent: string,
+    diagnostics: string,
+    completedIteration: number,
+  ): ModelExecutionRequest {
+    const repairNumber = completedIteration + 1;
     return {
       ...original,
-      id:
-        `${original.id}-repair-${repairNumber}`,
-      messages:
-        buildBoundedRepairMessages(
-          original.messages,
-          previousModelContent,
-          diagnostics,
-          completedIteration,
-        ),
-      temperature:
-        Math.min(
-          original.temperature ?? 0.1,
-          0.2,
-        ),
+      id: `${original.id}-repair-${repairNumber}`,
+      messages: buildBoundedRepairMessages(
+        original.messages,
+        previousModelContent,
+        diagnostics,
+        completedIteration,
+      ),
+      temperature: Math.min(original.temperature ?? 0.1, 0.2),
     };
   }
 }
