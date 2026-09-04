@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { ID } from "./types";
 import type {
   IntelligenceCapability,
+  IntelligenceModality,
   IntelligenceModel,
   IntelligenceProviderKind,
   ModelExecutionRequest,
@@ -37,13 +38,35 @@ export const DEFAULT_GATEWAY_CODING_CAPABILITIES = [
   "recovery",
 ] as const satisfies readonly IntelligenceCapability[];
 
+export type GatewayModelMetadataSource =
+  | "configured"
+  | "gateway-reported";
+
+export type GatewayModelOrigin =
+  | "configured"
+  | "discovered"
+  | "dynamic";
+
+export interface GatewayModelMetadataProvenance {
+  inputModalities?: GatewayModelMetadataSource;
+  contextWindowTokens?: GatewayModelMetadataSource;
+  supportsToolCalling?: GatewayModelMetadataSource;
+  supportsStructuredOutput?: GatewayModelMetadataSource;
+}
+
 export interface OpenAiCompatibleGatewayModelDefinition {
   modelId: ID;
   displayName?: string;
   capabilities: readonly IntelligenceCapability[];
+  inputModalities?: readonly IntelligenceModality[];
   contextWindowTokens?: number;
   supportsToolCalling?: boolean;
   supportsStructuredOutput?: boolean;
+  /**
+   * Field-level evidence for capability metadata. Values without provenance are
+   * intentionally treated as unverified hints and are not trusted by execution.
+   */
+  metadataProvenance?: GatewayModelMetadataProvenance;
 }
 
 export interface OpenAiCompatibleGatewayConfig {
@@ -85,6 +108,20 @@ export interface OpenAiCompatibleGatewayHealth {
   message: string;
 }
 
+export interface GatewayModelMetadataField<T> {
+  value: T | null;
+  source: GatewayModelMetadataSource | "unknown";
+}
+
+export interface OpenAiCompatibleGatewayModelMetadata {
+  modelId: ID;
+  origin: GatewayModelOrigin;
+  inputModalities: GatewayModelMetadataField<readonly IntelligenceModality[]>;
+  contextWindowTokens: GatewayModelMetadataField<number>;
+  supportsToolCalling: GatewayModelMetadataField<boolean>;
+  supportsStructuredOutput: GatewayModelMetadataField<boolean>;
+}
+
 interface OpenAiChatCompletionResponse {
   id?: string;
   choices?: Array<{
@@ -118,8 +155,19 @@ interface OpenAiChatCompletionResponse {
   };
 }
 
+interface OpenAiModelListEntry {
+  id?: string;
+  kind?: string;
+  owned_by?: string;
+  context_length?: unknown;
+  supported_parameters?: unknown;
+  architecture?: {
+    input_modalities?: unknown;
+  };
+}
+
 interface OpenAiModelListResponse {
-  data?: Array<{ id?: string; kind?: string; owned_by?: string }>;
+  data?: OpenAiModelListEntry[];
 }
 
 interface ToolAliasMaps {
@@ -177,12 +225,189 @@ function nonNegativeNumber(value: unknown): number | undefined {
     : undefined;
 }
 
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? value
+    : undefined;
+}
+
 function firstReportedNumber(...values: unknown[]): number | undefined {
   for (const value of values) {
     const number = nonNegativeNumber(value);
     if (number !== undefined) return number;
   }
   return undefined;
+}
+
+function stringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+function normalizeModalities(value: unknown): IntelligenceModality[] | undefined {
+  const values = stringArray(value);
+  if (!values) return undefined;
+  const allowed = new Set<IntelligenceModality>(["text", "image", "audio", "video"]);
+  const modalities = Array.from(new Set(
+    values.filter((entry): entry is IntelligenceModality =>
+      allowed.has(entry as IntelligenceModality)
+    ),
+  ));
+  return modalities.length > 0 ? modalities : undefined;
+}
+
+function trustedSource(
+  provenance: GatewayModelMetadataProvenance | undefined,
+  field: keyof GatewayModelMetadataProvenance,
+): GatewayModelMetadataSource | undefined {
+  return provenance?.[field];
+}
+
+function normalizeDefinition(
+  definition: OpenAiCompatibleGatewayModelDefinition,
+): OpenAiCompatibleGatewayModelDefinition {
+  const provenance = definition.metadataProvenance ?? {};
+  const inputModalities = trustedSource(provenance, "inputModalities")
+    ? normalizeModalities(definition.inputModalities)
+    : undefined;
+  const contextWindowTokens = trustedSource(provenance, "contextWindowTokens")
+    ? positiveInteger(definition.contextWindowTokens)
+    : undefined;
+  const supportsToolCalling = trustedSource(provenance, "supportsToolCalling") &&
+      typeof definition.supportsToolCalling === "boolean"
+    ? definition.supportsToolCalling
+    : undefined;
+  const supportsStructuredOutput =
+    trustedSource(provenance, "supportsStructuredOutput") &&
+      typeof definition.supportsStructuredOutput === "boolean"
+      ? definition.supportsStructuredOutput
+      : undefined;
+
+  const normalizedProvenance: GatewayModelMetadataProvenance = {};
+  if (inputModalities) {
+    normalizedProvenance.inputModalities = provenance.inputModalities;
+  }
+  if (contextWindowTokens !== undefined) {
+    normalizedProvenance.contextWindowTokens = provenance.contextWindowTokens;
+  }
+  if (supportsToolCalling !== undefined) {
+    normalizedProvenance.supportsToolCalling = provenance.supportsToolCalling;
+  }
+  if (supportsStructuredOutput !== undefined) {
+    normalizedProvenance.supportsStructuredOutput =
+      provenance.supportsStructuredOutput;
+  }
+
+  return {
+    modelId: definition.modelId,
+    displayName: definition.displayName,
+    capabilities: [...definition.capabilities],
+    inputModalities,
+    contextWindowTokens,
+    supportsToolCalling,
+    supportsStructuredOutput,
+    metadataProvenance: normalizedProvenance,
+  };
+}
+
+function mergeDefinitions(
+  existing: OpenAiCompatibleGatewayModelDefinition,
+  incoming: OpenAiCompatibleGatewayModelDefinition,
+): OpenAiCompatibleGatewayModelDefinition {
+  const incomingProvenance = incoming.metadataProvenance ?? {};
+  return normalizeDefinition({
+    modelId: existing.modelId,
+    displayName: existing.displayName ?? incoming.displayName,
+    capabilities: existing.capabilities,
+    inputModalities: incomingProvenance.inputModalities
+      ? incoming.inputModalities
+      : existing.inputModalities,
+    contextWindowTokens: incomingProvenance.contextWindowTokens
+      ? incoming.contextWindowTokens
+      : existing.contextWindowTokens,
+    supportsToolCalling: incomingProvenance.supportsToolCalling
+      ? incoming.supportsToolCalling
+      : existing.supportsToolCalling,
+    supportsStructuredOutput: incomingProvenance.supportsStructuredOutput
+      ? incoming.supportsStructuredOutput
+      : existing.supportsStructuredOutput,
+    metadataProvenance: {
+      ...(existing.metadataProvenance ?? {}),
+      ...incomingProvenance,
+    },
+  });
+}
+
+function discoveredDefinition(
+  entry: OpenAiModelListEntry,
+  capabilities: readonly IntelligenceCapability[],
+): OpenAiCompatibleGatewayModelDefinition | undefined {
+  const modelId = entry.id?.trim();
+  if (!modelId) return undefined;
+
+  const contextWindowTokens = positiveInteger(entry.context_length);
+  const supportedParameters = stringArray(entry.supported_parameters);
+  const inputModalities = normalizeModalities(entry.architecture?.input_modalities);
+  const provenance: GatewayModelMetadataProvenance = {};
+
+  if (contextWindowTokens !== undefined) {
+    provenance.contextWindowTokens = "gateway-reported";
+  }
+  if (supportedParameters !== undefined) {
+    provenance.supportsToolCalling = "gateway-reported";
+    provenance.supportsStructuredOutput = "gateway-reported";
+  }
+  if (inputModalities !== undefined) {
+    provenance.inputModalities = "gateway-reported";
+  }
+
+  const supportsToolCalling = supportedParameters === undefined
+    ? undefined
+    : supportedParameters.some((parameter) =>
+      ["tools", "tool_choice", "parallel_tool_calls"].includes(parameter)
+    );
+  const supportsStructuredOutput = supportedParameters === undefined
+    ? undefined
+    : supportedParameters.some((parameter) =>
+      ["response_format", "structured_outputs", "json_schema"].includes(parameter)
+    );
+
+  return normalizeDefinition({
+    modelId,
+    capabilities,
+    inputModalities,
+    contextWindowTokens,
+    supportsToolCalling,
+    supportsStructuredOutput,
+    metadataProvenance: provenance,
+  });
+}
+
+function metadataForDefinition(
+  definition: OpenAiCompatibleGatewayModelDefinition,
+  origin: GatewayModelOrigin,
+): OpenAiCompatibleGatewayModelMetadata {
+  const provenance = definition.metadataProvenance ?? {};
+  return {
+    modelId: definition.modelId,
+    origin,
+    inputModalities: {
+      value: definition.inputModalities ? [...definition.inputModalities] : null,
+      source: provenance.inputModalities ?? "unknown",
+    },
+    contextWindowTokens: {
+      value: definition.contextWindowTokens ?? null,
+      source: provenance.contextWindowTokens ?? "unknown",
+    },
+    supportsToolCalling: {
+      value: definition.supportsToolCalling ?? null,
+      source: provenance.supportsToolCalling ?? "unknown",
+    },
+    supportsStructuredOutput: {
+      value: definition.supportsStructuredOutput ?? null,
+      source: provenance.supportsStructuredOutput ?? "unknown",
+    },
+  };
 }
 
 function providerToolName(toolId: string): string {
@@ -404,11 +629,11 @@ class OpenAiCompatibleGatewayModel implements IntelligenceModel {
       displayName: definition.displayName ?? `${gatewayId}: ${definition.modelId}`,
       providerKind,
       capabilities: [...definition.capabilities],
-      inputModalities: ["text", "image"],
+      inputModalities: definition.inputModalities ?? ["text"],
       outputModalities: ["text"],
-      contextWindowTokens: definition.contextWindowTokens ?? 128_000,
-      supportsToolCalling: definition.supportsToolCalling ?? true,
-      supportsStructuredOutput: definition.supportsStructuredOutput ?? true,
+      contextWindowTokens: definition.contextWindowTokens ?? 0,
+      supportsToolCalling: definition.supportsToolCalling ?? false,
+      supportsStructuredOutput: definition.supportsStructuredOutput ?? false,
       available: true,
     };
   }
@@ -610,6 +835,8 @@ export class OpenAiCompatibleGatewayAdapter implements ProviderAdapter {
 
   private readonly transport: OpenAiCompatibleGatewayTransport;
   private readonly models = new Map<ID, IntelligenceModel>();
+  private readonly modelDefinitions = new Map<ID, OpenAiCompatibleGatewayModelDefinition>();
+  private readonly modelMetadata = new Map<ID, OpenAiCompatibleGatewayModelMetadata>();
   private readonly discoverModelsEnabled: boolean;
   private readonly allowDynamicModels: boolean;
   private readonly discoveredModelCapabilities: readonly IntelligenceCapability[];
@@ -637,7 +864,7 @@ export class OpenAiCompatibleGatewayAdapter implements ProviderAdapter {
     );
 
     for (const definition of config.models ?? []) {
-      this.registerModel(definition);
+      this.registerModel(definition, "configured");
     }
   }
 
@@ -649,6 +876,34 @@ export class OpenAiCompatibleGatewayAdapter implements ProviderAdapter {
 
   listRemoteCatalog(): readonly string[] {
     return [...this.remoteCatalog];
+  }
+
+  listModelMetadata(): readonly OpenAiCompatibleGatewayModelMetadata[] {
+    return Array.from(this.modelMetadata.values())
+      .map((metadata) => ({
+        ...metadata,
+        inputModalities: {
+          ...metadata.inputModalities,
+          value: metadata.inputModalities.value
+            ? [...metadata.inputModalities.value]
+            : null,
+        },
+      }))
+      .sort((left, right) => left.modelId.localeCompare(right.modelId));
+  }
+
+  getModelMetadata(modelId: ID): OpenAiCompatibleGatewayModelMetadata | undefined {
+    const metadata = this.modelMetadata.get(modelId);
+    if (!metadata) return undefined;
+    return {
+      ...metadata,
+      inputModalities: {
+        ...metadata.inputModalities,
+        value: metadata.inputModalities.value
+          ? [...metadata.inputModalities.value]
+          : null,
+      },
+    };
   }
 
   getModel(modelId: ID): IntelligenceModel | undefined {
@@ -682,20 +937,33 @@ export class OpenAiCompatibleGatewayAdapter implements ProviderAdapter {
       }
 
       const payload = response.body as OpenAiModelListResponse | undefined;
-      const models = Array.from(new Set(
-        (payload?.data ?? [])
-          .map((model) => model.id?.trim())
-          .filter((id): id is string => Boolean(id)),
-      )).sort();
+      const entriesById = new Map<string, OpenAiModelListEntry>();
+      for (const entry of payload?.data ?? []) {
+        const id = entry.id?.trim();
+        if (id && !entriesById.has(id)) entriesById.set(id, entry);
+      }
+      const models = Array.from(entriesById.keys()).sort();
       this.remoteCatalog = models;
 
       const codingModels = models.filter((modelId) => !looksLikeNonChatModel(modelId));
       for (const modelId of codingModels) {
-        if (!this.models.has(modelId)) {
-          this.registerModel({
-            modelId,
-            capabilities: this.discoveredModelCapabilities,
-          });
+        const entry = entriesById.get(modelId);
+        if (!entry) continue;
+        const discovered = discoveredDefinition(
+          entry,
+          this.discoveredModelCapabilities,
+        );
+        if (!discovered) continue;
+        const existing = this.modelDefinitions.get(modelId);
+        if (existing) {
+          const existingOrigin = this.modelMetadata.get(modelId)?.origin ?? "configured";
+          this.registerModel(
+            mergeDefinitions(existing, discovered),
+            existingOrigin,
+            true,
+          );
+        } else {
+          this.registerModel(discovered, "discovered");
         }
       }
 
@@ -730,7 +998,7 @@ export class OpenAiCompatibleGatewayAdapter implements ProviderAdapter {
       this.registerModel({
         modelId,
         capabilities: this.discoveredModelCapabilities,
-      });
+      }, "dynamic");
       model = this.models.get(modelId);
     }
 
@@ -761,14 +1029,24 @@ export class OpenAiCompatibleGatewayAdapter implements ProviderAdapter {
     return this.refreshModels();
   }
 
-  private registerModel(definition: OpenAiCompatibleGatewayModelDefinition): void {
-    if (this.models.has(definition.modelId)) return;
+  private registerModel(
+    definition: OpenAiCompatibleGatewayModelDefinition,
+    origin: GatewayModelOrigin,
+    replace = false,
+  ): void {
+    if (this.models.has(definition.modelId) && !replace) return;
+    const normalized = normalizeDefinition(definition);
     const model = new OpenAiCompatibleGatewayModel(
       this.descriptor.id,
       this.transport,
-      definition,
+      normalized,
       this.descriptor.kind,
     );
     this.models.set(model.identity.modelId, model);
+    this.modelDefinitions.set(model.identity.modelId, normalized);
+    this.modelMetadata.set(
+      model.identity.modelId,
+      metadataForDefinition(normalized, origin),
+    );
   }
 }
