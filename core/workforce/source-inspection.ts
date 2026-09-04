@@ -40,6 +40,22 @@ export class SourceInspectionPolicyError extends Error {
   }
 }
 
+function pathContainsExcludedSegment(
+  normalizedPath: string,
+  excluded: string,
+): boolean {
+  const normalizedExcluded = excluded
+    .replaceAll("\\", "/")
+    .replace(/^\.\/+/, "")
+    .replace(/^\/+|\/+$/g, "");
+  if (!normalizedExcluded) return false;
+
+  return normalizedPath === normalizedExcluded ||
+    normalizedPath.startsWith(`${normalizedExcluded}/`) ||
+    normalizedPath.includes(`/${normalizedExcluded}/`) ||
+    normalizedPath.endsWith(`/${normalizedExcluded}`);
+}
+
 export function validateInspectionPolicy(
   source: KnowledgeSource,
   policy: SourceInspectionPolicy,
@@ -107,11 +123,7 @@ export function validateInspectionRequest(
     }
 
     for (const excluded of policy.excludedPathSegments) {
-      if (
-        normalized === excluded ||
-        normalized.startsWith(`${excluded}/`) ||
-        normalized.includes(`/${excluded}/`)
-      ) {
+      if (pathContainsExcludedSegment(normalized, excluded)) {
         throw new SourceInspectionPolicyError(
           `path "${request.relativePath}" contains excluded path segment "${excluded}"`,
         );
