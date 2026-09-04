@@ -130,12 +130,14 @@ async function main(): Promise<void> {
   assert.match(serverSource, /routingMode:\s*"gateway-first"/);
   assert.match(serverSource, /KINGS_ENABLE_OLLAMA_FALLBACK/);
   assert.match(serverSource, /DurableGatewayUsageLedger/);
-  assert.match(serverSource, /req\.url === "\/api\/usage"/);
+  assert.match(serverSource, /pathname === "\/api\/usage"/);
   assert.match(serverSource, /selectAutomaticCodingRoute/);
   assert.match(serverSource, /ok:\s*readiness\.ready/);
-  assert.match(serverSource, /req\.url === "\/ready"/);
+  assert.match(serverSource, /pathname === "\/ready"/);
   assert.match(serverSource, /readiness\.ready \? 200 : 503/);
   assert.match(serverSource, /identifiesAsBubblewrap/);
+  assert.match(serverSource, /readJsonBody/);
+  assert.match(serverSource, /requestBodyLimitBytes/);
   assert.match(
     serverSource,
     /preferredProviderId:\s*route\.providerId/,
@@ -164,6 +166,7 @@ async function main(): Promise<void> {
   console.log("K.I.N.G.S. OWNER RUNTIME → UNVERIFIED DOCUMENTED OMNIROUTE DEFAULT: SUCCESS");
   console.log("K.I.N.G.S. OWNER RUNTIME → GATEWAY-FIRST HEALTH CONTRACT: SUCCESS");
   console.log("K.I.N.G.S. OWNER RUNTIME → DURABLE USAGE API CONTRACT: SUCCESS");
+  console.log("K.I.N.G.S. OWNER RUNTIME → BOUNDED JSON API CONTRACT: SUCCESS");
   console.log("K.I.N.G.S. OWNER STATUS → LIVE READINESS PROBE: SUCCESS");
   console.log("TREE-KCM-OWNER-RUNTIME-READINESS: SUCCESS");
 }
