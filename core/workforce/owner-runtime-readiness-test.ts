@@ -16,6 +16,7 @@ function runtime(input: {
   modelId?: string;
   displayName?: string;
   codingEligible?: boolean;
+  documentedCodingRoute?: boolean;
   verifiedCodingRoute?: boolean;
 } = {}): KingsAiGatewayRuntime {
   const providerId = input.providerId ?? "9router";
@@ -39,6 +40,7 @@ function runtime(input: {
       modelId: input.modelId ?? "coding/model-1",
       displayName: input.displayName ?? "Coding Model 1",
       codingEligible: input.codingEligible ?? true,
+      documentedCodingRoute: input.documentedCodingRoute ?? false,
       verifiedCodingRoute: input.verifiedCodingRoute ?? false,
     }],
   } as unknown as KingsAiGatewayRuntime;
@@ -106,7 +108,8 @@ async function main(): Promise<void> {
     providerName: "OmniRoute",
     modelId: "auto/coding",
     displayName: "Auto Coding",
-    verifiedCodingRoute: true,
+    documentedCodingRoute: true,
+    verifiedCodingRoute: false,
   }));
   assert.deepEqual(omniRoute, {
     providerId: "omniroute",
@@ -158,7 +161,7 @@ async function main(): Promise<void> {
   console.log("K.I.N.G.S. OWNER RUNTIME → OFFLINE FAIL-CLOSED: SUCCESS");
   console.log("K.I.N.G.S. OWNER RUNTIME → LOCAL-ONLY NOT PRODUCTION READY: SUCCESS");
   console.log("K.I.N.G.S. OWNER RUNTIME → 9ROUTER DEFAULT ROUTE: SUCCESS");
-  console.log("K.I.N.G.S. OWNER RUNTIME → OMNIROUTE PREFERRED ROUTE: SUCCESS");
+  console.log("K.I.N.G.S. OWNER RUNTIME → UNVERIFIED DOCUMENTED OMNIROUTE DEFAULT: SUCCESS");
   console.log("K.I.N.G.S. OWNER RUNTIME → GATEWAY-FIRST HEALTH CONTRACT: SUCCESS");
   console.log("K.I.N.G.S. OWNER RUNTIME → DURABLE USAGE API CONTRACT: SUCCESS");
   console.log("K.I.N.G.S. OWNER STATUS → LIVE READINESS PROBE: SUCCESS");
