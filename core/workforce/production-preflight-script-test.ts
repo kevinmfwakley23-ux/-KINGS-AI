@@ -10,7 +10,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-function assert(condition: unknown, message: string): asserts condition {
+function assert(condition: unknown, message = "assertion failed"): asserts condition {
   if (!condition) throw new Error(`ASSERTION FAILED: ${message}`);
 }
 
