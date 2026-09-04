@@ -108,19 +108,26 @@ export class ProviderQuotaAuthority {
   }
 
   state(providerId: string, modelId?: string): ProviderQuotaState | undefined {
-    const model = this.states.get(key(providerId, modelId));
-    const provider = this.states.get(key(providerId));
-    const selected = model ?? provider;
-    if (!selected) return undefined;
-    return this.refresh(selected);
+    const exact = this.states.get(key(providerId, modelId));
+    const provider = modelId === undefined
+      ? undefined
+      : this.states.get(key(providerId));
+    const refreshedExact = exact ? this.refresh(exact) : undefined;
+    const refreshedProvider = provider ? this.refresh(provider) : undefined;
+
+    // Provider-wide exhaustion is authoritative across every model. A narrower
+    // model record may add an additional block, but it may never hide a newer
+    // provider-wide 429/quota exhaustion event.
+    if (refreshedProvider?.exhausted) return refreshedProvider;
+    if (refreshedExact?.exhausted) return refreshedExact;
+    return refreshedExact ?? refreshedProvider;
   }
 
   filter(candidates: readonly ModelRoutingCandidate[]): QuotaAwareCandidateDecision {
     const available: ModelRoutingCandidate[] = [];
     const excluded: QuotaAwareCandidateDecision["excluded"] = [];
     for (const candidate of candidates) {
-      const state = this.state(candidate.providerId, candidate.modelId) ??
-        this.state(candidate.providerId);
+      const state = this.state(candidate.providerId, candidate.modelId);
       if (state?.exhausted) {
         excluded.push({
           providerId: candidate.providerId,
