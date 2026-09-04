@@ -211,10 +211,16 @@ const tokenExhaustionEnforcer =
 
 tokenExhaustionEnforcer.record(
   "scope-token-exhaustion",
-  usage(
-    100,
-    0.30,
-  ),
+  {
+    ...usage(
+      100,
+      0.30,
+    ),
+    inputTokens:
+      80,
+    outputTokens:
+      20,
+  },
 );
 
 const requestDecision =
