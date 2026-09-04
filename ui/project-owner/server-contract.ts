@@ -59,6 +59,12 @@ export interface ProjectOwnerRuntimeOptions {
   allowBuildNetwork?: boolean;
   localModelAvailable?: boolean;
   processIsolation?: SandboxBubblewrapIsolation;
+  initialRoutingMetrics?: ReadonlyMap<string, ModelRoutingMetrics>;
+  recordRoutingMetric?: (
+    providerId: string,
+    modelId: string,
+    metric: ModelRoutingMetrics,
+  ) => void | Promise<void>;
 }
 
 type BuildTestOptions = ConstructorParameters<
@@ -319,13 +325,28 @@ export class ProjectOwnerMachineServerController
       );
     }
 
+    for (const [key, metric] of runtime.initialRoutingMetrics ?? []) {
+      if (this.metrics.has(key)) {
+        this.metrics.set(key, { ...metric });
+      }
+    }
+
     const router = new ModelRouter(this.capabilities, this.metrics);
     const adaptiveRouting = new AdaptiveModelRoutingAuthority(this.metrics);
     const resilientExecution = new ResilientModelExecutionAuthority(
       this.providers,
       {
-        observeResult(providerId, observedModelId, result) {
-          adaptiveRouting.observe(providerId, observedModelId, result);
+        async observeResult(providerId, observedModelId, result) {
+          const metric = adaptiveRouting.observe(
+            providerId,
+            observedModelId,
+            result,
+          );
+          await runtime.recordRoutingMetric?.(
+            providerId,
+            observedModelId,
+            metric,
+          );
         },
       },
     );
