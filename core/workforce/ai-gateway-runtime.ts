@@ -20,6 +20,7 @@ export interface KingsGatewayModelCatalogEntry {
   displayName: string;
   codingEligible: boolean;
   documentedCodingRoute: boolean;
+  documentedFreeRoute: boolean;
   verifiedCodingRoute: boolean;
 }
 
@@ -59,6 +60,84 @@ interface JsonGatewayDefinition {
   apiKey?: string;
   models?: string[];
 }
+
+interface DirectGatewayPreset {
+  id: string;
+  name: string;
+  gatewayKind: OpenAiCompatibleGatewayKind;
+  apiKeyEnv: string;
+  urlEnv: string;
+  modelsEnv: string;
+  defaultBaseUrl: string;
+  defaultModels?: readonly string[];
+}
+
+const DIRECT_GATEWAY_PRESETS: readonly DirectGatewayPreset[] = [
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    gatewayKind: "openrouter",
+    apiKeyEnv: "KINGS_OPENROUTER_KEY",
+    urlEnv: "KINGS_OPENROUTER_URL",
+    modelsEnv: "KINGS_OPENROUTER_MODELS",
+    defaultBaseUrl: "https://openrouter.ai/api",
+    defaultModels: ["openrouter/free"],
+  },
+  {
+    id: "groq",
+    name: "Groq",
+    gatewayKind: "openai-compatible",
+    apiKeyEnv: "KINGS_GROQ_KEY",
+    urlEnv: "KINGS_GROQ_URL",
+    modelsEnv: "KINGS_GROQ_MODELS",
+    defaultBaseUrl: "https://api.groq.com/openai",
+  },
+  {
+    id: "cerebras",
+    name: "Cerebras",
+    gatewayKind: "openai-compatible",
+    apiKeyEnv: "KINGS_CEREBRAS_KEY",
+    urlEnv: "KINGS_CEREBRAS_URL",
+    modelsEnv: "KINGS_CEREBRAS_MODELS",
+    defaultBaseUrl: "https://api.cerebras.ai",
+  },
+  {
+    id: "mistral",
+    name: "Mistral",
+    gatewayKind: "openai-compatible",
+    apiKeyEnv: "KINGS_MISTRAL_KEY",
+    urlEnv: "KINGS_MISTRAL_URL",
+    modelsEnv: "KINGS_MISTRAL_MODELS",
+    defaultBaseUrl: "https://api.mistral.ai",
+  },
+  {
+    id: "chutes",
+    name: "Chutes",
+    gatewayKind: "openai-compatible",
+    apiKeyEnv: "KINGS_CHUTES_KEY",
+    urlEnv: "KINGS_CHUTES_URL",
+    modelsEnv: "KINGS_CHUTES_MODELS",
+    defaultBaseUrl: "https://llm.chutes.ai",
+  },
+  {
+    id: "together",
+    name: "Together AI",
+    gatewayKind: "openai-compatible",
+    apiKeyEnv: "KINGS_TOGETHER_KEY",
+    urlEnv: "KINGS_TOGETHER_URL",
+    modelsEnv: "KINGS_TOGETHER_MODELS",
+    defaultBaseUrl: "https://api.together.ai",
+  },
+  {
+    id: "fireworks",
+    name: "Fireworks AI",
+    gatewayKind: "openai-compatible",
+    apiKeyEnv: "KINGS_FIREWORKS_KEY",
+    urlEnv: "KINGS_FIREWORKS_URL",
+    modelsEnv: "KINGS_FIREWORKS_MODELS",
+    defaultBaseUrl: "https://api.fireworks.ai/inference",
+  },
+];
 
 function csv(value: string | undefined): string[] {
   return Array.from(new Set(
@@ -124,6 +203,37 @@ function parseJsonGateways(
   });
 }
 
+function configuredDirectGatewayDefinitions(
+  env: NodeJS.ProcessEnv,
+): OpenAiCompatibleGatewayConfig[] {
+  return DIRECT_GATEWAY_PRESETS
+    .map((preset): OpenAiCompatibleGatewayConfig | undefined => {
+      const apiKey = env[preset.apiKeyEnv]?.trim();
+      if (!apiKey) return undefined;
+
+      const configuredModels = csv(env[preset.modelsEnv]);
+      const models = configuredModels.length > 0
+        ? configuredModels
+        : [...(preset.defaultModels ?? [])];
+
+      return {
+        id: preset.id,
+        name: preset.name,
+        gatewayKind: preset.gatewayKind,
+        baseUrl: env[preset.urlEnv]?.trim() || preset.defaultBaseUrl,
+        apiKey,
+        providerKind: "external-routed",
+        models: models.map((modelId) => configuredModel(modelId)),
+        discoverModels: true,
+        allowDynamicModels: true,
+      };
+    })
+    .filter(
+      (definition): definition is OpenAiCompatibleGatewayConfig =>
+        definition !== undefined,
+    );
+}
+
 export function configuredGatewayDefinitions(
   env: NodeJS.ProcessEnv = process.env,
 ): OpenAiCompatibleGatewayConfig[] {
@@ -163,7 +273,10 @@ export function configuredGatewayDefinitions(
     });
   }
 
-  definitions.push(...parseJsonGateways(env.KINGS_AI_GATEWAYS_JSON));
+  definitions.push(
+    ...configuredDirectGatewayDefinitions(env),
+    ...parseJsonGateways(env.KINGS_AI_GATEWAYS_JSON),
+  );
 
   const seen = new Set<string>();
   return definitions.filter((definition) => {
@@ -196,6 +309,12 @@ function buildGatewayCatalog(
         const documentedCodingRoute =
           adapter.gatewayKind === "omniroute" &&
           (model.modelId === "auto/coding" || model.modelId === "auto");
+        const documentedFreeRoute =
+          adapter.gatewayKind === "openrouter" &&
+          (
+            model.modelId === "openrouter/free" ||
+            model.modelId.endsWith(":free")
+          );
         return {
           providerId: adapter.descriptor.id,
           providerName: adapter.descriptor.name,
@@ -203,8 +322,11 @@ function buildGatewayCatalog(
           modelId: model.modelId,
           displayName: model.displayName,
           codingEligible:
-            health.codingModels.includes(model.modelId) || documentedCodingRoute,
+            health.codingModels.includes(model.modelId) ||
+            documentedCodingRoute ||
+            documentedFreeRoute,
           documentedCodingRoute,
+          documentedFreeRoute,
           verifiedCodingRoute: false,
         };
       }),
@@ -236,7 +358,8 @@ export function selectKingsAiGatewayCodingRoute(
         if (entry.gatewayKind === "omniroute" && entry.modelId === "auto/coding") return 0;
         if (entry.gatewayKind === "omniroute" && entry.modelId === "auto") return 1;
         if (entry.gatewayKind === "9router") return 2;
-        return 3;
+        if (entry.documentedFreeRoute) return 3;
+        return 4;
       };
       const priorityOrder = priority(left) - priority(right);
       if (priorityOrder !== 0) return priorityOrder;
@@ -284,7 +407,9 @@ function registerOrRefreshModelRoute(
         evidenceReferences: [
           verified
             ? `${adapter.gatewayKind}:executed-coding-acceptance`
-            : `${adapter.gatewayKind}:live-v1-models-catalog`,
+            : catalog.documentedFreeRoute
+              ? "openrouter:documented-free-route-live-catalog"
+              : `${adapter.gatewayKind}:live-v1-models-catalog`,
         ],
         verifiedAt: verified ? new Date().toISOString() : undefined,
       })),
@@ -301,7 +426,8 @@ function registerOrRefreshModelRoute(
     // Initial catalog values are only seeds. Once real execution evidence has
     // adapted a route, routine health/catalog refreshes must not erase it.
     metrics.set(metricKey, {
-      costBasis: "unknown",
+      estimatedCost: catalog.documentedFreeRoute ? 0 : undefined,
+      costBasis: catalog.documentedFreeRoute ? "verified-free" : "unknown",
       latencyMs: verified ? 800 : 1_200,
       reliability: health.ok ? verified ? 94 : 80 : 25,
     });
