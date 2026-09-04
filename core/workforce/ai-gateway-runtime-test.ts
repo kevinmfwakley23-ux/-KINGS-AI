@@ -2,6 +2,7 @@ import {
   configuredGatewayDefinitions,
   loadKingsAiGatewayRuntime,
   registerKingsAiGatewayRuntime,
+  selectKingsAiGatewayCodingRoute,
 } from "./ai-gateway-runtime";
 import type {
   OpenAiCompatibleGatewayConfig,
@@ -117,6 +118,25 @@ async function runTest(): Promise<void> {
   );
   console.log("GATEWAY-RUNTIME-002 live /v1/models discovery + coding filter: SUCCESS");
 
+  const documentedAutoRoute = runtime.catalog.find(
+    (entry) => entry.providerId === "omniroute" && entry.modelId === "auto/coding",
+  );
+  assert(
+    documentedAutoRoute?.documentedCodingRoute === true,
+    "OmniRoute auto/coding should retain its documented-route evidence.",
+  );
+  assert(
+    documentedAutoRoute?.verifiedCodingRoute === false,
+    "Documentation must not be promoted to executed coding verification.",
+  );
+
+  const defaultRoute = selectKingsAiGatewayCodingRoute(runtime);
+  assert(
+    defaultRoute?.providerId === "omniroute" && defaultRoute.modelId === "auto/coding",
+    "Healthy gateway-first routing should prefer OmniRoute auto/coding when available.",
+  );
+  console.log("GATEWAY-RUNTIME-003 healthy gateway-first default route: SUCCESS");
+
   const providers = new ProviderAdapterRegistry();
   const capabilities = new ModelCapabilityRegistry();
   const metrics = new Map<string, ModelRoutingMetrics>();
@@ -137,9 +157,9 @@ async function runTest(): Promise<void> {
   );
   assert(
     capabilities.get("omniroute", "auto/coding")?.capabilities.every(
-      (profile) => profile.status === "verified",
+      (profile) => profile.status === "unverified",
     ) === true,
-    "Documented OmniRoute auto/coding route should be verified.",
+    "A documented route must remain unverified until KINGS executes a real coding acceptance.",
   );
   assert(
     capabilities.get("9router", "kr/qwen3-coder-next")?.capabilities.some(
@@ -147,7 +167,7 @@ async function runTest(): Promise<void> {
     ) === true,
     "Discovered arbitrary models should remain unverified until KINGS validates them.",
   );
-  console.log("GATEWAY-RUNTIME-003 catalog registration with honest verification state: SUCCESS");
+  console.log("GATEWAY-RUNTIME-004 catalog registration with honest verification state: SUCCESS");
 
   const collisionRegistry = new ModelCapabilityRegistry();
   const shared = runtime.gateways[0].adapter.getModel("openai/gpt-coder")?.identity;
@@ -177,7 +197,7 @@ async function runTest(): Promise<void> {
     collisionRegistry.get("another-gateway", "openai/gpt-coder") !== undefined,
     "Provider-scoped model ids must coexist.",
   );
-  console.log("GATEWAY-RUNTIME-004 provider-scoped hundreds-model registry: SUCCESS");
+  console.log("GATEWAY-RUNTIME-005 provider-scoped hundreds-model registry: SUCCESS");
 
   console.log("K.I.N.G.S. AI GATEWAY RUNTIME: SUCCESS");
 }
