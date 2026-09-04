@@ -21,7 +21,12 @@ import type {
 
 import {
   ResilientModelExecutionAuthority,
+  type ResilientModelExecutionOutcome,
 } from "./resilient-model-execution";
+
+import type {
+  GovernedModelToolLoop,
+} from "./governed-model-tool-loop";
 
 import {
   KingsCodingMachine,
@@ -68,6 +73,8 @@ function isNonRetryablePolicyFailure(
     "project mismatch",
     "workspace project mismatch",
     "requires an approved and locked mission plan",
+    "governed tool loop",
+    "requires human input",
   ].some((fragment) => normalized.includes(fragment));
 }
 
@@ -84,6 +91,8 @@ export class ModelDrivenCodingExecutionAuthority {
       ProviderAdapterRegistry,
     resilientExecution?:
       ResilientModelExecutionAuthority,
+    private readonly governedToolLoop?:
+      GovernedModelToolLoop,
   ) {
     this.resilientExecution =
       resilientExecution ??
@@ -133,7 +142,7 @@ export class ModelDrivenCodingExecutionAuthority {
       iteration += 1
     ) {
       const execution =
-        await this.resilientExecution.execute(
+        await this.executeModel(
           route.candidates,
           modelRequest,
         );
@@ -240,6 +249,15 @@ export class ModelDrivenCodingExecutionAuthority {
       new Error(
         "K.I.N.G.S. Model Driven Coding: coding loop ended without a verified result.",
       );
+  }
+
+  private executeModel(
+    candidates: Parameters<ResilientModelExecutionAuthority["execute"]>[0],
+    request: ModelExecutionRequest,
+  ): Promise<ResilientModelExecutionOutcome> {
+    return this.governedToolLoop
+      ? this.governedToolLoop.execute(candidates, request)
+      : this.resilientExecution.execute(candidates, request);
   }
 
   private createRepairRequest(
