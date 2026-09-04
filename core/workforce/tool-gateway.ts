@@ -25,11 +25,21 @@ export interface ToolExecutionRequest {
   arguments: Record<string, unknown>;
 }
 
+export type ToolOutputTrust =
+  | "trusted"
+  | "untrusted-external";
+
 export interface ToolExecutionResult {
   success: boolean;
   requestId: ID;
   toolId: ID;
   output?: unknown;
+  /**
+   * Trust label assigned by the deterministic K.I.N.G.S. tool registry, never
+   * by the model or remote tool response. External/open-world adapters should
+   * register the "untrusted-output" capability.
+   */
+  outputTrust?: ToolOutputTrust;
   errorCode?: string;
   errorMessage?: string;
 }
@@ -259,6 +269,16 @@ export class ToolGateway {
         await adapter.execute(
           request,
         );
+      const tool =
+        this.registry.getTool(
+          request.toolId,
+        );
+      const outputTrust: ToolOutputTrust =
+        tool?.capabilities.includes(
+          "untrusted-output",
+        )
+          ? "untrusted-external"
+          : "trusted";
 
       return {
         success:
@@ -268,6 +288,7 @@ export class ToolGateway {
         toolId:
           request.toolId,
         output,
+        outputTrust,
       };
     } catch (
       error: unknown
