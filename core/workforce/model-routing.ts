@@ -84,9 +84,15 @@ export interface ModelRoutingCandidate {
   costBasis: ModelCostBasis;
   latencyMs: number;
   reliability: number;
-  contextWindowTokens: number;
+  /**
+   * Context/cost annotations are guaranteed on candidates emitted by
+   * ModelRouter. They remain optional at the downstream execution boundary so
+   * callers that already possess a governed route can hand that route to the
+   * resilient/tool-loop executor without fabricating ranking evidence.
+   */
+  contextWindowTokens?: number;
   internal: boolean;
-  zeroMarginalCost: boolean;
+  zeroMarginalCost?: boolean;
 }
 
 export interface ModelRoutingDecision {
@@ -261,7 +267,7 @@ export class ModelRouter {
       return candidate.internal;
     }
     if (preference === "free-only") {
-      return candidate.zeroMarginalCost;
+      return candidate.zeroMarginalCost === true;
     }
     return true;
   }
@@ -391,9 +397,9 @@ export class ModelRouter {
       ? "cost unknown (not treated as free)"
       : `estimated cost ${candidate.estimatedCost} (${candidate.costBasis})`;
     const performance =
-      `reliability ${candidate.reliability}; latency ${candidate.latencyMs}ms; context ${candidate.contextWindowTokens} tokens`;
+      `reliability ${candidate.reliability}; latency ${candidate.latencyMs}ms; context ${candidate.contextWindowTokens ?? "unreported"} tokens`;
     const economy =
-      `cost preference ${request.costPreference ?? "economy"}; ${candidate.zeroMarginalCost ? "zero marginal token cost" : "metered route"}`;
+      `cost preference ${request.costPreference ?? "economy"}; ${candidate.zeroMarginalCost === true ? "zero marginal token cost" : "metered route"}`;
     if (request.preferredProviderId || request.preferredModelId) {
       const verification = request.allowUnverifiedExplicitSelection
         ? "explicit owner model selection under post-generation verification"
