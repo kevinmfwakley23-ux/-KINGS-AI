@@ -41,6 +41,8 @@ export type ModelRouteResultObserver = (
 export interface ResilientModelExecutionOptions {
   failureThreshold?: number;
   cooldownMs?: number;
+  /** Provider-wide cooldown applied immediately when quota/rate-limit exhaustion is detected. */
+  quotaCooldownMs?: number;
   maximumAttempts?: number;
   now?: () => number;
   observeResult?: ModelRouteResultObserver;
@@ -58,12 +60,31 @@ function routeKey(
   return `${providerId}::${modelId}`;
 }
 
+function isQuotaFailure(code?: string, message?: string): boolean {
+  const value = `${code ?? ""} ${message ?? ""}`.toLowerCase();
+  return (
+    value.includes("429") ||
+    value.includes("rate_limit") ||
+    value.includes("rate limit") ||
+    value.includes("quota") ||
+    value.includes("free tier") ||
+    value.includes("free-tier") ||
+    value.includes("credit exhausted") ||
+    value.includes("credits exhausted") ||
+    value.includes("usage limit") ||
+    value.includes("limit exceeded")
+  );
+}
+
 export class ResilientModelExecutionAuthority {
   private readonly circuit =
     new Map<string, CircuitState>();
+  private readonly providerCooldown =
+    new Map<ID, number>();
 
   private readonly failureThreshold: number;
   private readonly cooldownMs: number;
+  private readonly quotaCooldownMs: number;
   private readonly maximumAttempts: number;
   private readonly now: () => number;
   private readonly observeResult?: ModelRouteResultObserver;
@@ -76,6 +97,8 @@ export class ResilientModelExecutionAuthority {
       options.failureThreshold ?? 2;
     this.cooldownMs =
       options.cooldownMs ?? 30_000;
+    this.quotaCooldownMs =
+      options.quotaCooldownMs ?? 15 * 60_000;
     this.maximumAttempts =
       options.maximumAttempts ?? 8;
     this.now = options.now ?? Date.now;
@@ -96,6 +119,15 @@ export class ResilientModelExecutionAuthority {
     ) {
       throw new Error(
         "K.I.N.G.S. Resilient Model Execution: cooldown must be a non-negative finite number",
+      );
+    }
+
+    if (
+      this.quotaCooldownMs < 0 ||
+      !Number.isFinite(this.quotaCooldownMs)
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Resilient Model Execution: quota cooldown must be a non-negative finite number",
       );
     }
 
@@ -126,12 +158,30 @@ export class ResilientModelExecutionAuthority {
         break;
       }
 
+      const now = this.now();
+      const providerCooldownUntil = this.providerCooldown.get(candidate.providerId) ?? 0;
+      if (providerCooldownUntil > now) {
+        attempts.push({
+          providerId: candidate.providerId,
+          modelId: candidate.modelId,
+          success: false,
+          skipped: true,
+          failureCode: "PROVIDER_QUOTA_COOLDOWN",
+          retryable: true,
+          message:
+            `Provider is cooling down after quota/rate-limit exhaustion until ${new Date(providerCooldownUntil).toISOString()}.`,
+        });
+        continue;
+      }
+      if (providerCooldownUntil > 0 && providerCooldownUntil <= now) {
+        this.providerCooldown.delete(candidate.providerId);
+      }
+
       const key = routeKey(
         candidate.providerId,
         candidate.modelId,
       );
       const circuit = this.circuit.get(key);
-      const now = this.now();
 
       if (
         circuit &&
@@ -205,6 +255,18 @@ export class ResilientModelExecutionAuthority {
         message: failure?.message,
       });
 
+      if (isQuotaFailure(failure?.code, failure?.message)) {
+        this.providerCooldown.set(
+          candidate.providerId,
+          now + this.quotaCooldownMs,
+        );
+        this.circuit.set(key, {
+          failures: this.failureThreshold,
+          cooldownUntil: now + this.quotaCooldownMs,
+        });
+        continue;
+      }
+
       const previous = this.circuit.get(key) ?? {
         failures: 0,
         cooldownUntil: 0,
@@ -247,12 +309,17 @@ export class ResilientModelExecutionAuthority {
       : undefined;
   }
 
+  getProviderCooldownUntil(providerId: ID): number | undefined {
+    return this.providerCooldown.get(providerId);
+  }
+
   reset(
     providerId?: ID,
     modelId?: ID,
   ): void {
     if (!providerId) {
       this.circuit.clear();
+      this.providerCooldown.clear();
       return;
     }
 
@@ -263,6 +330,7 @@ export class ResilientModelExecutionAuthority {
       return;
     }
 
+    this.providerCooldown.delete(providerId);
     for (const key of this.circuit.keys()) {
       if (key.startsWith(`${providerId}::`)) {
         this.circuit.delete(key);
@@ -302,7 +370,7 @@ export class ResilientModelExecutionAuthority {
           retryable: true,
           code: "NO_EXECUTABLE_MODEL_ROUTE",
           message:
-            "No model route could be executed; all candidates were unavailable, cooling down, or absent.",
+            "No model route could be executed; all candidates were unavailable, cooling down, quota-limited, or absent.",
           metadata: {
             requestId: request.id,
             startedAt: timestamp,
