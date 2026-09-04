@@ -55,6 +55,10 @@ async function main(): Promise<void> {
     standaloneWorkflow.includes("sudo apt-get install -y bubblewrap"),
     "standalone live workflow does not install the required host isolation boundary",
   );
+  assert(
+    !standaloneWorkflow.includes("${{ runner.temp }}"),
+    "standalone live workflow uses runner context in job-level env, which GitHub rejects before execution",
+  );
 
   const activeWorkflow = await readFile(activeWorkflowPath, "utf8");
   assert(
@@ -76,6 +80,10 @@ async function main(): Promise<void> {
       activeWorkflow.includes("KINGS_9ROUTER_URL: ${{ secrets.KINGS_9ROUTER_URL }}"),
     "active production workflow is not wired to real gateway configuration",
   );
+  assert(
+    !activeWorkflow.includes("${{ runner.temp }}"),
+    "active production workflow uses runner context in job-level env, which GitHub rejects before execution",
+  );
 
   const manifest = JSON.parse(await readFile(packagePath, "utf8")) as {
     scripts?: Record<string, string>;
@@ -93,6 +101,7 @@ async function main(): Promise<void> {
 
   console.log("K.I.N.G.S. LIVE GATEWAY GATE → SHELL SYNTAX: SUCCESS");
   console.log("K.I.N.G.S. LIVE GATEWAY GATE → REAL CODING ACCEPTANCE: SUCCESS");
+  console.log("K.I.N.G.S. LIVE GATEWAY GATE → GITHUB CONTEXT SAFETY: SUCCESS");
   console.log("K.I.N.G.S. LIVE GATEWAY GATE → ACTIVE WORKFLOW CHAIN: SUCCESS");
   console.log("K.I.N.G.S. LIVE GATEWAY GATE → PACKAGE COMMANDS: SUCCESS");
   console.log("TREE-KCM-LIVE-PRODUCTION-GATE: SUCCESS");
