@@ -1,6 +1,10 @@
 name: KINGS Live Production Verification
 
 on:
+  push:
+    branches:
+      - kings-production-hardening-2026-09-02
+      - kings-coding-machine-v1
   workflow_dispatch:
     inputs:
       provider_id:
@@ -14,7 +18,7 @@ on:
 
 concurrency:
   group: kings-live-production-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
