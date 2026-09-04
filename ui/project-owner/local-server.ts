@@ -71,7 +71,7 @@ const publicFile = join(process.cwd(), "ui/project-owner/index.html");
 const forgeFile = join(process.cwd(), "ui/project-owner/authors-forge.html");
 const manifestFile = join(process.cwd(), "ui/project-owner/manifest.webmanifest");
 const serviceWorkerFile = join(process.cwd(), "ui/project-owner/service-worker.js");
-const runtimeBuild = "kings-gateway-first-v9-bounded-api";
+const runtimeBuild = "kings-gateway-first-v10-superhost-failover";
 
 async function isExecutable(path: string): Promise<boolean> {
   try {
@@ -532,20 +532,7 @@ async function main(): Promise<void> {
           req,
           requestBodyLimitBytes,
         )) as Parameters<ProjectOwnerMachineApi["handle"]>[0];
-        const route =
-          incoming.action === "execute-next" &&
-          !incoming.preferredProviderId &&
-          !incoming.preferredModelId
-            ? selectAutomaticCodingRoute(gatewayRuntime)
-            : null;
-        const request = route
-          ? {
-              ...incoming,
-              preferredProviderId: route.providerId,
-              preferredModelId: route.modelId,
-            }
-          : incoming;
-        const result = await controller.handle(request);
+        const result = await controller.handle(incoming);
         json(res, result.ok ? 200 : 400, result);
         return;
       }
@@ -600,12 +587,12 @@ async function main(): Promise<void> {
     console.log(`Projects: ${workspaceRoot}`);
     console.log(`Mission state: ${continuityFile}`);
     console.log(`Gateway usage ledger: ${usageFile}`);
-    console.log("Routing mode: GATEWAY FIRST");
+    console.log("Routing mode: GATEWAY FIRST / MULTI-ROUTE FAILOVER");
     console.log(`Optional Ollama fallback enabled: ${enableOllamaFallback}`);
     console.log(`Optional local fallback routable: ${initialOllama.ok}`);
     console.log(`AI gateways: ${gatewayRuntime.gateways.length}`);
     console.log(`Gateway model catalog: ${gatewayRuntime.catalog.length}`);
-    console.log(`Automatic coding route: ${selectAutomaticCodingRoute(gatewayRuntime)?.label ?? "UNAVAILABLE"}`);
+    console.log(`Preferred automatic coding route: ${selectAutomaticCodingRoute(gatewayRuntime)?.label ?? "UNAVAILABLE"}`);
     console.log(`Host process isolation: ${processIsolation ? `${processIsolation.kind} (${processIsolation.executable})` : "UNAVAILABLE — GitHub execution blocked"}`);
     console.log(`Production ready: ${initialReadiness.ready}`);
     if (!initialReadiness.ready) {
