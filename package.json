@@ -14,7 +14,9 @@
     "test": "npm run test:workforce",
     "check": "npm run build:owner-ui && npm run test:workforce",
     "check:live": "npm run build:owner-ui && npm run test:workforce:live",
+    "check:gateway-live": "npm run build:owner-ui && bash scripts/run-live-gateway-acceptance.sh",
     "preflight:production": "node scripts/kings-production-preflight.mjs",
+    "verify:production:live": "npm run check && npm run preflight:production && npm run check:gateway-live",
     "start:owner-ui": "npm run build:owner-ui && node .kings-ui-build/ui/project-owner/local-server.js",
     "start:production": "npm run preflight:production && npm run start:owner-ui"
   }
