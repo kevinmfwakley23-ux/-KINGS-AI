@@ -8,6 +8,7 @@ on:
   pull_request:
     branches:
       - kings-coding-machine-v1
+      - kings-production-hardening-2026-09-02
 
 permissions:
   contents: read
