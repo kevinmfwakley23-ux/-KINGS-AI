@@ -29,7 +29,7 @@ function toolchain(
     id: `test-${language}`,
     language,
     displayName: `${language} test toolchain`,
-    fileExtensions: [],
+    fileExtensions: [".ts"],
     commands: [
       {
         operation: "test",
