@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ID } from "./types";
 import type {
   IntelligenceCapability,
@@ -6,7 +7,9 @@ import type {
   ModelExecutionRequest,
   ModelExecutionResult,
   ModelIdentity,
+  ModelRequestMessage,
   ModelToolCallProposal,
+  ModelToolDefinition,
 } from "./model-interface";
 import type {
   ProviderAdapter,
@@ -89,6 +92,7 @@ interface OpenAiChatCompletionResponse {
       content?: string | null;
       tool_calls?: Array<{
         id?: string;
+        type?: string;
         function?: { name?: string; arguments?: string };
       }>;
     };
@@ -116,6 +120,19 @@ interface OpenAiChatCompletionResponse {
 
 interface OpenAiModelListResponse {
   data?: Array<{ id?: string; kind?: string; owned_by?: string }>;
+}
+
+interface ToolAliasMaps {
+  internalToProvider: Map<string, string>;
+  providerToInternal: Map<string, string>;
+  providerTools: Array<{
+    type: "function";
+    function: {
+      name: string;
+      description: string;
+      parameters: Record<string, unknown>;
+    };
+  }>;
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
@@ -168,30 +185,151 @@ function firstReportedNumber(...values: unknown[]): number | undefined {
   return undefined;
 }
 
+function providerToolName(toolId: string): string {
+  if (/^[A-Za-z0-9_-]{1,64}$/.test(toolId)) return toolId;
+  const safe = toolId
+    .replace(/[^A-Za-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 38) || "tool";
+  const digest = createHash("sha256")
+    .update(toolId)
+    .digest("hex")
+    .slice(0, 12);
+  return `kings_${safe}_${digest}`.slice(0, 64);
+}
+
+function validateToolDefinition(definition: ModelToolDefinition): void {
+  if (!definition.toolId.trim()) {
+    throw new Error("tool id cannot be empty");
+  }
+  if (!definition.description.trim()) {
+    throw new Error(`tool "${definition.toolId}" requires a description`);
+  }
+  if (
+    !definition.inputSchema ||
+    typeof definition.inputSchema !== "object" ||
+    Array.isArray(definition.inputSchema)
+  ) {
+    throw new Error(`tool "${definition.toolId}" requires an object JSON Schema`);
+  }
+}
+
+function buildToolAliasMaps(request: ModelExecutionRequest): ToolAliasMaps {
+  const internalToProvider = new Map<string, string>();
+  const providerToInternal = new Map<string, string>();
+  const providerTools: ToolAliasMaps["providerTools"] = [];
+
+  if (!request.allowToolProposals) {
+    return { internalToProvider, providerToInternal, providerTools };
+  }
+
+  for (const definition of request.toolDefinitions ?? []) {
+    validateToolDefinition(definition);
+    if (internalToProvider.has(definition.toolId)) {
+      throw new Error(`duplicate tool definition "${definition.toolId}"`);
+    }
+    const providerName = providerToolName(definition.toolId);
+    const collision = providerToInternal.get(providerName);
+    if (collision && collision !== definition.toolId) {
+      throw new Error(
+        `provider tool alias collision between "${collision}" and "${definition.toolId}"`,
+      );
+    }
+    internalToProvider.set(definition.toolId, providerName);
+    providerToInternal.set(providerName, definition.toolId);
+    providerTools.push({
+      type: "function",
+      function: {
+        name: providerName,
+        description: definition.description,
+        parameters: { ...definition.inputSchema },
+      },
+    });
+  }
+
+  return { internalToProvider, providerToInternal, providerTools };
+}
+
+function providerToolCall(
+  proposal: ModelToolCallProposal,
+  aliases: ToolAliasMaps,
+) {
+  const providerName =
+    aliases.internalToProvider.get(proposal.toolId) ??
+    providerToolName(proposal.toolId);
+  return {
+    id: proposal.id,
+    type: "function" as const,
+    function: {
+      name: providerName,
+      arguments: JSON.stringify(proposal.arguments),
+    },
+  };
+}
+
+function providerMessage(
+  message: ModelRequestMessage,
+  aliases: ToolAliasMaps,
+): Record<string, unknown> {
+  if (message.role === "tool") {
+    if (!message.toolCallId?.trim()) {
+      throw new Error("tool result message requires toolCallId");
+    }
+    return {
+      role: "tool",
+      content: message.content,
+      tool_call_id: message.toolCallId,
+    };
+  }
+
+  if (message.role === "assistant" && (message.toolCalls?.length ?? 0) > 0) {
+    return {
+      role: "assistant",
+      content: message.content || null,
+      tool_calls: message.toolCalls?.map((proposal) =>
+        providerToolCall(proposal, aliases)
+      ),
+    };
+  }
+
+  return {
+    role: message.role,
+    content: message.content,
+  };
+}
+
 function parseToolCalls(
   response: OpenAiChatCompletionResponse,
+  aliases: ToolAliasMaps,
 ): ModelToolCallProposal[] {
   const calls = response.choices?.[0]?.message?.tool_calls ?? [];
   return calls
     .map((call, index) => {
-      const toolId = call.function?.name?.trim();
-      if (!toolId) return undefined;
+      const providerName = call.function?.name?.trim();
+      if (!providerName) return undefined;
+      const toolId = aliases.providerToInternal.get(providerName) ?? providerName;
       let argumentsValue: Record<string, unknown> = {};
+      let argumentParseError: string | undefined;
       const rawArguments = call.function?.arguments;
       if (rawArguments) {
         try {
           const parsed = JSON.parse(rawArguments) as unknown;
           if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
             argumentsValue = parsed as Record<string, unknown>;
+          } else {
+            argumentParseError = "Tool arguments JSON must decode to an object.";
           }
-        } catch {
-          argumentsValue = { raw: rawArguments };
+        } catch (error) {
+          argumentParseError = error instanceof Error
+            ? `Tool arguments are invalid JSON: ${error.message}`
+            : "Tool arguments are invalid JSON.";
         }
       }
       return {
         id: call.id ?? `tool-call-${index + 1}`,
         toolId,
         arguments: argumentsValue,
+        argumentParseError,
       };
     })
     .filter((proposal): proposal is ModelToolCallProposal => proposal !== undefined);
@@ -298,20 +436,43 @@ class OpenAiCompatibleGatewayModel implements IntelligenceModel {
       );
     }
 
+    let aliases: ToolAliasMaps;
+    let requestBody: Record<string, unknown>;
     try {
-      const response = await this.transport.request("POST", "/chat/completions", {
+      aliases = buildToolAliasMaps(request);
+      requestBody = {
         model: this.identity.modelId,
-        messages: request.messages.map((message) => ({
-          role: message.role,
-          content: message.content,
-        })),
+        messages: request.messages.map((message) => providerMessage(message, aliases)),
         stream: false,
         temperature: request.temperature,
         max_tokens: request.maxOutputTokens,
         response_format: request.requireStructuredOutput
           ? { type: "json_object" }
           : undefined,
-      });
+        ...(aliases.providerTools.length > 0
+          ? {
+              tools: aliases.providerTools,
+              tool_choice: "auto",
+              parallel_tool_calls: request.parallelToolCalls ?? false,
+            }
+          : {}),
+      };
+    } catch (error) {
+      return this.failure(
+        request,
+        startedAt,
+        "GATEWAY_INVALID_REQUEST",
+        error instanceof Error ? error.message : String(error),
+        false,
+      );
+    }
+
+    try {
+      const response = await this.transport.request(
+        "POST",
+        "/chat/completions",
+        requestBody,
+      );
 
       if (response.status < 200 || response.status >= 300) {
         return this.failure(
@@ -333,13 +494,16 @@ class OpenAiCompatibleGatewayModel implements IntelligenceModel {
       }
 
       const payload = response.body as OpenAiChatCompletionResponse;
+      const toolCallProposals = request.allowToolProposals
+        ? parseToolCalls(payload, aliases)
+        : [];
       const content = payload.choices?.[0]?.message?.content;
-      if (typeof content !== "string") {
+      if (typeof content !== "string" && toolCallProposals.length === 0) {
         return this.failure(
           request,
           startedAt,
           "GATEWAY_MISSING_CONTENT",
-          "Gateway response did not contain assistant text content.",
+          "Gateway response contained neither assistant text nor a tool call.",
           true,
         );
       }
@@ -374,10 +538,8 @@ class OpenAiCompatibleGatewayModel implements IntelligenceModel {
         response: {
           requestId: request.id,
           model: this.identity,
-          content,
-          toolCallProposals: request.allowToolProposals
-            ? parseToolCalls(payload)
-            : [],
+          content: typeof content === "string" ? content : "",
+          toolCallProposals,
           usage: {
             elapsedMs: completedAt.getTime() - startedAt.getTime(),
             tokensUsed: totalTokens,
