@@ -69,14 +69,18 @@ function main(): void {
   assert.match(cookie, /Path=\//);
   assert.equal(protectedApiPath("/api/project-owner/missions"), true);
   assert.equal(protectedApiPath("/api/usage"), true);
-  assert.equal(protectedApiPath("/health"), true);
+  assert.equal(
+    protectedApiPath("/health"),
+    false,
+    "minimal liveness must remain probeable without exposing detailed runtime state",
+  );
   assert.equal(protectedApiPath("/ready"), true);
   assert.equal(protectedApiPath("/manifest.webmanifest"), false);
 
   console.log("K.I.N.G.S. OWNER HTTP → LOOPBACK SAFE DEFAULT: SUCCESS");
   console.log("K.I.N.G.S. OWNER HTTP → LAN FAIL-CLOSED AUTH: SUCCESS");
   console.log("K.I.N.G.S. OWNER HTTP → BEARER/COOKIE PAIRING: SUCCESS");
-  console.log("K.I.N.G.S. OWNER HTTP → HEALTH/READINESS PRIVACY: SUCCESS");
+  console.log("K.I.N.G.S. OWNER HTTP → MINIMAL HEALTH / PRIVATE READINESS: SUCCESS");
   console.log("TREE-KCM-OWNER-HTTP-AUTH: SUCCESS");
 }
 
