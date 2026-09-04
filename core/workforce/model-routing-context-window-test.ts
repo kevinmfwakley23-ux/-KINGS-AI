@@ -107,9 +107,9 @@ assert(
 );
 assert(
   repositoryScaleRequest.candidates.every(
-    (candidate) => candidate.contextWindowTokens >= 64_000,
+    (candidate) => (candidate.contextWindowTokens ?? 0) >= 64_000,
   ),
-  "every retained candidate must satisfy the requested context capacity",
+  "every router-produced candidate must preserve context evidence and satisfy the requested capacity",
 );
 
 const impossibleRequest = router.route({
