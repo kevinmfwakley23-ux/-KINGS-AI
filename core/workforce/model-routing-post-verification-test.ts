@@ -90,18 +90,33 @@ assert(
   "Unverified gateway must not enter ordinary verified-only routing.",
 );
 
-const governed = router.route({
+const governedEconomy = router.route({
   requiredCapabilities: ["coding"],
   preferExternal: true,
+  costPreference: "economy",
   allowUnverifiedUnderPostExecutionVerification: true,
 });
-assert(governed.selected, "Governed post-verification route was not selected.");
+assert(governedEconomy.selected, "Governed economy route was not selected.");
 assert(
-  governed.providerId === "omniroute" && governed.modelId === "auto/coding",
-  "Gateway-first routing did not prefer the live external route under independent verification.",
+  governedEconomy.providerId === "local" &&
+    governedEconomy.modelId === "local-coder",
+  "Economy routing must retain the zero-marginal-cost local route even when external intelligence is available.",
+);
+
+const governedQuality = router.route({
+  requiredCapabilities: ["coding"],
+  preferExternal: true,
+  costPreference: "quality",
+  allowUnverifiedUnderPostExecutionVerification: true,
+});
+assert(governedQuality.selected, "Governed quality route was not selected.");
+assert(
+  governedQuality.providerId === "omniroute" &&
+    governedQuality.modelId === "auto/coding",
+  "Quality mode should preserve the owner's explicit external preference under independent verification.",
 );
 assert(
-  governed.reason.includes("independent post-execution verification"),
+  governedQuality.reason.includes("independent post-execution verification"),
   "Routing explanation does not disclose the post-execution verification boundary.",
 );
 
@@ -117,6 +132,7 @@ assert(
 );
 
 console.log("K.I.N.G.S. ROUTING → VERIFIED-ONLY DEFAULT: SUCCESS");
-console.log("K.I.N.G.S. ROUTING → UNVERIFIED UNDER REAL POST-VERIFICATION: SUCCESS");
+console.log("K.I.N.G.S. ROUTING → ECONOMY KEEPS ZERO-COST LOCAL: SUCCESS");
+console.log("K.I.N.G.S. ROUTING → QUALITY CAN PREFER EXTERNAL UNDER VERIFICATION: SUCCESS");
 console.log("K.I.N.G.S. ROUTING → UNKNOWN COST DOES NOT BYPASS CEILING: SUCCESS");
 console.log("TREE-KCM-MODEL-ROUTING-POST-VERIFICATION: SUCCESS");
