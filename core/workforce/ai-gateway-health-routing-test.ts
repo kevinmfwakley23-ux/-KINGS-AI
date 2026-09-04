@@ -109,14 +109,40 @@ async function main(): Promise<void> {
     "provider registry must see gateway recovery without re-registration",
   );
 
-  const recovered = capabilities.discover({
+  const recoveredRoutable = capabilities.discover({
+    providerId: "omniroute",
+    modelId: "auto/coding",
+    availableOnly: true,
+    verifiedOnly: false,
+    requiredCapabilities: ["coding"],
+  });
+  assert(
+    recoveredRoutable.length === 1,
+    "documented auto/coding route must become routable after gateway recovery",
+  );
+  assert(
+    recoveredRoutable[0].capabilities.every((profile) => profile.status === "unverified"),
+    "gateway health recovery must not manufacture coding verification evidence",
+  );
+  const recoveredVerified = capabilities.discover({
     providerId: "omniroute",
     modelId: "auto/coding",
     availableOnly: true,
     verifiedOnly: true,
     requiredCapabilities: ["coding"],
   });
-  assert(recovered.length === 1, "verified auto/coding route must return after gateway recovery");
+  assert(
+    recoveredVerified.length === 0,
+    "a recovered route must remain unverified until an executed K.I.N.G.S. coding acceptance proves it",
+  );
+  const recoveredCatalogEntry = refreshed.catalog.find(
+    (entry) => entry.providerId === "omniroute" && entry.modelId === "auto/coding",
+  );
+  assert(
+    recoveredCatalogEntry?.documentedCodingRoute === true &&
+      recoveredCatalogEntry.verifiedCodingRoute === false,
+    "recovered OmniRoute route must preserve documented evidence without claiming executed verification",
+  );
   assert(healthChecks === 2, "startup and recovery must each perform one live health check");
 
   let dynamicHealthy = false;
@@ -194,7 +220,7 @@ async function main(): Promise<void> {
   );
 
   console.log("K.I.N.G.S. GATEWAY HEALTH → ROUTING EXCLUSION: SUCCESS");
-  console.log("K.I.N.G.S. GATEWAY HEALTH → LIVE RECOVERY: SUCCESS");
+  console.log("K.I.N.G.S. GATEWAY HEALTH → LIVE RECOVERY WITHOUT FAKE VERIFICATION: SUCCESS");
   console.log("K.I.N.G.S. GATEWAY REFRESH → LATE MODEL REGISTRATION: SUCCESS");
   console.log("TREE-KCM-GATEWAY-HEALTH-ROUTING: SUCCESS");
 }
