@@ -1,4 +1,7 @@
-import type { KingsAiGatewayRuntime } from "./ai-gateway-runtime";
+import {
+  selectKingsAiGatewayCodingRoute,
+  type KingsAiGatewayRuntime,
+} from "./ai-gateway-runtime";
 
 export interface OwnerCodingRoute {
   providerId: string;
@@ -16,51 +19,32 @@ export interface OwnerRuntimeReadiness {
   blockers: string[];
 }
 
-function healthyGatewayIds(runtime: KingsAiGatewayRuntime): Set<string> {
-  return new Set(
-    runtime.gateways
-      .filter(({ health }) => health.ok)
-      .map(({ adapter }) => adapter.descriptor.id),
-  );
-}
-
 export function hasRoutableGatewayCodingModel(
   runtime: KingsAiGatewayRuntime,
 ): boolean {
-  const healthy = healthyGatewayIds(runtime);
-  return runtime.catalog.some(
-    (entry) => entry.codingEligible && healthy.has(entry.providerId),
-  );
+  return Boolean(selectKingsAiGatewayCodingRoute(runtime));
 }
 
 export function selectAutomaticCodingRoute(
   runtime: KingsAiGatewayRuntime,
 ): OwnerCodingRoute | null {
-  const healthy = healthyGatewayIds(runtime);
-  const routable = runtime.catalog.filter(
-    (entry) => entry.codingEligible && healthy.has(entry.providerId),
+  const selected = selectKingsAiGatewayCodingRoute(runtime);
+  if (!selected) return null;
+
+  const catalog = runtime.catalog.find(
+    (entry) =>
+      entry.providerId === selected.providerId &&
+      entry.modelId === selected.modelId,
   );
-
-  const preferred =
-    routable.find(
-      (entry) =>
-        entry.providerId === "omniroute" &&
-        entry.modelId === "auto/coding" &&
-        entry.verifiedCodingRoute,
-    ) ??
-    routable.find((entry) => entry.providerId === "9router") ??
-    routable.find((entry) => entry.verifiedCodingRoute) ??
-    routable[0];
-
-  if (!preferred) return null;
+  if (!catalog) return null;
 
   return {
-    providerId: preferred.providerId,
-    modelId: preferred.modelId,
+    providerId: selected.providerId,
+    modelId: selected.modelId,
     label:
-      preferred.providerId === "omniroute" && preferred.modelId === "auto/coding"
+      selected.providerId === "omniroute" && selected.modelId === "auto/coding"
         ? "OmniRoute Auto Coding"
-        : `${preferred.providerName}: ${preferred.displayName}`,
+        : `${catalog.providerName}: ${catalog.displayName}`,
   };
 }
 
