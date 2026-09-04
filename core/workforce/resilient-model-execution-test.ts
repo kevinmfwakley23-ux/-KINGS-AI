@@ -229,6 +229,7 @@ async function runTest(): Promise<void> {
     {
       failureThreshold: 1,
       cooldownMs: 10_000,
+      quotaCooldownMs: 10_000,
       maximumAttempts: 4,
       now: () => now,
     },
@@ -266,7 +267,11 @@ async function runTest(): Promise<void> {
   );
   assert(
     circuit?.cooldownUntil === 11_000,
-    "Circuit breaker did not open after threshold failure.",
+    "Route circuit did not inherit the provider quota cooldown.",
+  );
+  assert(
+    authority.getProviderCooldownUntil("omniroute-local") === 11_000,
+    "Provider-wide quota cooldown was not recorded.",
   );
 
   const second = await authority.execute(
@@ -277,15 +282,15 @@ async function runTest(): Promise<void> {
   assert(second.result.success, "Fallback should remain available during cooldown.");
   assert(
     second.attempts[0].skipped &&
-    second.attempts[0].failureCode === "ROUTE_COOLDOWN",
-    "Cooling route was not skipped.",
+    second.attempts[0].failureCode === "PROVIDER_QUOTA_COOLDOWN",
+    "Quota-limited provider was not skipped as a provider-wide cooldown.",
   );
   assert(
     primary.callCount === 1,
-    "Cooling route should not receive another provider request.",
+    "Cooling provider should not receive another request.",
   );
 
-  console.log("RESILIENCE-002 circuit-breaker cooldown: SUCCESS");
+  console.log("RESILIENCE-002 provider quota cooldown: SUCCESS");
 
   now = 12_000;
   const third = await authority.execute(
@@ -294,14 +299,14 @@ async function runTest(): Promise<void> {
   );
   assert(
     primary.callCount === 2,
-    "Route was not retried after cooldown expired.",
+    "Route was not retried after provider quota cooldown expired.",
   );
   assert(
     third.result.success,
-    "Fallback after expired circuit retry should still succeed.",
+    "Fallback after expired quota retry should still succeed.",
   );
 
-  console.log("RESILIENCE-003 cooled route becomes eligible again: SUCCESS");
+  console.log("RESILIENCE-003 cooled provider becomes eligible again: SUCCESS");
 
   const empty = await authority.execute([], request());
   assert(!empty.result.success, "Empty route list must fail safely.");

@@ -69,6 +69,9 @@ function adapter(transport: ScriptedTransport): OpenAiCompatibleGatewayAdapter {
       modelId: "tool-coder",
       capabilities: ["coding", "tool-use"],
       supportsToolCalling: true,
+      metadataProvenance: {
+        supportsToolCalling: "configured",
+      },
     }],
   }, transport);
 }

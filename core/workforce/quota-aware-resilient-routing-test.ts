@@ -62,6 +62,7 @@ function success(request: ModelExecutionRequest, model: ModelIdentity): ModelExe
       content: "ok",
       toolCallProposals: [],
       usage: {
+        elapsedMs: 1,
         tokensUsed: 20,
         iterationsUsed: 1,
         inputTokens: 10,
@@ -108,11 +109,15 @@ async function main(): Promise<void> {
   const providers = new ProviderAdapterRegistry();
   const exhaustedA = new StubProviderModel("free-provider", "model-a", (r) => failure(r, "free-provider", "model-a"));
   const exhaustedB = new StubProviderModel("free-provider", "model-b", (r) => failure(r, "free-provider", "model-b"));
-  const fallback = new StubProviderModel("fallback-provider", "model-c", (r) => success(r, fallback.identity));
+  let fallback: StubProviderModel;
+  fallback = new StubProviderModel("fallback-provider", "model-c", (r) => success(r, fallback.identity));
   providers.register({
-    id: "free-provider",
-    name: "Free Provider",
-    kind: "external-routed",
+    descriptor: {
+      id: "free-provider",
+      name: "Free Provider",
+      kind: "external-routed",
+      available: true,
+    },
     listModels: () => [exhaustedA.identity, exhaustedB.identity],
     getModel: (modelId: string) => modelId === "model-a" ? exhaustedA : modelId === "model-b" ? exhaustedB : undefined,
     execute: async (modelId: string, r: ModelExecutionRequest) => {
@@ -121,9 +126,12 @@ async function main(): Promise<void> {
     },
   });
   providers.register({
-    id: "fallback-provider",
-    name: "Fallback Provider",
-    kind: "external-routed",
+    descriptor: {
+      id: "fallback-provider",
+      name: "Fallback Provider",
+      kind: "external-routed",
+      available: true,
+    },
     listModels: () => [fallback.identity],
     getModel: (modelId: string) => modelId === "model-c" ? fallback : undefined,
     execute: async (_modelId: string, r: ModelExecutionRequest) => fallback.execute(r),
