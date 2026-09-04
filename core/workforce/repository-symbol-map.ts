@@ -263,16 +263,28 @@ export class RepositorySymbolDependencyMap {
       const name = symbol.name.toLowerCase();
       const path = symbol.path.toLowerCase();
       const text = symbol.text.toLowerCase();
-      let value = symbol.exported ? 8 : 0;
+      let value = 0;
+      let matchedTerms = 0;
       for (const term of terms) {
+        const nameMatch = name.includes(term);
+        const pathMatch = path.includes(term);
+        const textMatch = text.includes(term);
+        if (nameMatch || pathMatch || textMatch) matchedTerms += 1;
         if (name === term) value += 90;
-        else if (name.includes(term)) value += 55;
-        if (path.includes(term)) value += 24;
-        if (text.includes(term)) value += 10;
+        else if (nameMatch) value += 55;
+        if (pathMatch) value += 24;
+        if (textMatch) value += 10;
       }
+      // Exported/public surface is useful as a tie-breaker, but never sufficient
+      // by itself to make an unrelated declaration task-relevant. For richer
+      // multi-term missions require overlap with at least two distinct task terms
+      // so filename decoys cannot crowd out the actual implementation symbol.
+      if (terms.length >= 3 && matchedTerms < 2) return 0;
+      if (terms.length > 0 && matchedTerms === 0) return 0;
+      if (symbol.exported) value += 8;
       if (symbol.kind === "function" || symbol.kind === "class" || symbol.kind === "method") value += 5;
       value -= Math.min(16, Math.floor(symbol.text.length / 2500));
-      return value;
+      return Math.max(0, value);
     };
 
     const ranked = [...snapshot.symbols]
