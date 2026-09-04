@@ -304,7 +304,7 @@ function parseToolCalls(
 ): ModelToolCallProposal[] {
   const calls = response.choices?.[0]?.message?.tool_calls ?? [];
   return calls
-    .map((call, index) => {
+    .map<ModelToolCallProposal | undefined>((call, index) => {
       const providerName = call.function?.name?.trim();
       if (!providerName) return undefined;
       const toolId = aliases.providerToInternal.get(providerName) ?? providerName;
@@ -325,12 +325,15 @@ function parseToolCalls(
             : "Tool arguments are invalid JSON.";
         }
       }
-      return {
+      const proposal: ModelToolCallProposal = {
         id: call.id ?? `tool-call-${index + 1}`,
         toolId,
         arguments: argumentsValue,
-        argumentParseError,
       };
+      if (argumentParseError) {
+        proposal.argumentParseError = argumentParseError;
+      }
+      return proposal;
     })
     .filter((proposal): proposal is ModelToolCallProposal => proposal !== undefined);
 }
