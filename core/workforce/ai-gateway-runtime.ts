@@ -19,6 +19,7 @@ export interface KingsGatewayModelCatalogEntry {
   modelId: string;
   displayName: string;
   codingEligible: boolean;
+  documentedCodingRoute: boolean;
   verifiedCodingRoute: boolean;
 }
 
@@ -43,6 +44,11 @@ export interface KingsGatewayRuntimeSynchronization {
   registeredProviders: number;
   registeredModels: number;
   refreshedRoutes: number;
+}
+
+export interface KingsGatewayCodingRoute {
+  providerId: string;
+  modelId: string;
 }
 
 interface JsonGatewayDefinition {
@@ -187,7 +193,7 @@ function buildGatewayCatalog(
   return gateways
     .flatMap(({ adapter, health }) =>
       adapter.listModels().map((model) => {
-        const verifiedCodingRoute =
+        const documentedCodingRoute =
           adapter.gatewayKind === "omniroute" &&
           (model.modelId === "auto/coding" || model.modelId === "auto");
         return {
@@ -197,8 +203,12 @@ function buildGatewayCatalog(
           modelId: model.modelId,
           displayName: model.displayName,
           codingEligible:
-            health.codingModels.includes(model.modelId) || verifiedCodingRoute,
-          verifiedCodingRoute,
+            health.codingModels.includes(model.modelId) || documentedCodingRoute,
+          documentedCodingRoute,
+          // Documentation or successful /v1/models discovery proves that the
+          // route exists. It does not prove that the route can complete a real
+          // K.I.N.G.S. coding acceptance. Verification is earned separately.
+          verifiedCodingRoute: false,
         };
       }),
     )
@@ -208,6 +218,41 @@ function buildGatewayCatalog(
         ? providerOrder
         : left.modelId.localeCompare(right.modelId);
     });
+}
+
+export function selectKingsAiGatewayCodingRoute(
+  runtime: KingsAiGatewayRuntime,
+): KingsGatewayCodingRoute | undefined {
+  const healthyProviders = new Set(
+    runtime.gateways
+      .filter(({ health }) => health.ok)
+      .map(({ adapter }) => adapter.descriptor.id),
+  );
+
+  const candidates = runtime.catalog
+    .filter(
+      (entry) =>
+        entry.codingEligible && healthyProviders.has(entry.providerId),
+    )
+    .sort((left, right) => {
+      const priority = (entry: KingsGatewayModelCatalogEntry): number => {
+        if (entry.gatewayKind === "omniroute" && entry.modelId === "auto/coding") return 0;
+        if (entry.gatewayKind === "omniroute" && entry.modelId === "auto") return 1;
+        if (entry.gatewayKind === "9router") return 2;
+        return 3;
+      };
+      const priorityOrder = priority(left) - priority(right);
+      if (priorityOrder !== 0) return priorityOrder;
+      const providerOrder = left.providerId.localeCompare(right.providerId);
+      return providerOrder !== 0
+        ? providerOrder
+        : left.modelId.localeCompare(right.modelId);
+    });
+
+  const selected = candidates[0];
+  return selected
+    ? { providerId: selected.providerId, modelId: selected.modelId }
+    : undefined;
 }
 
 async function refreshGateway(
@@ -241,7 +286,7 @@ function registerOrRefreshModelRoute(
         status: verified ? "verified" as const : "unverified" as const,
         evidenceReferences: [
           verified
-            ? `${adapter.gatewayKind}:documented-auto-coding-route`
+            ? `${adapter.gatewayKind}:executed-coding-acceptance`
             : `${adapter.gatewayKind}:live-v1-models-catalog`,
         ],
         verifiedAt: verified ? new Date().toISOString() : undefined,
