@@ -51,7 +51,7 @@ function main(): void {
   const registry = new ModelCapabilityRegistry();
   const local = identity("local", "qwen-local", "internal-local", 72);
   const freeCloud = identity("free-cloud", "coder-free", "external-routed", 82);
-  const cheap = identity("cheap-cloud", "coder-cheap", "external-paid", 90);
+  const cheap = identity("cheap-cloud", "coder-cheap", "external-paid", 55);
   const premium = identity("premium-cloud", "coder-premium", "external-paid", 99);
 
   [local, freeCloud, cheap, premium].forEach((entry) => register(registry, entry));
@@ -73,7 +73,7 @@ function main(): void {
       estimatedCost: 0.0001,
       costBasis: "provider-reported",
       latencyMs: 350,
-      reliability: 94,
+      reliability: 80,
     }],
     [modelRoutingMetricKey("premium-cloud", "coder-premium"), {
       estimatedCost: 0.03,
@@ -124,23 +124,37 @@ function main(): void {
     "quality mode must remain an owner-controlled escalation path",
   );
 
+  const automaticFloor = router.route({
+    requiredCapabilities: ["coding"],
+    minimumCapabilityStrength: 70,
+    costPreference: "economy",
+  });
+  assert.equal(
+    automaticFloor.candidates.some((candidate) => candidate.providerId === "cheap-cloud"),
+    false,
+    "automatic routing must still respect its configured quality floor",
+  );
+
   const explicitCheap = router.route({
     requiredCapabilities: ["coding"],
+    minimumCapabilityStrength: 70,
     preferredProviderId: "cheap-cloud",
     preferredModelId: "coder-cheap",
+    allowUnverifiedExplicitSelection: true,
     costPreference: "economy",
   });
   assert.equal(
     explicitCheap.providerId,
     "cheap-cloud",
-    "owner-selected cheap model must remain usable even when stronger models exist",
+    "owner-selected affordable model must remain usable below an automatic capability floor",
   );
+  assert.equal(explicitCheap.candidates[0]?.capabilityStrength, 55);
 
   console.log("K.I.N.G.S. ECONOMY ROUTING → ZERO-COST FIRST: SUCCESS");
   console.log("K.I.N.G.S. ECONOMY ROUTING → FREE-ONLY: SUCCESS");
   console.log("K.I.N.G.S. ECONOMY ROUTING → LOCAL-ONLY: SUCCESS");
   console.log("K.I.N.G.S. ECONOMY ROUTING → OWNER QUALITY ESCALATION: SUCCESS");
-  console.log("K.I.N.G.S. ECONOMY ROUTING → OWNER CHEAP MODEL CHOICE: SUCCESS");
+  console.log("K.I.N.G.S. ECONOMY ROUTING → OWNER WEAKER MODEL CHOICE: SUCCESS");
   console.log("TREE-KCM-MODEL-ROUTING-ECONOMY: SUCCESS");
 }
 
