@@ -34,6 +34,14 @@ export interface ModelRoutingRequest {
    */
   allowUnverifiedUnderPostExecutionVerification?: boolean;
   maximumEstimatedCost?: number;
+  /** Minimum learned/configured route reliability on the K.I.N.G.S. 0-100 scale. */
+  minimumReliability?: number;
+  /** Maximum learned/configured route latency. Unknown latency fails this policy closed. */
+  maximumLatencyMs?: number;
+  /** Optional provider allow-list. When supplied, every candidate must be listed. */
+  allowedProviderIds?: ID[];
+  /** Optional provider deny-list, applied even to an explicitly selected route. */
+  deniedProviderIds?: ID[];
 }
 
 export interface ModelRoutingMetrics {
@@ -104,6 +112,9 @@ export class ModelRouter {
         this.supportsToolCalling(match, request),
       )
       .map((match) => this.toCandidate(match))
+      .filter((candidate) =>
+        this.satisfiesRoutePolicy(candidate, request),
+      )
       .filter((candidate) => {
         if (request.maximumEstimatedCost === undefined) return true;
         if (candidate.estimatedCost !== null) {
@@ -126,10 +137,8 @@ export class ModelRouter {
       return {
         selected: false,
         reason: requested
-          ? `Requested model route "${requested}" is unavailable or does not satisfy the routing requirements.`
-          : request.maximumEstimatedCost !== undefined
-            ? "No available model with acceptable verification state and known cost satisfies the routing requirements and cost ceiling."
-            : "No available model with acceptable verification state satisfies the routing requirements.",
+          ? `Requested model route "${requested}" is unavailable or does not satisfy the routing requirements and policy constraints.`
+          : "No available model satisfies the verification, capability, provider, reliability, latency, and cost routing policies.",
         candidates: [],
       };
     }
@@ -169,6 +178,34 @@ export class ModelRouter {
         match.model.providerKind === "internal-local" ||
         match.model.providerKind === "internal-self-hosted",
     };
+  }
+
+  private satisfiesRoutePolicy(
+    candidate: ModelRoutingCandidate,
+    request: ModelRoutingRequest,
+  ): boolean {
+    if (
+      request.allowedProviderIds !== undefined &&
+      !request.allowedProviderIds.includes(candidate.providerId)
+    ) {
+      return false;
+    }
+    if (request.deniedProviderIds?.includes(candidate.providerId)) {
+      return false;
+    }
+    if (
+      request.minimumReliability !== undefined &&
+      candidate.reliability < request.minimumReliability
+    ) {
+      return false;
+    }
+    if (
+      request.maximumLatencyMs !== undefined &&
+      candidate.latencyMs > request.maximumLatencyMs
+    ) {
+      return false;
+    }
+    return true;
   }
 
   private supportsModalities(
@@ -246,21 +283,23 @@ export class ModelRouter {
     const cost = candidate.estimatedCost === null
       ? "cost unknown (not treated as free)"
       : `estimated cost ${candidate.estimatedCost} (${candidate.costBasis})`;
+    const performance =
+      `reliability ${candidate.reliability}; latency ${candidate.latencyMs}ms`;
     if (request.preferredProviderId || request.preferredModelId) {
       const verification = request.allowUnverifiedExplicitSelection
         ? "explicit live-catalog selection under post-generation verification"
         : "explicit verified model selection";
-      return `${verification} ${candidate.providerId}/${candidate.modelId}; ${cost}; reliability ${candidate.reliability}; capability strength ${candidate.capabilityStrength}`;
+      return `${verification} ${candidate.providerId}/${candidate.modelId}; ${cost}; ${performance}; capability strength ${candidate.capabilityStrength}`;
     }
     if (request.allowUnverifiedUnderPostExecutionVerification) {
-      return `governed model selection under independent post-execution verification; ${candidate.providerId}/${candidate.modelId}; ${cost}; reliability ${candidate.reliability}; capability strength ${candidate.capabilityStrength}`;
+      return `governed model selection under independent post-execution verification; ${candidate.providerId}/${candidate.modelId}; ${cost}; ${performance}; capability strength ${candidate.capabilityStrength}`;
     }
     const preference = request.preferExternal && !candidate.internal
       ? "preferred external gateway intelligence"
       : request.preferInternal && candidate.internal
         ? "preferred internal intelligence"
         : "capable available verified model";
-    return `${preference}; ${cost}; reliability ${candidate.reliability}; capability strength ${candidate.capabilityStrength}`;
+    return `${preference}; ${cost}; ${performance}; capability strength ${candidate.capabilityStrength}`;
   }
 
   private validateRequest(request: ModelRoutingRequest): void {
@@ -282,11 +321,48 @@ export class ModelRouter {
     }
     if (
       request.maximumEstimatedCost !== undefined &&
-      request.maximumEstimatedCost < 0
+      (
+        !Number.isFinite(request.maximumEstimatedCost) ||
+        request.maximumEstimatedCost < 0
+      )
     ) {
       throw new Error(
-        "K.I.N.G.S. Model Router: maximum estimated cost cannot be negative",
+        "K.I.N.G.S. Model Router: maximum estimated cost must be finite and cannot be negative",
       );
+    }
+    if (
+      request.minimumReliability !== undefined &&
+      (
+        !Number.isFinite(request.minimumReliability) ||
+        request.minimumReliability < 0 ||
+        request.minimumReliability > 100
+      )
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Model Router: minimum reliability must be between 0 and 100",
+      );
+    }
+    if (
+      request.maximumLatencyMs !== undefined &&
+      (
+        !Number.isFinite(request.maximumLatencyMs) ||
+        request.maximumLatencyMs < 0
+      )
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Model Router: maximum latency must be a finite non-negative number",
+      );
+    }
+    this.validateProviderPolicy(request.allowedProviderIds, "allowedProviderIds");
+    this.validateProviderPolicy(request.deniedProviderIds, "deniedProviderIds");
+    if (request.allowedProviderIds && request.deniedProviderIds) {
+      const denied = new Set(request.deniedProviderIds);
+      const overlap = request.allowedProviderIds.filter((id) => denied.has(id));
+      if (overlap.length > 0) {
+        throw new Error(
+          `K.I.N.G.S. Model Router: provider ids cannot be both allowed and denied: ${overlap.join(", ")}`,
+        );
+      }
     }
     if (
       request.allowUnverifiedExplicitSelection &&
@@ -296,6 +372,23 @@ export class ModelRouter {
       throw new Error(
         "K.I.N.G.S. Model Router: unverified explicit routing requires an explicit provider/model selection",
       );
+    }
+  }
+
+  private validateProviderPolicy(
+    providerIds: ID[] | undefined,
+    label: string,
+  ): void {
+    if (!providerIds) return;
+    const seen = new Set<string>();
+    for (const providerId of providerIds) {
+      if (!providerId.trim()) {
+        throw new Error(`K.I.N.G.S. Model Router: ${label} cannot contain an empty provider id`);
+      }
+      if (seen.has(providerId)) {
+        throw new Error(`K.I.N.G.S. Model Router: ${label} contains duplicate provider id "${providerId}"`);
+      }
+      seen.add(providerId);
     }
   }
 }
