@@ -7,6 +7,10 @@ import type {
   ModelExecutionResult,
 } from "./model-interface";
 
+import {
+  isWorkspacePathAuthorized,
+} from "./workspace-path-authorization";
+
 export interface LocalCodingFileChange {
   path:
     string;
@@ -53,6 +57,13 @@ export interface GovernedCodingProposalInput {
 
   allowedPaths:
     readonly string[];
+
+  /**
+   * Optional absolute workspace root used to safely resolve model-generated
+   * workspace-relative paths against absolute Work Unit authorization roots.
+   */
+  workspaceRoot?:
+    string;
 }
 
 export class GovernedLocalCodingProposal {
@@ -95,31 +106,35 @@ export class GovernedLocalCodingProposal {
       );
     }
 
-    const allowed =
-      new Set(
-        input.allowedPaths,
-      );
-
     for (
       const change of
       proposal.changes
     ) {
-      if (
-        !allowed.has(
-          change.path,
-        )
-      ) {
-        throw new Error(
-          `K.I.N.G.S. Local Coding Proposal: path "${change.path}" is outside the Work Unit authorization.`,
-        );
-      }
-
       if (
         change.path.trim() ===
         ""
       ) {
         throw new Error(
           "K.I.N.G.S. Local Coding Proposal: file path is required.",
+        );
+      }
+
+      if (
+        !isWorkspacePathAuthorized({
+          candidatePath:
+            change.path,
+          allowedPaths:
+            input.allowedPaths,
+          ...(input.workspaceRoot === undefined
+            ? {}
+            : {
+                workspaceRoot:
+                  input.workspaceRoot,
+              }),
+        })
+      ) {
+        throw new Error(
+          `K.I.N.G.S. Local Coding Proposal: path "${change.path}" is outside the Work Unit authorization.`,
         );
       }
 
