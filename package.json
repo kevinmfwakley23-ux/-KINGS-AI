@@ -5,7 +5,8 @@
   "description": "K.I.N.G.S. AI workforce and governed execution runtime",
   "scripts": {
     "clean": "node development/clean-build.mjs",
-    "build": "tsc -p tsconfig.json",
+    "brand:materialize": "node development/materialize-official-brand.mjs",
+    "build": "npm run brand:materialize && tsc -p tsconfig.json",
     "test": "npm run build && node development/run-tests.mjs && node ui/project-owner/server-auth-test.mjs && node ui/project-owner/server-execution-test.mjs && node ui/project-owner/server-brand-test.mjs && node development/android-native-package-test.mjs && npm run test:knowledge",
     "test:live": "npm run build && node development/run-tests.mjs --live",
     "accept:local-only": "npm run build && node build/core/workforce/v1-acceptance-009-local-only-mission-test.js",
