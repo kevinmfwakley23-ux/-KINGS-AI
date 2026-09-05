@@ -76,16 +76,20 @@ export class OllamaIntelligenceModel
     }
 
     if (
-      !request.inputModalities.includes(
-        "text",
+      !request.inputModalities.every(
+        (modality) =>
+          this.identity.inputModalities.includes(
+            modality,
+          ),
       )
     ) {
       return false;
     }
 
     if (
-      request.outputModality !==
-      "text"
+      !this.identity.outputModalities.includes(
+        request.outputModality,
+      )
     ) {
       return false;
     }
