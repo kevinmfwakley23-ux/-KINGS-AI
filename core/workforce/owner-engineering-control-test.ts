@@ -87,7 +87,7 @@ async function main(): Promise<void> {
     assert(verify.action === "verify", "Verify control must preserve the fixed action identity.");
     assert(verify.ok && verify.verify?.verified === true, "Governed owner verify must complete only after real green validation.");
     assert(verify.verify?.evidence.length === 2, "Verify result must include bounded evidence for build and test.");
-    assert(verify.verify?.evidence.every((entry) => entry.succeeded), "Every fixed validation step must succeed.");
+    assert(verify.verify?.evidence.every((entry) => entry.succeeded) === true, "Every fixed validation step must succeed.");
     assert((await readFile(join(root, "owner-build-proof.txt"), "utf8")).trim() === "built", "Build command must execute in the configured workspace.");
     assert((await readFile(join(root, "owner-test-proof.txt"), "utf8")).trim() === "tested", "Test command must execute after build.");
     console.log("OWNER-CONTROL fixed repository verify: SUCCESS");
