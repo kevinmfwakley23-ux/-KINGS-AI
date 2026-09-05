@@ -1,0 +1,146 @@
+name: K.I.N.G.S. Android Native APK
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src-tauri/**"
+      - "native-shell/**"
+      - ".github/workflows/android-native.yml"
+      - "development/android-native-package-test.mjs"
+      - ".gitignore"
+  push:
+    branches: [main]
+    paths:
+      - "src-tauri/**"
+      - "native-shell/**"
+      - ".github/workflows/android-native.yml"
+      - "development/android-native-package-test.mjs"
+      - ".gitignore"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kings-android-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-installable-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      CI: "true"
+      TAURI_CLI_VERSION: "2.11.4"
+      ANDROID_NDK_VERSION: "27.0.12077973"
+      ANDROID_PLATFORM: "android-36"
+      ANDROID_BUILD_TOOLS: "36.0.0"
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install locked K.I.N.G.S. dependencies
+        run: npm ci
+
+      - name: Verify K.I.N.G.S. build and native shell source
+        run: |
+          npm run build
+          node --check native-shell/app.js
+          node development/android-native-package-test.mjs
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK packages required by Tauri
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" \
+            "platform-tools" \
+            "platforms;${ANDROID_PLATFORM}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "ndk;${ANDROID_NDK_VERSION}"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Setup Rust Android targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add \
+            aarch64-linux-android \
+            armv7-linux-androideabi \
+            i686-linux-android \
+            x86_64-linux-android
+
+      - name: Cache Cargo downloads and native target output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: kings-android-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.toml', 'src-tauri/tauri.conf.json', 'src-tauri/tauri.android.conf.json') }}
+
+      - name: Install pinned Tauri CLI
+        shell: bash
+        run: cargo install tauri-cli --version "$TAURI_CLI_VERSION" --locked
+
+      - name: Generate K.I.N.G.S. native launcher icons
+        shell: bash
+        run: cargo tauri icon native-shell/kings-icon.svg
+
+      - name: Initialize deterministic Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf src-tauri/gen/android
+          cargo tauri android init --ci --skip-targets-install
+          test -f src-tauri/gen/android/app/build.gradle.kts
+
+      - name: Build installable Android APK
+        shell: bash
+        run: cargo tauri android build --debug --apk --ci
+
+      - name: Verify APK signatures and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p android-artifacts
+          APKSIGNER="$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/apksigner"
+          test -x "$APKSIGNER"
+          mapfile -t APKS < <(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' | sort)
+          if [ "${#APKS[@]}" -eq 0 ]; then
+            echo "Tauri completed without producing a K.I.N.G.S. APK." >&2
+            exit 1
+          fi
+          : > android-artifacts/SHA256SUMS
+          for apk in "${APKS[@]}"; do
+            "$APKSIGNER" verify --verbose --print-certs "$apk"
+            cp "$apk" android-artifacts/
+            sha256sum "$apk" >> android-artifacts/SHA256SUMS
+          done
+          printf 'Verified %s installable K.I.N.G.S. APK artifact(s).\n' "${#APKS[@]}"
+
+      - name: Upload Android APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kings-ai-android-${{ github.sha }}
+          path: android-artifacts/
+          if-no-files-found: error
+          retention-days: 30
