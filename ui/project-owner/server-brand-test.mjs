@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 
 const source = readFileSync(new URL("./server.mjs", import.meta.url), "utf8");
 const logo = readFileSync(new URL("../../native-shell/kings-ai-official-logo.png", import.meta.url));
-const expectedSha256 = "64353ae64167e206aa6533c0dc9b8f8b0912e36c9ffc9b1b72a12d2534d09c33";
+const expectedSha256 = "120a27fdad36b77eb9f0eae0e0e065c44d93eb57ed0aa3afd94e36d1ef04b1f0";
 
 assert.equal(
   createHash("sha256").update(logo).digest("hex"),
