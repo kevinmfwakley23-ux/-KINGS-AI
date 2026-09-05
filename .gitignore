@@ -11,6 +11,8 @@ dist/
 build/
 .next/
 .turbo/
+src-tauri/gen/
+src-tauri/target/
 
 # Python cache
 __pycache__/
@@ -23,6 +25,9 @@ __pycache__/
 .env
 .env.*
 !.env.example
+*.jks
+*.keystore
+keystore.properties
 
 # OS/editor files
 .DS_Store
