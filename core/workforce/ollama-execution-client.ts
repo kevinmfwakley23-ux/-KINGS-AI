@@ -46,6 +46,14 @@ export class HttpOllamaExecutionClient
       new Date();
 
     try {
+      const options: Record<string, number> = {};
+      if (request.maxOutputTokens !== undefined) {
+        options.num_predict = request.maxOutputTokens;
+      }
+      if (request.temperature !== undefined) {
+        options.temperature = request.temperature;
+      }
+
       const response =
         await this.transport.post(
           "/api/generate",
@@ -65,8 +73,8 @@ export class HttpOllamaExecutionClient
                 ),
             stream:
               false,
-            ...(request.maxOutputTokens !== undefined
-              ? { options: { num_predict: request.maxOutputTokens } }
+            ...(Object.keys(options).length > 0
+              ? { options }
               : {}),
           },
         );
