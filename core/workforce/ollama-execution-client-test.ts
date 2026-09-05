@@ -122,6 +122,10 @@ async function main(): Promise<void> {
             "OLLAMA-GENERATION-OK",
           done:
             true,
+          prompt_eval_count:
+            321,
+          eval_count:
+            79,
         };
       },
     });
@@ -143,12 +147,34 @@ async function main(): Promise<void> {
     "Ollama generated response did not cross the K.I.N.G.S. model contract.",
   );
 
+  assert(
+    result.response?.usage.inputTokens ===
+      321 &&
+    result.response?.usage.outputTokens ===
+      79 &&
+    result.response?.usage.tokensUsed ===
+      400,
+    "K.I.N.G.S. must preserve real Ollama prompt/output token counts for savings telemetry.",
+  );
+
+  assert(
+    result.response?.usage.estimatedCost ===
+      0 &&
+    result.response?.usage.reportedCostUsd ===
+      0,
+    "Local Ollama inference must remain a zero per-token-cost route.",
+  );
+
   console.log(
     "04.OLLAMA execution request contract: SUCCESS",
   );
 
   console.log(
     "04.OLLAMA response adaptation: SUCCESS",
+  );
+
+  console.log(
+    "04.OLLAMA local token accounting: SUCCESS",
   );
 
   const unavailable =

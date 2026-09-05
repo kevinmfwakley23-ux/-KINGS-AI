@@ -305,27 +305,36 @@ export class KingsCodingMachine {
     editor: EngineeringRepairEditor,
     buildTestOptions: ConstructorParameters<typeof CodingWorkUnitExecutionAuthority>[1],
   ): Promise<CodingWorkUnitExecutionResult> {
-    const mission = this.continuity.getMission(request.projectId);
-    const plan = this.continuity.getPlan(request.projectId);
+    const missionId = request.missionId ?? request.projectId;
+    const mission = this.continuity.getMission(missionId);
+    const plan = this.continuity.getPlan(missionId);
 
     if (!mission || !plan) {
-      throw new Error(`K.I.N.G.S. Coding Machine: mission "${request.projectId}" is not initialized`);
+      throw new Error(`K.I.N.G.S. Coding Machine: mission "${missionId}" is not initialized`);
     }
 
     if (!plan.approvedByHuman || !plan.locked) {
       throw new Error("K.I.N.G.S. Coding Machine: coding work-unit execution requires an approved and locked mission plan");
     }
 
+    if (request.execution.projectId !== request.projectId) {
+      throw new Error("K.I.N.G.S. Coding Machine: coding work-unit execution project mismatch");
+    }
+
+    if (request.workspace.projectId !== request.projectId) {
+      throw new Error("K.I.N.G.S. Coding Machine: coding work-unit workspace project mismatch");
+    }
+
     const authority = new CodingWorkUnitExecutionAuthority(editor, buildTestOptions);
     const result = await authority.execute(request);
-    const currentState = this.requireState(request.projectId);
+    const currentState = this.requireState(missionId);
 
     const evidenceId = `coding-verification-${request.taskId}`;
     const nextEvidenceIds = result.completed && !currentState.evidenceIds.includes(evidenceId)
       ? [...currentState.evidenceIds, evidenceId]
       : currentState.evidenceIds;
 
-    const state = this.continuity.updateState(request.projectId, {
+    const state = this.continuity.updateState(missionId, {
       activeTaskIds: currentState.activeTaskIds.filter((id) => id !== request.taskId),
       completedTaskIds: result.completed && !currentState.completedTaskIds.includes(request.taskId)
         ? [...currentState.completedTaskIds, request.taskId]
@@ -338,14 +347,14 @@ export class KingsCodingMachine {
       evidenceIds: nextEvidenceIds,
     });
 
-    const planNow = this.continuity.getPlan(request.projectId);
+    const planNow = this.continuity.getPlan(missionId);
     if (!planNow) {
-      throw new Error(`K.I.N.G.S. Coding Machine: mission "${request.projectId}" has no plan after coding execution`);
+      throw new Error(`K.I.N.G.S. Coding Machine: mission "${missionId}" has no plan after coding execution`);
     }
 
     this.projectBrain.create({
       id: `checkpoint-coding-${request.taskId}-${Date.now()}`,
-      missionId: request.projectId,
+      missionId,
       planId: planNow.id,
       planVersion: planNow.version,
       state,

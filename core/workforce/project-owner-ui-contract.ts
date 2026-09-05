@@ -8,6 +8,10 @@ import type {
   MissionState,
 } from "./mission-continuity";
 
+import type {
+  GitHubRepositorySource,
+} from "./github-repository-workspace";
+
 export interface ProjectOwnerDesignInput {
   id:
     ID;
@@ -32,6 +36,9 @@ export interface ProjectOwnerDesignInput {
 
   acceptanceCriteria:
     string[];
+
+  repository?:
+    GitHubRepositorySource;
 }
 
 export interface ProjectOwnerMissionView {
@@ -105,6 +112,24 @@ export function validateProjectOwnerDesignInput(
     );
   }
 
+  if (input.repository) {
+    if (!input.repository.url?.trim()) {
+      reasons.push(
+        "GitHub repository URL is required when repository mode is enabled.",
+      );
+    }
+    if (
+      input.repository.publishBranch &&
+      ["main", "master"].includes(
+        input.repository.publishBranch.trim().toLowerCase(),
+      )
+    ) {
+      reasons.push(
+        "GitHub repository changes must publish to a K.I.N.G.S. work branch, not directly to main/master.",
+      );
+    }
+  }
+
   return reasons;
 }
 
@@ -135,6 +160,10 @@ export class ProjectOwnerUiController {
       acceptanceCriteria: [
         ...input.acceptanceCriteria,
       ],
+      repository:
+        input.repository
+          ? { ...input.repository }
+          : undefined,
     };
   }
 

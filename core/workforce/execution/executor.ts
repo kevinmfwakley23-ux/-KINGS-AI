@@ -103,8 +103,13 @@ export class WorkforceExecutor
       );
     }
 
+    // Direct executor callers historically enter with a ready task. The
+    // governed TaskExecutionController now claims execution ownership first
+    // and therefore enters this lower-level port with the task already running.
+    // Both states are executable here; terminal/blocked states remain rejected.
     if (
-      task.status !== "ready"
+      task.status !== "ready" &&
+      task.status !== "running"
     ) {
       throw new Error(
         `K.I.N.G.S. Workforce Executor: task "${taskId}" ` +
@@ -190,7 +195,7 @@ export class WorkforceExecutor
     ) {
       throw new Error(
         `K.I.N.G.S. Workforce Executor: agent "${agent.id}" ` +
-        `cannot access required tools: ${unauthorizedTools.join(", ")}`,
+        `cannot access required tools: ${unauthorizedTools.join(", ")}.`,
       );
     }
 

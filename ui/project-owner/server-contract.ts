@@ -5,72 +5,55 @@ import {
   type ProjectOwnerMissionFactory,
   type ProjectOwnerExecutionContext,
 } from "../../core/workforce/project-owner-machine-api";
-
 import {
   ProjectOwnerUiController,
   type ProjectOwnerDesignInput,
 } from "../../core/workforce/project-owner-ui-contract";
-
-import {
-  ModelDrivenCodingExecutionAuthority,
-} from "../../core/workforce/model-driven-coding-execution";
-
-import {
-  ModelCapabilityRegistry,
-} from "../../core/workforce/model-capability-registry";
-
+import { ModelDrivenCodingExecutionAuthority } from "../../core/workforce/model-driven-coding-execution";
+import { ModelCapabilityRegistry } from "../../core/workforce/model-capability-registry";
 import {
   ModelRouter,
+  modelRoutingMetricKey,
+  type ModelRoutingMetrics,
 } from "../../core/workforce/model-routing";
-
-import {
-  ProviderAdapterRegistry,
-} from "../../core/workforce/provider-adapters";
-
-import {
-  GovernedInternalIntelligenceAdapter,
-} from "../../core/workforce/internal-intelligence-adapter";
-
+import { ProviderAdapterRegistry } from "../../core/workforce/provider-adapters";
+import { GovernedInternalIntelligenceAdapter } from "../../core/workforce/internal-intelligence-adapter";
 import {
   HttpOllamaExecutionClient,
   type OllamaHttpTransport,
 } from "../../core/workforce/ollama-execution-client";
-
+import { OllamaIntelligenceModel } from "../../core/workforce/ollama-intelligence-model";
+import { ControlledFileEditor } from "../../core/workforce/file-editor";
+import { EngineeringRepairEditor } from "../../core/workforce/engineering-repair-editor";
+import type { KingsCodingMachine } from "../../core/workforce/kings-coding-machine";
+import type { IntelligenceCapability } from "../../core/workforce/model-interface";
+import type { Mission, Task } from "../../core/workforce/types";
+import type { WorkUnitContract } from "../../core/workforce/work-unit-contract";
+import type { MissionPlan } from "../../core/workforce/mission-continuity";
 import {
-  OllamaIntelligenceModel,
-} from "../../core/workforce/ollama-intelligence-model";
-
+  EXECUTION_SANDBOX_TOOL_ID,
+  type SandboxBubblewrapIsolation,
+} from "../../core/workforce/execution-sandbox";
 import {
-  ControlledFileEditor,
-} from "../../core/workforce/file-editor";
-
+  registerKingsAiGatewayRuntime,
+  synchronizeKingsAiGatewayRuntime,
+  type KingsAiGatewayRuntime,
+  type KingsGatewayRuntimeSynchronization,
+} from "../../core/workforce/ai-gateway-runtime";
+import { AdaptiveModelRoutingAuthority } from "../../core/workforce/adaptive-model-routing";
+import { ResilientModelExecutionAuthority } from "../../core/workforce/resilient-model-execution";
+import { GovernedModelToolLoop } from "../../core/workforce/governed-model-tool-loop";
+import type { ToolGateway } from "../../core/workforce/tool-gateway";
 import {
-  EngineeringRepairEditor,
-} from "../../core/workforce/engineering-repair-editor";
+  REPOSITORY_INSPECTION_TOOL_DEFINITION,
+  REPOSITORY_INSPECTION_TOOL_ID,
+} from "../../core/workforce/repository-inspection-tool";
+import {
+  GitHubRepositoryWorkspaceAuthority,
+} from "../../core/workforce/github-repository-workspace";
 
-import type {
-  KingsCodingMachine,
-} from "../../core/workforce/kings-coding-machine";
-
-import type {
-  IntelligenceCapability,
-} from "../../core/workforce/model-interface";
-
-import type {
-  Task,
-} from "../../core/workforce/types";
-
-import type {
-  WorkUnitContract,
-} from "../../core/workforce/work-unit-contract";
-
-import type {
-  MissionPlan,
-} from "../../core/workforce/mission-continuity";
-
-import type {
-  Mission,
-} from "../../core/workforce/types";
+export const PROJECT_OWNER_CODING_AGENT_ID =
+  "agent-project-owner-coding-engineer";
 
 export interface ProjectOwnerMachineApiHandler {
   handle(
@@ -82,11 +65,106 @@ export interface ProjectOwnerRuntimeOptions {
   ollamaBaseUrl?: string;
   modelId?: string;
   workspaceRoot?: string;
+  gatewayRuntime?: KingsAiGatewayRuntime;
+  allowBuildNetwork?: boolean;
+  localModelAvailable?: boolean;
+  processIsolation?: SandboxBubblewrapIsolation;
+  toolGateway?: ToolGateway;
+  initialRoutingMetrics?: ReadonlyMap<string, ModelRoutingMetrics>;
+  recordRoutingMetric?: (
+    providerId: string,
+    modelId: string,
+    metric: ModelRoutingMetrics,
+  ) => void | Promise<void>;
 }
 
 type BuildTestOptions = ConstructorParameters<
   typeof import("../../core/workforce/coding-work-unit-execution").CodingWorkUnitExecutionAuthority
 >[1];
+
+function ensureProjectOwnerWorkforceDefinitions(
+  registry: import("../../core/workforce/registry").WorkforceRegistry,
+): void {
+  if (!registry.getTool(EXECUTION_SANDBOX_TOOL_ID)) {
+    registry.registerTool({
+      id: EXECUTION_SANDBOX_TOOL_ID,
+      name: "Execution Sandbox",
+      description:
+        "Governed build/test execution boundary for verified project work.",
+      capabilities: ["build-test", "execute", "state-changing"],
+      enabled: true,
+    });
+  }
+
+  if (!registry.getTool(REPOSITORY_INSPECTION_TOOL_ID)) {
+    registry.registerTool({
+      ...REPOSITORY_INSPECTION_TOOL_DEFINITION,
+      capabilities: [...REPOSITORY_INSPECTION_TOOL_DEFINITION.capabilities],
+    });
+  }
+
+  const existingAgent = registry.getAgent(PROJECT_OWNER_CODING_AGENT_ID);
+  if (!existingAgent) {
+    registry.registerAgent({
+      id: PROJECT_OWNER_CODING_AGENT_ID,
+      name: "K.I.N.G.S. Project Owner Coding Engineer",
+      role: "coding-engineer",
+      description:
+        "Production coding agent operating only through owner-approved tasks, work units, repository inspection, and the verified build/test boundary.",
+      capabilities: [
+        "reasoning",
+        "planning",
+        "coding",
+        "debugging",
+        "source-inspection",
+        "verification",
+        "recovery",
+        "tool-use",
+      ],
+      toolIds: [
+        EXECUTION_SANDBOX_TOOL_ID,
+        REPOSITORY_INSPECTION_TOOL_ID,
+      ],
+      status: "available",
+    });
+    return;
+  }
+
+  for (const toolId of [
+    EXECUTION_SANDBOX_TOOL_ID,
+    REPOSITORY_INSPECTION_TOOL_ID,
+  ]) {
+    if (!existingAgent.toolIds.includes(toolId)) {
+      throw new Error(
+        `K.I.N.G.S. Project Owner: existing coding agent "${PROJECT_OWNER_CODING_AGENT_ID}" is missing required tool authorization "${toolId}".`,
+      );
+    }
+  }
+}
+
+function detectGitHubRepository(
+  input: ProjectOwnerDesignInput,
+): ProjectOwnerDesignInput {
+  if (input.repository) return input;
+
+  const searchable = [
+    input.objective,
+    ...input.requirements,
+    ...input.constraints,
+  ].join("\n");
+  const match = searchable.match(
+    /https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?/i,
+  );
+  if (!match) return input;
+
+  return {
+    ...input,
+    repository: {
+      url: match[0],
+      publishVerifiedChanges: true,
+    },
+  };
+}
 
 function createVisionTask(
   input: ProjectOwnerDesignInput,
@@ -100,22 +178,25 @@ function createVisionTask(
 } {
   const taskId = `task-${input.id}-build`;
   const milestoneId = `milestone-${input.id}`;
-
   const objective = [
-    `Build the application described by the owner vision: ${input.objective}`,
+    input.repository
+      ? `Inspect and modify the existing GitHub repository ${input.repository.url}: ${input.objective}`
+      : `Build the application described by the owner vision: ${input.objective}`,
     `Requirements: ${input.requirements.join(" | ")}`,
+    input.repository?.baseRef ? `Repository base ref: ${input.repository.baseRef}` : "",
     input.preferredPlatform ? `Preferred platform: ${input.preferredPlatform}` : "",
     input.preferredLanguage ? `Preferred language: ${input.preferredLanguage}` : "",
     input.constraints.length > 0 ? `Constraints: ${input.constraints.join(" | ")}` : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+  ].filter(Boolean).join(" ");
 
   const task: Task = {
     id: taskId,
     missionId: input.id,
-    name: `Build ${input.projectName}`,
+    name: input.repository
+      ? `Build ${input.projectName} from GitHub repository`
+      : `Build ${input.projectName}`,
     description: objective,
+    assignedAgentId: PROJECT_OWNER_CODING_AGENT_ID,
     requiredCapabilities: [
       "reasoning",
       "planning",
@@ -125,11 +206,24 @@ function createVisionTask(
       "verification",
       "recovery",
     ],
-    requiredToolIds: ["tool-execution-sandbox"],
+    requiredToolIds: [
+      EXECUTION_SANDBOX_TOOL_ID,
+      REPOSITORY_INSPECTION_TOOL_ID,
+    ],
     status: "ready",
     dependencyIds: [],
-    inputReferences: ["project-owner-vision"],
-    expectedOutputs: ["Working application source code", "Passing build and verification evidence"],
+    inputReferences: input.repository
+      ? ["project-owner-vision", input.repository.url]
+      : ["project-owner-vision"],
+    expectedOutputs: [
+      "Working application source code",
+      "Project manifests and configuration",
+      "Executable automated tests or smoke verification",
+      "Passing build and verification evidence",
+      ...(input.repository
+        ? ["Verified GitHub work-branch commit"]
+        : []),
+    ],
     createdAt: now,
     updatedAt: now,
   };
@@ -138,12 +232,15 @@ function createVisionTask(
     id: `work-unit-${input.id}-build`,
     role: "coding-engineer",
     objective,
-    capabilityIds: ["engineering-typescript"],
-    allowedToolIds: ["tool-execution-sandbox"],
-    allowedPaths: [".", "src", "generated"],
+    capabilityIds: ["engineering-project"],
+    allowedToolIds: [
+      EXECUTION_SANDBOX_TOOL_ID,
+      REPOSITORY_INSPECTION_TOOL_ID,
+    ],
+    allowedPaths: ["."],
     budget: {
-      maxTimeMs: 120_000,
-      maxTokens: 8_000,
+      maxTimeMs: 300_000,
+      maxTokens: 16_000,
       maxIterations: 5,
     },
     dependencyIds: [],
@@ -167,13 +264,9 @@ function buildMissionFromVision(
   input: ProjectOwnerDesignInput,
   registry: import("../../core/workforce/registry").WorkforceRegistry,
   workUnits: import("../../core/workforce/work-unit-registry").WorkUnitRegistry,
-): {
-  mission: Mission;
-  plan: MissionPlan;
-} {
+): { mission: Mission; plan: MissionPlan } {
   const now = new Date().toISOString();
   const vision = createVisionTask(input, now);
-
   registry.registerTask(vision.task);
   workUnits.register(vision.task.id, vision.workUnit);
 
@@ -184,7 +277,9 @@ function buildMissionFromVision(
       description: input.objective,
       status: "planned",
       objectives: [input.objective],
-      sourceReferences: ["project-owner-ui"],
+      sourceReferences: input.repository
+        ? ["project-owner-ui", input.repository.url]
+        : ["project-owner-ui"],
       createdAt: now,
       updatedAt: now,
     },
@@ -193,17 +288,15 @@ function buildMissionFromVision(
       missionId: input.id,
       version: 1,
       objective: vision.planObjective,
-      milestones: [
-        {
-          id: vision.milestoneId,
-          missionId: input.id,
-          name: "Build",
-          objective: vision.planObjective,
-          taskIds: [vision.taskId],
-          dependencyIds: [],
-          status: "planned",
-        },
-      ],
+      milestones: [{
+        id: vision.milestoneId,
+        missionId: input.id,
+        name: "Build",
+        objective: vision.planObjective,
+        taskIds: [vision.taskId],
+        dependencyIds: [],
+        status: "planned",
+      }],
       decisionIds: [],
       acceptanceCriteria: input.acceptanceCriteria,
       locked: false,
@@ -214,10 +307,17 @@ function buildMissionFromVision(
   };
 }
 
-export class ProjectOwnerMachineServerController implements ProjectOwnerMachineApiHandler {
+export class ProjectOwnerMachineServerController
+  implements ProjectOwnerMachineApiHandler {
   private readonly api: ProjectOwnerMachineApi;
   private readonly editor: EngineeringRepairEditor;
   private readonly buildTestOptions: BuildTestOptions;
+  private readonly providers = new ProviderAdapterRegistry();
+  private readonly capabilities = new ModelCapabilityRegistry();
+  private readonly metrics = new Map<string, ModelRoutingMetrics>();
+  private readonly localModel: OllamaIntelligenceModel;
+  private readonly localAdapter: GovernedInternalIntelligenceAdapter;
+  private readonly localMetricKey: string;
 
   constructor(
     machine: KingsCodingMachine,
@@ -228,6 +328,8 @@ export class ProjectOwnerMachineServerController implements ProjectOwnerMachineA
     const modelId = runtime.modelId ?? "qwen2.5-coder:1.5b";
     const baseUrl = runtime.ollamaBaseUrl ?? "http://127.0.0.1:11434";
     const workspaceRoot = runtime.workspaceRoot ?? process.cwd();
+    const allowBuildNetwork = runtime.allowBuildNetwork ?? true;
+    const localModelAvailable = runtime.localModelAvailable ?? true;
 
     const transport: OllamaHttpTransport = {
       async post(path, body) {
@@ -253,76 +355,154 @@ export class ProjectOwnerMachineServerController implements ProjectOwnerMachineA
       "verification",
       "recovery",
     ];
-
-    const model = new OllamaIntelligenceModel(
+    this.localModel = new OllamaIntelligenceModel(
       ollamaClient,
       modelId,
       capabilitiesForModel,
+      localModelAvailable,
     );
-
-    const adapter = new GovernedInternalIntelligenceAdapter({
+    this.localAdapter = new GovernedInternalIntelligenceAdapter({
       async execute(identity, request) {
         return ollamaClient.execute(identity, request);
       },
     });
-    adapter.registerModel(model);
+    this.localAdapter.descriptor.available = localModelAvailable;
+    this.localAdapter.registerModel(this.localModel);
+    this.providers.register(this.localAdapter);
 
-    const providers = new ProviderAdapterRegistry();
-    providers.register(adapter);
-
-    const capabilities = new ModelCapabilityRegistry();
-    capabilities.register({
-      model: model.identity,
+    this.capabilities.register({
+      model: this.localModel.identity,
       capabilities: capabilitiesForModel.map((capability) => ({
         capability,
-        strength: capability === "coding" ? 90 : 82,
-        status: "verified" as const,
-        evidenceReferences: ["real-local-1.5b-acceptance"],
-        verifiedAt: new Date().toISOString(),
+        strength: capability === "coding" ? 80 : 74,
+        status: "unverified" as const,
+        evidenceReferences: ["local-model-runtime-registration"],
       })),
     });
 
-    const router = new ModelRouter(
-      capabilities,
-      new Map([
-        [
-          model.identity.modelId,
-          { estimatedCost: 0, latencyMs: 1000, reliability: 85 },
-        ],
-      ]),
+    this.localMetricKey = modelRoutingMetricKey(
+      this.localModel.identity.providerId,
+      this.localModel.identity.modelId,
+    );
+    this.metrics.set(
+      this.localMetricKey,
+      {
+        estimatedCost: 0,
+        costBasis: "configured-estimate",
+        latencyMs: 1_000,
+        reliability: localModelAvailable ? 85 : 20,
+      },
     );
 
+    if (runtime.gatewayRuntime) {
+      registerKingsAiGatewayRuntime(
+        runtime.gatewayRuntime,
+        this.providers,
+        this.capabilities,
+        this.metrics,
+      );
+    }
+
+    for (const [key, metric] of runtime.initialRoutingMetrics ?? []) {
+      if (this.metrics.has(key)) {
+        this.metrics.set(key, { ...metric });
+      }
+    }
+
+    const router = new ModelRouter(this.capabilities, this.metrics);
+    const adaptiveRouting = new AdaptiveModelRoutingAuthority(this.metrics);
+    const resilientExecution = new ResilientModelExecutionAuthority(
+      this.providers,
+      {
+        async observeResult(providerId, observedModelId, result) {
+          const metric = adaptiveRouting.observe(
+            providerId,
+            observedModelId,
+            result,
+          );
+          await runtime.recordRoutingMetric?.(
+            providerId,
+            observedModelId,
+            metric,
+          );
+        },
+      },
+    );
+    const governedToolLoop = runtime.toolGateway
+      ? new GovernedModelToolLoop(
+          resilientExecution,
+          runtime.toolGateway,
+          {
+            maxToolRounds: 3,
+            maxToolCalls: 8,
+            maxModelVisibleToolBytes: 65_536,
+            maxElapsedMs: 120_000,
+          },
+        )
+      : undefined;
     const modelDrivenCoding = new ModelDrivenCodingExecutionAuthority(
       machine,
       router,
-      providers,
+      this.providers,
+      resilientExecution,
+      governedToolLoop,
     );
 
     this.editor = new EngineeringRepairEditor(
       new ControlledFileEditor({
         allowedReadPaths: [workspaceRoot],
         allowedWritePaths: [workspaceRoot],
-        maxFileBytes: 1_048_576,
+        maxFileBytes: 5_242_880,
       }),
     );
+
+    const allowedSideEffects: Array<"read" | "write" | "execute" | "network"> = [
+      "read",
+      "write",
+      "execute",
+    ];
+    if (allowBuildNetwork) allowedSideEffects.push("network");
 
     this.buildTestOptions = {
       sandboxPolicy: {
         allowedCommands: [
-          "/home/kevinmfwakley23/.config/nvm/versions/node/v24.19.0/bin/node",
-          "/usr/bin/node",
+          process.execPath,
           "node",
+          "npm",
+          "npx",
+          "python3",
+          "cargo",
+          "go",
+          "mvn",
+          "gradle",
+          "javac",
+          "java",
+          "gcc",
+          "g++",
+          "make",
+          "cmake",
+          "bash",
+          "sqlite3",
         ],
         allowedWorkingDirectories: [workspaceRoot],
         allowedReadPaths: [workspaceRoot],
         allowedWritePaths: [workspaceRoot],
-        allowedEnvironmentKeys: [],
-        allowedSideEffects: ["read", "write", "execute"],
-        timeoutMs: 120_000,
-        maxOutputBytes: 131_072,
+        allowedEnvironmentKeys: [
+          "PATH",
+          "HOME",
+          "TMPDIR",
+          "TMP",
+          "TEMP",
+          "CI",
+          "NODE_ENV",
+        ],
+        allowedSideEffects,
+        timeoutMs: 300_000,
+        maxOutputBytes: 524_288,
         maxConcurrentProcesses: 1,
         allowShell: false,
-        allowNetwork: false,
+        allowNetwork: allowBuildNetwork,
+        processIsolation: runtime.processIsolation,
       },
     };
 
@@ -332,20 +512,92 @@ export class ProjectOwnerMachineServerController implements ProjectOwnerMachineA
       modelDrivenCoding,
       executionContext,
       new ProjectOwnerUiController(),
+      workspaceRoot,
+      new GitHubRepositoryWorkspaceAuthority(),
     );
   }
 
-  handle(
+  setLocalModelAvailability(available: boolean): void {
+    this.localModel.identity.available = available;
+    this.localAdapter.descriptor.available = available;
+    // Availability is a live health signal, not performance evidence. Keep the
+    // adaptive reliability/latency/cost metric intact so a health refresh cannot
+    // erase what K.I.N.G.S. learned from real executions. Unavailable models are
+    // already excluded by the capability router through model.available.
+  }
+
+  routingMetricsSnapshot(): ReadonlyArray<{
+    providerId: string;
+    modelId: string;
+    metric: ModelRoutingMetrics;
+  }> {
+    return Array.from(this.metrics.entries())
+      .map(([key, metric]) => {
+        const separator = key.indexOf("::");
+        return {
+          providerId: separator >= 0 ? key.slice(0, separator) : "unknown",
+          modelId: separator >= 0 ? key.slice(separator + 2) : key,
+          metric: { ...metric },
+        };
+      })
+      .sort((left, right) => {
+        const providerOrder = left.providerId.localeCompare(right.providerId);
+        return providerOrder !== 0
+          ? providerOrder
+          : left.modelId.localeCompare(right.modelId);
+      });
+  }
+
+  synchronizeGatewayRuntime(
+    runtime: KingsAiGatewayRuntime,
+  ): KingsGatewayRuntimeSynchronization {
+    return synchronizeKingsAiGatewayRuntime(
+      runtime,
+      this.providers,
+      this.capabilities,
+      this.metrics,
+    );
+  }
+
+  hasProcessIsolation(): boolean {
+    return this.buildTestOptions.sandboxPolicy.processIsolation?.kind === "bubblewrap";
+  }
+
+  async handle(
     request: ProjectOwnerMachineApiRequest,
   ): Promise<ProjectOwnerMachineApiResponse> {
-    if (request.action !== "execute-next") {
-      return this.api.handle(request);
+    const normalizedRequest =
+      request.action === "create-mission" && request.input
+        ? {
+            ...request,
+            input: detectGitHubRepository(request.input),
+          }
+        : request;
+
+    if (normalizedRequest.action !== "execute-next") {
+      return this.api.handle(normalizedRequest);
+    }
+
+    if (!this.hasProcessIsolation() && normalizedRequest.missionId) {
+      const snapshot = await this.api.handle({
+        action: "snapshot",
+        missionId: normalizedRequest.missionId,
+      });
+      if (snapshot.repository) {
+        return {
+          ...snapshot,
+          ok: false,
+          message:
+            "GitHub repository execution is blocked because Linux host process isolation is unavailable. Install/configure Bubblewrap on the Chromebook, then refresh the K.I.N.G.S. runtime; repository build/test code will not run directly against the host filesystem.",
+        };
+      }
     }
 
     return this.api.handle({
-      ...request,
-      editor: request.editor ?? this.editor,
-      buildTestOptions: request.buildTestOptions ?? this.buildTestOptions,
+      ...normalizedRequest,
+      editor: normalizedRequest.editor ?? this.editor,
+      buildTestOptions:
+        normalizedRequest.buildTestOptions ?? this.buildTestOptions,
     });
   }
 }
@@ -363,6 +615,7 @@ export function createDefaultProjectOwnerMissionFactory(
   registry: import("../../core/workforce/registry").WorkforceRegistry,
   workUnits: import("../../core/workforce/work-unit-registry").WorkUnitRegistry,
 ): ProjectOwnerMissionFactory {
+  ensureProjectOwnerWorkforceDefinitions(registry);
   return {
     create(input) {
       return buildMissionFromVision(input, registry, workUnits);

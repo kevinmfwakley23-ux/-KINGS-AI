@@ -1,0 +1,93 @@
+name: KINGS Production Verification
+
+on:
+  push:
+    branches:
+      - kings-coding-machine-v1
+      - kings-production-hardening-2026-09-02
+  pull_request:
+    branches:
+      - kings-coding-machine-v1
+      - kings-production-hardening-2026-09-02
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kings-production-verification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Build and focused workforce tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install development dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build owner runtime and run focused workforce suite
+        run: npm run check
+
+      - name: Upload focused workforce verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kings-focused-workforce-report-${{ github.run_id }}
+          path: .kings-focused-test-report.txt
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 14
+
+  live-production:
+    name: Live gateway, preflight, and coding acceptance
+    if: github.event_name == 'push'
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      KINGS_OMNIROUTE_URL: ${{ secrets.KINGS_OMNIROUTE_URL }}
+      KINGS_OMNIROUTE_KEY: ${{ secrets.KINGS_OMNIROUTE_KEY }}
+      KINGS_9ROUTER_URL: ${{ secrets.KINGS_9ROUTER_URL }}
+      KINGS_9ROUTER_KEY: ${{ secrets.KINGS_9ROUTER_KEY }}
+      KINGS_AI_GATEWAYS_JSON: ${{ secrets.KINGS_AI_GATEWAYS_JSON }}
+      KINGS_LIVE_PROVIDER_ID: ""
+      KINGS_LIVE_MODEL_ID: ""
+      KINGS_STATE_ROOT: /tmp/kings-state
+      KINGS_CODING_MACHINE_WORKSPACE: /tmp/kings-state/projects
+      KINGS_GATEWAY_USAGE_FILE: /tmp/kings-state/gateway-usage.jsonl
+      KINGS_BWRAP_PATH: /usr/bin/bwrap
+      KINGS_ENABLE_OLLAMA_FALLBACK: "0"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install host isolation
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          /usr/bin/bwrap --version
+
+      - name: Install development dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Prove production host and gateway preflight
+        run: npm run preflight:production
+
+      - name: Execute real model-driven coding acceptance
+        run: npm run check:gateway-live

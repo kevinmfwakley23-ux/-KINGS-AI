@@ -26,13 +26,10 @@ import type {
 export interface EngineeringWorkspaceProposalRequest {
   execution:
     AutonomousEngineeringExecution;
-
   step:
     EngineeringExecutionStep;
-
   workspace:
     EngineeringWorkspace;
-
   proposal:
     LocalCodingChangeProposal;
 }
@@ -40,14 +37,11 @@ export interface EngineeringWorkspaceProposalRequest {
 export interface AuthorizedEngineeringFileChange {
   path:
     string;
-
   operation:
     "create"
     | "replace";
-
   content:
     string;
-
   language:
     EngineeringLanguage;
 }
@@ -55,13 +49,10 @@ export interface AuthorizedEngineeringFileChange {
 export interface EngineeringWorkspaceProposalResult {
   command:
     EngineeringCommand;
-
   taskId:
     ID;
-
   missionId:
     ID;
-
   changes:
     AuthorizedEngineeringFileChange[];
 }
@@ -87,6 +78,42 @@ function normalizePath(
     .trim();
 }
 
+function hasPathTraversal(
+  value:
+    string,
+): boolean {
+  return value
+    .replace(
+      /\\/g,
+      "/",
+    )
+    .split("/")
+    .some(
+      (segment) =>
+        segment === "..",
+    );
+}
+
+function isAbsolutePathLike(
+  value:
+    string,
+): boolean {
+  const normalized =
+    value
+      .replace(
+        /\\/g,
+        "/",
+      )
+      .trim();
+
+  return (
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:\//.test(
+      normalized,
+    )
+  );
+}
+
 function isWithinPath(
   path:
     string,
@@ -103,6 +130,23 @@ function isWithinPath(
     normalizePath(
       allowedPath,
     );
+
+  if (
+    !normalizedPath ||
+    normalizedPath === "." ||
+    isAbsolutePathLike(path) ||
+    hasPathTraversal(path) ||
+    isAbsolutePathLike(allowedPath) ||
+    hasPathTraversal(allowedPath)
+  ) {
+    return false;
+  }
+
+  if (
+    normalizedAllowed === "."
+  ) {
+    return true;
+  }
 
   if (
     normalizedPath ===
@@ -125,7 +169,7 @@ function inferLanguage(
   const normalized =
     normalizePath(
       path,
-    );
+    ).toLowerCase();
 
   if (
     normalized.endsWith(
@@ -144,6 +188,12 @@ function inferLanguage(
     ) ||
     normalized.endsWith(
       ".jsx",
+    ) ||
+    normalized.endsWith(
+      ".mjs",
+    ) ||
+    normalized.endsWith(
+      ".cjs",
     )
   ) {
     return "javascript";
@@ -198,6 +248,12 @@ function inferLanguage(
     ) ||
     normalized.endsWith(
       ".hpp",
+    ) ||
+    normalized.endsWith(
+      ".cc",
+    ) ||
+    normalized.endsWith(
+      ".cxx",
     )
   ) {
     return "cpp";
@@ -241,6 +297,62 @@ function inferLanguage(
     return "shell";
   }
 
+  if (
+    normalized.endsWith(
+      ".json",
+    ) ||
+    normalized.endsWith(
+      ".jsonc",
+    )
+  ) {
+    return "json";
+  }
+
+  if (
+    normalized.endsWith(
+      ".yaml",
+    ) ||
+    normalized.endsWith(
+      ".yml",
+    )
+  ) {
+    return "yaml";
+  }
+
+  if (
+    normalized.endsWith(
+      ".md",
+    ) ||
+    normalized.endsWith(
+      ".mdx",
+    )
+  ) {
+    return "markdown";
+  }
+
+  if (
+    normalized.endsWith(
+      ".txt",
+    ) ||
+    normalized.endsWith(
+      ".env",
+    ) ||
+    normalized.endsWith(
+      ".gitignore",
+    ) ||
+    normalized.endsWith(
+      ".npmrc",
+    ) ||
+    normalized.endsWith(
+      ".editorconfig",
+    ) ||
+    normalized.endsWith(
+      "dockerfile",
+    )
+  ) {
+    return "text";
+  }
+
   return undefined;
 }
 
@@ -265,11 +377,10 @@ export class EngineeringWorkspaceProposalAuthority {
     }
 
     if (
-      request.proposal.missionId !==
-      request.execution.projectId
+      !request.proposal.missionId.trim()
     ) {
       throw new Error(
-        "K.I.N.G.S. Engineering Workspace Proposal: proposal mission does not match engineering project.",
+        "K.I.N.G.S. Engineering Workspace Proposal: proposal mission id is required.",
       );
     }
 
@@ -317,13 +428,27 @@ export class EngineeringWorkspaceProposalAuthority {
       EngineeringWorkspaceProposalRequest,
   ):
     AuthorizedEngineeringFileChange {
+    if (
+      hasPathTraversal(
+        change.path,
+      ) ||
+      isAbsolutePathLike(
+        change.path,
+      )
+    ) {
+      throw new Error(
+        `K.I.N.G.S. Engineering Workspace Proposal: path escape is not authorized for "${change.path}".`,
+      );
+    }
+
     const normalizedPath =
       normalizePath(
         change.path,
       );
 
     if (
-      !normalizedPath
+      !normalizedPath ||
+      normalizedPath === "."
     ) {
       throw new Error(
         "K.I.N.G.S. Engineering Workspace Proposal: file path is required.",
@@ -369,6 +494,19 @@ export class EngineeringWorkspaceProposalAuthority {
     ) {
       throw new Error(
         `K.I.N.G.S. Engineering Workspace Proposal: language "${language}" is not authorized for "${normalizedPath}".`,
+      );
+    }
+
+    const operation =
+      change.operation as ToolchainOperation;
+
+    if (
+      !request.workspace.allowedOperations.includes(
+        operation,
+      )
+    ) {
+      throw new Error(
+        `K.I.N.G.S. Engineering Workspace Proposal: operation "${change.operation}" is not authorized for "${normalizedPath}".`,
       );
     }
 

@@ -32,9 +32,30 @@ export interface ProviderAdapter {
   ): Promise<ModelExecutionResult>;
 }
 
+export type ProviderExecutionObserver = (
+  providerId: ID,
+  modelId: ID,
+  request: ModelExecutionRequest,
+  result: ModelExecutionResult,
+) => Promise<void>;
+
+let defaultExecutionObserver: ProviderExecutionObserver | undefined;
+
+export function setDefaultProviderExecutionObserver(
+  observer?: ProviderExecutionObserver,
+): void {
+  defaultExecutionObserver = observer;
+}
+
 export class ProviderAdapterRegistry {
   private readonly adapters =
     new Map<ID, ProviderAdapter>();
+
+  private executionObserver?: ProviderExecutionObserver = defaultExecutionObserver;
+
+  setExecutionObserver(observer?: ProviderExecutionObserver): void {
+    this.executionObserver = observer;
+  }
 
   register(
     adapter: ProviderAdapter,
@@ -86,7 +107,7 @@ export class ProviderAdapterRegistry {
     );
   }
 
-  execute(
+  async execute(
     providerId: ID,
     modelId: ID,
     request: ModelExecutionRequest,
@@ -97,7 +118,7 @@ export class ProviderAdapterRegistry {
       );
 
     if (!adapter) {
-      return Promise.resolve({
+      return {
         success: false,
         failure: {
           requestId:
@@ -119,13 +140,13 @@ export class ProviderAdapterRegistry {
             latencyMs: 0,
           },
         },
-      });
+      };
     }
 
     if (
       !adapter.descriptor.available
     ) {
-      return Promise.resolve({
+      return {
         success: false,
         failure: {
           requestId:
@@ -147,12 +168,72 @@ export class ProviderAdapterRegistry {
             latencyMs: 0,
           },
         },
-      });
+      };
     }
 
-    return adapter.execute(
+    const registeredModel = adapter.getModel(modelId);
+    if (registeredModel && !registeredModel.identity.available) {
+      const now = new Date().toISOString();
+      return {
+        success: false,
+        failure: {
+          requestId: request.id,
+          providerId,
+          modelId,
+          retryable: true,
+          code: "MODEL_UNAVAILABLE",
+          message:
+            `Model "${modelId}" is currently unavailable on provider "${providerId}".`,
+          metadata: {
+            requestId: request.id,
+            startedAt: now,
+            completedAt: now,
+            latencyMs: 0,
+          },
+        },
+      };
+    }
+
+    const result = await adapter.execute(
       modelId,
       request,
     );
+
+    if (!this.executionObserver || !result.success || !result.response) {
+      return result;
+    }
+
+    try {
+      await this.executionObserver(
+        providerId,
+        modelId,
+        request,
+        result,
+      );
+      return {
+        ...result,
+        response: {
+          ...result.response,
+          metadata: {
+            ...result.response.metadata,
+            usagePersisted: true,
+            usagePersistenceError: undefined,
+          },
+        },
+      };
+    } catch (error) {
+      return {
+        ...result,
+        response: {
+          ...result.response,
+          metadata: {
+            ...result.response.metadata,
+            usagePersisted: false,
+            usagePersistenceError:
+              error instanceof Error ? error.message : String(error),
+          },
+        },
+      };
+    }
   }
 }

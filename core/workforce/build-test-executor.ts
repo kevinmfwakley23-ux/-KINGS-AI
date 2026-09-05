@@ -12,11 +12,16 @@ import {
   ExecutionSandbox,
   type SandboxExecutionResult,
   type SandboxPolicy,
+  type SandboxSideEffect,
 } from "./execution-sandbox";
 
 import type {
   WorkUnitContract,
 } from "./work-unit-contract";
+
+import type {
+  EngineeringToolchain,
+} from "./engineering-toolchain";
 
 export type BuildTestOperation =
   | "build"
@@ -25,52 +30,45 @@ export type BuildTestOperation =
   | "validate";
 
 export interface BuildTestStep {
-  id:
-    ID;
-  operation:
-    BuildTestOperation;
-  command:
-    string;
-  args:
-    string[];
-  workingDirectory:
-    string;
+  id: ID;
+  operation: BuildTestOperation;
+  command: string;
+  args: string[];
+  workingDirectory: string;
+  verifiesCriteria?: string[];
+  requiresNetwork?: boolean;
 }
 
 export interface BuildTestExecutionRequest {
-  taskId:
-    ID;
-  workUnit:
-    WorkUnitContract;
-  steps:
-    BuildTestStep[];
+  taskId: ID;
+  workUnit: WorkUnitContract;
+  steps: BuildTestStep[];
+  workspaceRoot?: string;
 }
 
 export interface BuildTestStepResult {
-  step:
-    BuildTestStep;
-  execution:
-    SandboxExecutionResult;
-  passed:
-    boolean;
+  step: BuildTestStep;
+  execution: SandboxExecutionResult;
+  passed: boolean;
 }
 
 export interface BuildTestExecutionResult {
-  taskId:
-    ID;
-  passed:
-    boolean;
-  steps:
-    BuildTestStepResult[];
-  startedAt:
-    string;
-  completedAt:
-    string;
+  taskId: ID;
+  passed: boolean;
+  steps: BuildTestStepResult[];
+  startedAt: string;
+  completedAt: string;
 }
 
 export interface BuildTestExecutorOptions {
-  sandboxPolicy:
-    SandboxPolicy;
+  sandboxPolicy: SandboxPolicy;
+  /**
+   * Toolchains admitted by the K.I.N.G.S. runtime. Project-aware planning can
+   * use these for languages that are not part of a built-in project-kind path.
+   * Execution still passes through the sandbox command allowlist, so merely
+   * naming a toolchain cannot grant executable authority.
+   */
+  projectVerificationToolchains?: readonly EngineeringToolchain[];
 }
 
 function isPathWithin(
@@ -89,59 +87,41 @@ function isPathWithin(
 }
 
 export class BuildTestExecutor {
-  private readonly sandbox:
-    ExecutionSandbox;
+  private readonly sandbox: ExecutionSandbox;
 
   constructor(
-    options:
-      BuildTestExecutorOptions,
+    options: BuildTestExecutorOptions,
   ) {
-    this.sandbox =
-      new ExecutionSandbox(
-        options.sandboxPolicy,
-      );
+    this.sandbox = new ExecutionSandbox(options.sandboxPolicy);
   }
 
   async execute(
-    request:
-      BuildTestExecutionRequest,
-  ): Promise<
-    BuildTestExecutionResult
-  > {
-    this.validateRequest(
-      request,
-    );
+    request: BuildTestExecutionRequest,
+  ): Promise<BuildTestExecutionResult> {
+    this.validateRequest(request);
 
-    const startedAt =
-      new Date().toISOString();
+    const startedAt = new Date().toISOString();
+    const results: BuildTestStepResult[] = [];
 
-    const results:
-      BuildTestStepResult[] =
-      [];
+    for (const step of request.steps) {
+      const sideEffects: SandboxSideEffect[] = [
+        "read",
+        "execute",
+        "write",
+      ];
 
-    for (
-      const step of
-        request.steps
-    ) {
-      const execution =
-        await this.sandbox.execute({
-          command:
-            step.command,
-          args:
-            step.args,
-          workingDirectory:
-            step.workingDirectory,
-          sideEffects: [
-            "read",
-            "execute",
-            "write",
-          ],
-        });
+      if (step.requiresNetwork) {
+        sideEffects.push("network");
+      }
 
-      const passed =
-        execution.exitCode ===
-          0 &&
-        !execution.timedOut;
+      const execution = await this.sandbox.execute({
+        command: step.command,
+        args: step.args,
+        workingDirectory: step.workingDirectory,
+        sideEffects,
+      });
+
+      const passed = execution.exitCode === 0 && !execution.timedOut;
 
       results.push({
         step,
@@ -151,56 +131,40 @@ export class BuildTestExecutor {
 
       if (!passed) {
         return {
-          taskId:
-            request.taskId,
-          passed:
-            false,
-          steps:
-            results,
+          taskId: request.taskId,
+          passed: false,
+          steps: results,
           startedAt,
-          completedAt:
-            new Date().toISOString(),
+          completedAt: new Date().toISOString(),
         };
       }
     }
 
     return {
-      taskId:
-        request.taskId,
-      passed:
-        true,
-      steps:
-        results,
+      taskId: request.taskId,
+      passed: true,
+      steps: results,
       startedAt,
-      completedAt:
-        new Date().toISOString(),
+      completedAt: new Date().toISOString(),
     };
   }
 
   private validateRequest(
-    request:
-      BuildTestExecutionRequest,
+    request: BuildTestExecutionRequest,
   ): void {
-    if (
-      !request.taskId.trim()
-    ) {
+    if (!request.taskId.trim()) {
       throw new Error(
         "K.I.N.G.S. Build/Test Executor: task id is required",
       );
     }
 
-    if (
-      !request.workUnit.approved
-    ) {
+    if (!request.workUnit.approved) {
       throw new Error(
         `K.I.N.G.S. Build/Test Executor: Work Unit "${request.workUnit.id}" is not approved`,
       );
     }
 
-    if (
-      request.steps.length ===
-      0
-    ) {
+    if (request.steps.length === 0) {
       throw new Error(
         "K.I.N.G.S. Build/Test Executor: at least one build/test step is required",
       );
@@ -219,21 +183,35 @@ export class BuildTestExecutor {
       );
     }
 
-    const unauthorizedStep =
-      request.steps.find(
-        (step) =>
-          !request.workUnit.allowedPaths.some(
-            (allowedPath) =>
-              isPathWithin(
-                step.workingDirectory,
-                allowedPath,
-              ),
-          ),
-      );
+    const invalidCriterion = request.steps.find(
+      (step) =>
+        step.verifiesCriteria?.some(
+          (criterion) => !criterion.trim(),
+        ),
+    );
 
-    if (
-      unauthorizedStep
-    ) {
+    if (invalidCriterion) {
+      throw new Error(
+        `K.I.N.G.S. Build/Test Executor: step "${invalidCriterion.id}" contains a blank verification criterion`,
+      );
+    }
+
+    const workspaceRoot = resolve(
+      request.workspaceRoot ?? process.cwd(),
+    );
+
+    const unauthorizedStep = request.steps.find(
+      (step) =>
+        !request.workUnit.allowedPaths.some(
+          (allowedPath) =>
+            isPathWithin(
+              step.workingDirectory,
+              resolve(workspaceRoot, allowedPath),
+            ),
+        ),
+    );
+
+    if (unauthorizedStep) {
       throw new Error(
         `K.I.N.G.S. Build/Test Executor: step "${unauthorizedStep.id}" uses an unauthorized working directory`,
       );

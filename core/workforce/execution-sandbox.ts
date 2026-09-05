@@ -21,6 +21,12 @@ export type SandboxSideEffect =
   | "execute"
   | "network";
 
+export interface SandboxBubblewrapIsolation {
+  kind: "bubblewrap";
+  executable: string;
+  additionalReadOnlyPaths?: string[];
+}
+
 export interface SandboxPolicy {
   allowedCommands: string[];
   allowedWorkingDirectories: string[];
@@ -33,6 +39,7 @@ export interface SandboxPolicy {
   maxConcurrentProcesses: number;
   allowShell: boolean;
   allowNetwork: boolean;
+  processIsolation?: SandboxBubblewrapIsolation;
 }
 
 export interface SandboxExecutionRequest {
@@ -202,6 +209,25 @@ export class ExecutionSandbox {
       policy.allowedEnvironmentKeys,
       "allowedEnvironmentKeys",
     );
+
+    if (policy.processIsolation) {
+      if (policy.processIsolation.kind !== "bubblewrap") {
+        throw new ExecutionSandboxPolicyError(
+          "unsupported process isolation backend",
+        );
+      }
+      if (!policy.processIsolation.executable.trim()) {
+        throw new ExecutionSandboxPolicyError(
+          "bubblewrap isolation requires an executable path",
+        );
+      }
+      if (policy.processIsolation.additionalReadOnlyPaths) {
+        assertStringArray(
+          policy.processIsolation.additionalReadOnlyPaths,
+          "processIsolation.additionalReadOnlyPaths",
+        );
+      }
+    }
 
     if (
       policy.timeoutMs <
@@ -469,14 +495,21 @@ export class ExecutionSandbox {
         request.environment,
       );
 
+    const invocation = this.buildInvocation(
+      command,
+      args,
+      workingDirectory,
+      request.sideEffects ?? ["read"],
+    );
+
     this.activeProcesses +=
       1;
 
     try {
       const child =
         this.spawnProcess(
-          command,
-          args,
+          invocation.command,
+          invocation.args,
           {
             cwd:
               workingDirectory,
@@ -507,6 +540,100 @@ export class ExecutionSandbox {
     }
   }
 
+  private buildInvocation(
+    command: string,
+    args: string[],
+    workingDirectory: string,
+    sideEffects: SandboxSideEffect[],
+  ): { command: string; args: string[] } {
+    const isolation = this.policy.processIsolation;
+    if (!isolation) {
+      return { command, args };
+    }
+
+    const networkRequested = sideEffects.includes("network");
+    const bwrapArgs: string[] = [
+      "--die-with-parent",
+      "--new-session",
+      "--unshare-all",
+    ];
+    if (networkRequested && this.policy.allowNetwork) {
+      bwrapArgs.push("--share-net");
+    }
+
+    bwrapArgs.push(
+      "--ro-bind", "/usr", "/usr",
+      "--ro-bind-try", "/opt", "/opt",
+      "--symlink", "usr/bin", "/bin",
+      "--symlink", "usr/sbin", "/sbin",
+      "--symlink", "usr/lib", "/lib",
+      "--symlink", "usr/lib64", "/lib64",
+      "--dir", "/etc",
+      "--ro-bind-try", "/etc/ld.so.cache", "/etc/ld.so.cache",
+      "--ro-bind-try", "/etc/resolv.conf", "/etc/resolv.conf",
+      "--ro-bind-try", "/etc/hosts", "/etc/hosts",
+      "--ro-bind-try", "/etc/nsswitch.conf", "/etc/nsswitch.conf",
+      "--ro-bind-try", "/etc/passwd", "/etc/passwd",
+      "--ro-bind-try", "/etc/group", "/etc/group",
+      "--ro-bind-try", "/etc/ssl", "/etc/ssl",
+      "--ro-bind-try", "/etc/ca-certificates.conf", "/etc/ca-certificates.conf",
+      "--ro-bind-try", "/etc/localtime", "/etc/localtime",
+      "--proc", "/proc",
+      "--dev", "/dev",
+      "--tmpfs", "/tmp",
+      "--dir", "/tmp/kings-home",
+      "--dir", "/var",
+      "--symlink", "../tmp", "/var/tmp",
+      "--dir", "/run",
+      "--ro-bind-try", "/sys", "/sys",
+    );
+
+    const writeRoots = uniqueStrings(
+      this.policy.allowedWritePaths.map(normalizePath),
+    );
+    const readRoots = uniqueStrings(
+      this.policy.allowedReadPaths.map(normalizePath),
+    ).filter((readRoot) =>
+      !writeRoots.some((writeRoot) => isPathWithin(readRoot, writeRoot)),
+    );
+
+    for (const path of readRoots) {
+      bwrapArgs.push("--ro-bind-try", path, path);
+    }
+    for (const path of writeRoots) {
+      bwrapArgs.push("--bind", path, path);
+    }
+    for (const path of uniqueStrings(
+      (isolation.additionalReadOnlyPaths ?? [])
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .map(normalizePath),
+    )) {
+      if (
+        !writeRoots.some((writeRoot) => isPathWithin(path, writeRoot)) &&
+        !readRoots.some((readRoot) => isPathWithin(path, readRoot))
+      ) {
+        bwrapArgs.push("--ro-bind-try", path, path);
+      }
+    }
+
+    bwrapArgs.push(
+      "--setenv", "HOME", "/tmp/kings-home",
+      "--setenv", "TMPDIR", "/tmp",
+      "--setenv", "TMP", "/tmp",
+      "--setenv", "TEMP", "/tmp",
+      "--chdir", workingDirectory,
+      "--",
+      command,
+      ...args,
+    );
+
+    return {
+      command: normalizePath(isolation.executable),
+      args: bwrapArgs,
+    };
+  }
+
   private buildEnvironment(
     requested?:
       Record<string, string>,
@@ -519,23 +646,31 @@ export class ExecutionSandbox {
         this.policy
           .allowedEnvironmentKeys
     ) {
+      const requestedValue =
+        requested?.[key];
+      const inheritedValue =
+        process.env[key];
+
       if (
-        key === "PATH" &&
-        !result.PATH
-      ) {
-        const requestedPath = requested?.PATH;
-        const inheritedPath = process.env.PATH;
-        if (requestedPath || inheritedPath) {
-          result.PATH = requestedPath ?? inheritedPath!;
-        }
-      } else if (
-        requested &&
-        key in
-          requested
+        requestedValue !==
+        undefined
       ) {
         result[key] =
-          requested[key];
+          requestedValue;
+      } else if (
+        inheritedValue !==
+        undefined
+      ) {
+        result[key] =
+          inheritedValue;
       }
+    }
+
+    if (this.policy.processIsolation) {
+      result.HOME = "/tmp/kings-home";
+      result.TMPDIR = "/tmp";
+      result.TMP = "/tmp";
+      result.TEMP = "/tmp";
     }
 
     return result;

@@ -79,11 +79,10 @@ export class LocalCodingWriteBridge {
     }
 
     if (
-      request.proposal.missionId !==
-      request.projectId
+      !request.proposal.missionId.trim()
     ) {
       throw new Error(
-        "K.I.N.G.S. Local Coding Write Bridge: proposal mission does not match project.",
+        "K.I.N.G.S. Local Coding Write Bridge: proposal mission id is required.",
       );
     }
 

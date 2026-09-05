@@ -1,3 +1,7 @@
+import {
+  join,
+} from "node:path";
+
 import type {
   ID,
   Mission,
@@ -32,12 +36,35 @@ import type {
 } from "./model-interface";
 
 import type {
+  ModelCostPreference,
   ModelRoutingRequest,
 } from "./model-routing";
 
 import type {
   WorkUnitContract,
 } from "./work-unit-contract";
+
+import type {
+  EngineeringLanguage,
+} from "./engineering-toolchain";
+
+import {
+  GitHubRepositoryWorkspaceAuthority,
+} from "./github-repository-workspace";
+
+import {
+  RepositoryCodingContextAuthority,
+} from "./repository-coding-context";
+
+import {
+  DurableInferenceEconomicsLedger,
+  type InferenceEconomicsSummary,
+  type PaidEscalationMode,
+} from "./inference-economics";
+
+import {
+  ProviderQuotaAuthority,
+} from "./provider-quota-state";
 
 export interface ProjectOwnerMachineApiRequest {
   action:
@@ -49,6 +76,22 @@ export interface ProjectOwnerMachineApiRequest {
 
   input?: ProjectOwnerDesignInput;
   missionId?: ID;
+  preferredProviderId?: ID;
+  preferredModelId?: ID;
+  /** Owner-controlled route policy. Economy is the default. */
+  costPreference?: ModelCostPreference;
+  /** Optional hard cost ceiling for an individual selected route. */
+  maximumEstimatedCost?: number;
+  /** Hard inference-spend budgets. Omitted values mean no extra ceiling. */
+  missionBudgetUsd?: number;
+  dayBudgetUsd?: number;
+  monthBudgetUsd?: number;
+  missionPaidTokenBudget?: number;
+  dayPaidTokenBudget?: number;
+  monthPaidTokenBudget?: number;
+  /** Production default is ask: paid fallback requires explicit owner approval. */
+  paidEscalation?: PaidEscalationMode;
+  approvedPaidEscalation?: boolean;
   editor?: EngineeringRepairEditor;
   buildTestOptions?: ConstructorParameters<
     typeof import("./coding-work-unit-execution").CodingWorkUnitExecutionAuthority
@@ -61,6 +104,16 @@ export interface ProjectOwnerMachineApiResponse {
   view?: ProjectOwnerMissionView;
   plan?: MissionPlan;
   diagnostics?: string;
+  workspacePath?: string;
+  economics?: InferenceEconomicsSummary;
+  repository?: {
+    repositoryId: string;
+    baseRef: string;
+    publishBranch: string;
+    published?: boolean;
+    commitSha?: string;
+    inspectedFiles?: string[];
+  };
 }
 
 export interface ProjectOwnerMissionFactory {
@@ -75,8 +128,46 @@ export interface ProjectOwnerExecutionContext {
   getWorkUnit(taskId: ID): WorkUnitContract;
 }
 
+const PROJECT_LANGUAGES: EngineeringLanguage[] = [
+  "typescript",
+  "javascript",
+  "python",
+  "rust",
+  "go",
+  "java",
+  "c",
+  "cpp",
+  "css",
+  "html",
+  "sql",
+  "shell",
+  "json",
+  "yaml",
+  "markdown",
+  "text",
+];
+
+function safeWorkspaceSegment(value: string): string {
+  const normalized = value
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^\.+/, "")
+    .replace(/-+/g, "-")
+    .slice(0, 96);
+
+  if (!normalized) {
+    throw new Error(
+      "K.I.N.G.S. Project Owner: mission id cannot be converted into a safe workspace name.",
+    );
+  }
+
+  return normalized;
+}
+
 export class ProjectOwnerMachineApi {
   private readonly controller: ProjectOwnerUiController;
+  private readonly economicsLedger: DurableInferenceEconomicsLedger;
+  private readonly quotaAuthority: ProviderQuotaAuthority;
 
   constructor(
     private readonly machine: KingsCodingMachine,
@@ -84,8 +175,23 @@ export class ProjectOwnerMachineApi {
     private readonly modelDrivenCoding: ModelDrivenCodingExecutionAuthority,
     private readonly executionContext: ProjectOwnerExecutionContext,
     controller: ProjectOwnerUiController = new ProjectOwnerUiController(),
+    private readonly workspaceRoot: string = join(
+      process.cwd(),
+      ".kings",
+      "projects",
+    ),
+    private readonly repositoryWorkspace?: GitHubRepositoryWorkspaceAuthority,
+    private readonly repositoryCodingContext: RepositoryCodingContextAuthority =
+      new RepositoryCodingContextAuthority(),
+    economicsLedger?: DurableInferenceEconomicsLedger,
+    quotaAuthority?: ProviderQuotaAuthority,
   ) {
     this.controller = controller;
+    this.economicsLedger = economicsLedger ??
+      new DurableInferenceEconomicsLedger(
+        join(this.workspaceRoot, "..", "inference-economics.jsonl"),
+      );
+    this.quotaAuthority = quotaAuthority ?? new ProviderQuotaAuthority();
   }
 
   async handle(
@@ -103,6 +209,31 @@ export class ProjectOwnerMachineApi {
         }
 
         const design = this.controller.createMissionRequest(request.input);
+        const missionWorkspace = join(
+          this.workspaceRoot,
+          safeWorkspaceSegment(design.id),
+        );
+
+        let preparedRepository:
+          Awaited<ReturnType<GitHubRepositoryWorkspaceAuthority["prepare"]>> |
+          undefined;
+
+        if (design.repository) {
+          if (!this.repositoryWorkspace) {
+            return {
+              ok: false,
+              message:
+                "GitHub repository mode is not attached to this K.I.N.G.S. runtime.",
+            };
+          }
+
+          preparedRepository = await this.repositoryWorkspace.prepare({
+            missionId: design.id,
+            workspaceRoot: missionWorkspace,
+            repository: design.repository,
+          });
+        }
+
         const created = this.missionFactory.create(design);
         const taskIds = created.plan.milestones.flatMap((milestone) => milestone.taskIds);
 
@@ -130,8 +261,18 @@ export class ProjectOwnerMachineApi {
 
         return {
           ok: true,
-          message:
-            "Vision compiled into an executable coding mission. Human approval is required before execution.",
+          message: preparedRepository
+            ? `GitHub repository ${preparedRepository.metadata.repositoryId} checked out on ${preparedRepository.metadata.publishBranch}. Vision compiled into an executable coding mission; human approval is required before code changes execute.`
+            : "Vision compiled into an executable coding mission. Human approval is required before execution.",
+          workspacePath: missionWorkspace,
+          economics: await this.economicsLedger.summarize(design.id),
+          repository: preparedRepository
+            ? {
+                repositoryId: preparedRepository.metadata.repositoryId,
+                baseRef: preparedRepository.metadata.baseRef,
+                publishBranch: preparedRepository.metadata.publishBranch,
+              }
+            : undefined,
           view: {
             mission: snapshot.mission,
             plan: snapshot.plan,
@@ -145,6 +286,22 @@ export class ProjectOwnerMachineApi {
         return { ok: false, message: "Mission id is required." };
       }
 
+      const missionWorkspace = join(
+        this.workspaceRoot,
+        safeWorkspaceSegment(missionId),
+      );
+
+      const managedRepository = this.repositoryWorkspace
+        ? await this.repositoryWorkspace.readMetadata(missionWorkspace)
+        : undefined;
+      const repositoryResponse = managedRepository
+        ? {
+            repositoryId: managedRepository.repositoryId,
+            baseRef: managedRepository.baseRef,
+            publishBranch: managedRepository.publishBranch,
+          }
+        : undefined;
+
       if (request.action === "approve-plan") {
         const plan = this.machine.approvePlan(missionId);
         const snapshot = this.machine.snapshot(missionId);
@@ -152,6 +309,9 @@ export class ProjectOwnerMachineApi {
           ok: true,
           message: "Mission plan approved.",
           plan,
+          workspacePath: missionWorkspace,
+          economics: await this.economicsLedger.summarize(missionId),
+          repository: repositoryResponse,
           view: {
             mission: snapshot.mission,
             plan: snapshot.plan,
@@ -167,6 +327,9 @@ export class ProjectOwnerMachineApi {
           ok: true,
           message: "Mission plan locked and ready for governed execution.",
           plan,
+          workspacePath: missionWorkspace,
+          economics: await this.economicsLedger.summarize(missionId),
+          repository: repositoryResponse,
           view: {
             mission: snapshot.mission,
             plan: snapshot.plan,
@@ -184,6 +347,9 @@ export class ProjectOwnerMachineApi {
             plan: snapshot.plan,
             state: snapshot.state,
           }),
+          workspacePath: missionWorkspace,
+          economics: await this.economicsLedger.summarize(missionId),
+          repository: repositoryResponse,
           view: {
             mission: snapshot.mission,
             plan: snapshot.plan,
@@ -202,6 +368,9 @@ export class ProjectOwnerMachineApi {
             return {
               ok: false,
               message: "Mission must be approved and locked before execution.",
+              workspacePath: missionWorkspace,
+              economics: await this.economicsLedger.summarize(missionId),
+              repository: repositoryResponse,
               view: {
                 mission: snapshot.mission,
                 plan: snapshot.plan,
@@ -214,6 +383,9 @@ export class ProjectOwnerMachineApi {
             return {
               ok: false,
               message: "Mission has more than one active task; execution routing is ambiguous.",
+              workspacePath: missionWorkspace,
+              economics: await this.economicsLedger.summarize(missionId),
+              repository: repositoryResponse,
               view: {
                 mission: snapshot.mission,
                 plan: snapshot.plan,
@@ -236,6 +408,9 @@ export class ProjectOwnerMachineApi {
             return {
               ok: false,
               message: "No executable coding task is available for this mission.",
+              workspacePath: missionWorkspace,
+              economics: await this.economicsLedger.summarize(missionId),
+              repository: repositoryResponse,
               view: {
                 mission: snapshot.mission,
                 plan: snapshot.plan,
@@ -256,6 +431,19 @@ export class ProjectOwnerMachineApi {
 
           this.machine.setTaskRunning(missionId, taskId);
 
+          const repositoryContext = managedRepository
+            ? await this.repositoryCodingContext.build({
+                workspaceRoot: missionWorkspace,
+                missionId,
+                objective: workUnit.objective,
+                requirements: [task.description, ...workUnit.acceptanceCriteria],
+              })
+            : undefined;
+
+          const numberedCriteria = workUnit.acceptanceCriteria
+            .map((criterion, index) => `ACCEPTANCE-${index + 1}: ${criterion}`)
+            .join("\n");
+
           const modelRequest: ModelExecutionRequest = {
             id: `model-request-${taskId}-${Date.now()}`,
             taskId,
@@ -263,13 +451,34 @@ export class ProjectOwnerMachineApi {
             messages: [
               {
                 role: "system",
-                content:
-                  "You are the coding engine inside K.I.N.G.S. Coding Machine. Return ONLY FILE blocks. Every file must start exactly with FILE: relative/path [create|replace], followed by complete file contents. No Markdown fences. No explanation outside FILE blocks. Never propose paths outside the authorized workspace.",
+                content: [
+                  "You are the production coding engine inside K.I.N.G.S. Coding Machine.",
+                  "Generate real runnable software, never placeholder-only, mock-only, TODO-only, pseudocode, or fake-success code.",
+                  "Return ONLY FILE blocks. Every file must start exactly with FILE: relative/path [create|replace], followed by complete file contents. No Markdown fences and no explanation outside FILE blocks.",
+                  "For an existing repository, preserve working architecture and make the smallest complete changes supported by inspected source. Never invent the contents of an unseen file.",
+                  "Include every manifest, configuration, source file, and automated test required for the project to install, build, run, and verify in a clean project workspace.",
+                  "Every acceptance criterion must be exercised by executable tests or a real launch/smoke path. Do not write tests that merely assert true, print a green marker, or duplicate the implementation without exercising behavior.",
+                  "For browser applications, include a responsive viewport and layouts usable on Chromebook and Android phone/tablet screens.",
+                  "Never propose paths outside the authorized workspace. K.I.N.G.S. will independently execute build/test/smoke verification and reject uncovered criteria.",
+                ].join(" "),
               },
               {
                 role: "user",
-                content:
-                  `${workUnit.objective}\n\nAcceptance criteria:\n${workUnit.acceptanceCriteria.join("\n")}\n\nTask: ${task.description}`,
+                content: [
+                  workUnit.objective,
+                  "",
+                  "Acceptance criteria:",
+                  numberedCriteria,
+                  "",
+                  `Task: ${task.description}`,
+                  "",
+                  managedRepository
+                    ? `You are modifying the existing GitHub repository ${managedRepository.repositoryId} from ${managedRepository.baseRef}. Inspect and preserve the existing project; do not replace it with an unrelated scaffold.`
+                    : "Build the complete project in the current isolated workspace.",
+                  repositoryContext
+                    ? `\n${repositoryContext.context}`
+                    : "",
+                ].join("\n"),
               },
             ],
             requiredCapabilities: [
@@ -289,6 +498,10 @@ export class ProjectOwnerMachineApi {
             allowToolProposals: false,
           };
 
+          const explicitModel = Boolean(
+            request.preferredProviderId || request.preferredModelId,
+          );
+
           const routing: ModelRoutingRequest = {
             requiredCapabilities: [
               "reasoning",
@@ -302,14 +515,34 @@ export class ProjectOwnerMachineApi {
             minimumCapabilityStrength: 70,
             requiredInputModality: "text",
             requiredOutputModality: "text",
-            preferInternal: true,
-            maximumEstimatedCost: 0,
+            costPreference: request.costPreference ?? "economy",
+            maximumEstimatedCost: request.maximumEstimatedCost,
+            preferExternal: !explicitModel,
+            preferredProviderId: request.preferredProviderId,
+            preferredModelId: request.preferredModelId,
+            allowUnverifiedExplicitSelection: explicitModel,
+            allowUnverifiedUnderPostExecutionVerification: !explicitModel,
           };
 
           const result = await this.modelDrivenCoding.execute(
             {
               modelRequest,
               routing,
+              economics: {
+                ledger: this.economicsLedger,
+                policy: {
+                  missionUsd: request.missionBudgetUsd,
+                  dayUsd: request.dayBudgetUsd,
+                  monthUsd: request.monthBudgetUsd,
+                  missionPaidTokens: request.missionPaidTokenBudget,
+                  dayPaidTokens: request.dayPaidTokenBudget,
+                  monthPaidTokens: request.monthPaidTokenBudget,
+                  paidEscalation: request.paidEscalation ?? "ask",
+                },
+                approvedPaidEscalation:
+                  request.approvedPaidEscalation === true,
+                quotaAuthority: this.quotaAuthority,
+              },
               machineRequest: {
                 proposalParser: {
                   expectedTaskId: taskId,
@@ -319,6 +552,7 @@ export class ProjectOwnerMachineApi {
                 },
                 execution: {
                   taskId,
+                  missionId,
                   projectId: missionId,
                   workUnit: { ...workUnit, approved: true },
                   execution: {
@@ -328,9 +562,9 @@ export class ProjectOwnerMachineApi {
                     steps: [
                       {
                         id: taskId,
-                        language: "typescript",
+                        language: "text",
                         operation: "create",
-                        capabilityId: "engineering-typescript",
+                        capabilityId: "engineering-project",
                         sequence: 1,
                       },
                     ],
@@ -340,41 +574,29 @@ export class ProjectOwnerMachineApi {
                   },
                   step: {
                     id: taskId,
-                    language: "typescript",
+                    language: "text",
                     operation: "create",
-                    capabilityId: "engineering-typescript",
+                    capabilityId: "engineering-project",
                     sequence: 1,
                   },
                   workspace: {
                     id: `workspace-${missionId}`,
                     projectId: missionId,
-                    rootPath: process.cwd(),
+                    rootPath: missionWorkspace,
                     allowedPaths: workUnit.allowedPaths,
-                    allowedLanguages: ["typescript"],
-                    allowedOperations: ["create"],
+                    allowedLanguages: PROJECT_LANGUAGES,
+                    allowedOperations: ["create", "replace"],
                     active: true,
                   },
                   repairStep: {
                     id: `repair-${taskId}`,
                     strategy: "edit",
-                    description: "Repair generated application until verification passes.",
+                    description: "Write or repair generated application until governed verification passes.",
                     reason: "Bounded local build/test recovery.",
                     required: true,
                   },
-                  buildTestSteps: [
-                    {
-                      id: `verify-linux-${taskId}`,
-                      operation: "validate",
-                      command: process.execPath,
-                      args: ["-e", [
-                        "const fs = require('node:fs');",
-                        `const value = fs.readFileSync(${JSON.stringify(workUnit.acceptanceCriteria.some((criterion) => criterion.includes("source file exists")) ? "src/owner-model-proof.ts" : "package.json")}, 'utf8');`,
-                        `if (${JSON.stringify(workUnit.acceptanceCriteria.join(" "))}.includes('KINGS_OWNER_MODEL_GREEN') && !value.includes('KINGS_OWNER_MODEL_GREEN')) process.exit(2);`,
-                        "console.log('KINGS_OWNER_MODEL_VERIFIED');",
-                      ].join(" ")],
-                      workingDirectory: process.cwd(),
-                    },
-                  ],
+                  buildTestSteps: [],
+                  autoPlanBuildTest: true,
                   requiredCriteria: workUnit.acceptanceCriteria,
                 },
               },
@@ -384,12 +606,77 @@ export class ProjectOwnerMachineApi {
           );
 
           const next = this.machine.snapshot(missionId);
+          const economics = await this.economicsLedger.summarize(missionId);
+
+          if (result.completed && managedRepository && this.repositoryWorkspace) {
+            try {
+              const publication = await this.repositoryWorkspace.publishVerified(
+                missionWorkspace,
+                {
+                  missionId,
+                  verified: true,
+                  commitMessage: `K.I.N.G.S. verified build: ${task.name}`,
+                },
+              );
+
+              return {
+                ok: publication.published || !managedRepository.publishVerifiedChanges,
+                message: publication.published
+                  ? `Coding task "${taskId}" completed with project-aware build/test verification and published to GitHub branch "${publication.branch}".`
+                  : `Coding task "${taskId}" completed with project-aware build/test verification. ${publication.message}`,
+                diagnostics: result.failureDiagnostics,
+                workspacePath: missionWorkspace,
+                economics,
+                repository: {
+                  ...repositoryResponse!,
+                  published: publication.published,
+                  commitSha: publication.commitSha,
+                  inspectedFiles: repositoryContext?.inspectedFiles,
+                },
+                view: {
+                  mission: next.mission,
+                  plan: next.plan,
+                  state: next.state,
+                },
+              };
+            } catch (error) {
+              const diagnostics =
+                error instanceof Error ? error.message : String(error);
+              return {
+                ok: false,
+                message:
+                  `Coding task "${taskId}" passed real project verification, but GitHub publication failed. The verified local checkout was preserved for recovery.`,
+                diagnostics,
+                workspacePath: missionWorkspace,
+                economics,
+                repository: {
+                  ...repositoryResponse!,
+                  published: false,
+                  inspectedFiles: repositoryContext?.inspectedFiles,
+                },
+                view: {
+                  mission: next.mission,
+                  plan: next.plan,
+                  state: next.state,
+                },
+              };
+            }
+          }
+
           return {
             ok: result.completed,
             message: result.completed
-              ? `Coding task "${taskId}" completed and verified.`
-              : `Coding task "${taskId}" did not satisfy completion criteria.`,
+              ? `Coding task "${taskId}" completed with project-aware build/test verification.`
+              : `Coding task "${taskId}" did not satisfy real completion criteria.`,
             diagnostics: result.failureDiagnostics,
+            workspacePath: missionWorkspace,
+            economics,
+            repository: repositoryResponse
+              ? {
+                  ...repositoryResponse,
+                  inspectedFiles: repositoryContext?.inspectedFiles,
+                }
+              : undefined,
             view: {
               mission: next.mission,
               plan: next.plan,
@@ -407,6 +694,9 @@ export class ProjectOwnerMachineApi {
             ok: false,
             message: `Coding task "${taskId ?? "unknown"}" failed during governed execution.`,
             diagnostics,
+            workspacePath: missionWorkspace,
+            economics: await this.economicsLedger.summarize(missionId),
+            repository: repositoryResponse,
             view: {
               mission: failed.mission,
               plan: failed.plan,

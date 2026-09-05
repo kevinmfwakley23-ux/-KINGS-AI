@@ -6,99 +6,140 @@ UNIT_NAME="kings-coding-machine.service"
 SERVICE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UNIT_SOURCE="$ROOT/ui/project-owner/$UNIT_NAME"
 UNIT_TARGET="$SERVICE_DIR/$UNIT_NAME"
-BUILD_LOG="/tmp/kings-coding-machine-build.log"
+PORT="${KINGS_CODING_MACHINE_PORT:-8787}"
+BIND="${KINGS_CODING_MACHINE_BIND:-0.0.0.0}"
+STATE_ROOT="${KINGS_STATE_ROOT:-$ROOT/.kings}"
+TOKEN_FILE="${KINGS_OWNER_TOKEN_FILE:-$STATE_ROOT/owner-token}"
+NODE_BIN="${KINGS_CODING_MACHINE_NODE:-$(command -v node || true)}"
+NPM_BIN="${KINGS_CODING_MACHINE_NPM:-$(command -v npm || true)}"
 
-mkdir -p "$SERVICE_DIR"
+is_loopback_bind() {
+  [[ "$1" == "127.0.0.1" || "$1" == "localhost" || "$1" == "::1" ]]
+}
 
-if [[ ! -f "$UNIT_SOURCE" ]]; then
-  echo "Missing service unit: $UNIT_SOURCE" >&2
-  exit 1
+if [[ -n "${KINGS_CODING_MACHINE_HOST:-}" ]]; then
+  HOSTNAME_VALUE="$KINGS_CODING_MACHINE_HOST"
+elif is_loopback_bind "$BIND"; then
+  HOSTNAME_VALUE="kings.local"
+else
+  HOSTNAME_VALUE="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+  HOSTNAME_VALUE="${HOSTNAME_VALUE:-127.0.0.1}"
 fi
 
-NODE_BIN="${KINGS_CODING_MACHINE_NODE:-$(command -v node || true)}"
+if [[ ! -f "$UNIT_SOURCE" ]]; then
+  echo "KINGS CODING MACHINE: missing service template: $UNIT_SOURCE" >&2
+  exit 1
+fi
 if [[ -z "$NODE_BIN" || ! -x "$NODE_BIN" ]]; then
   echo "KINGS CODING MACHINE: node executable not found" >&2
   exit 1
 fi
-
-chmod +x "$ROOT/ui/project-owner/install-service.sh"
-chmod +x "$ROOT/ui/project-owner/start-local.sh"
-chmod +x "$ROOT/ui/project-owner/start-service.sh"
-
-systemctl --user stop "$UNIT_NAME" >/dev/null 2>&1 || true
-pkill -f "$ROOT/.kings-ui-build/ui/project-owner/local-server.js" >/dev/null 2>&1 || true
-rm -rf "$ROOT/.kings-ui-build"
-
-"$ROOT/ui/project-owner/start-local.sh" >"$BUILD_LOG" 2>&1 &
-BUILD_PID=$!
-
-cleanup() {
-  if kill -0 "$BUILD_PID" >/dev/null 2>&1; then
-    kill "$BUILD_PID" >/dev/null 2>&1 || true
-  fi
-}
-trap cleanup EXIT
-
-for _ in $(seq 1 120); do
-  if [[ -f "$ROOT/.kings-ui-build/ui/project-owner/local-server.js" ]]; then
-    break
-  fi
-
-  if ! kill -0 "$BUILD_PID" >/dev/null 2>&1; then
-    echo "KINGS CODING MACHINE: runtime build failed" >&2
-    cat "$BUILD_LOG" >&2 || true
-    exit 1
-  fi
-
-  sleep 0.25
-done
-
-if [[ ! -f "$ROOT/.kings-ui-build/ui/project-owner/local-server.js" ]]; then
-  echo "KINGS CODING MACHINE: runtime build timed out" >&2
-  cat "$BUILD_LOG" >&2 || true
+if [[ -z "$NPM_BIN" || ! -x "$NPM_BIN" ]]; then
+  echo "KINGS CODING MACHINE: npm executable not found" >&2
+  exit 1
+fi
+if ! command -v systemctl >/dev/null 2>&1; then
+  echo "KINGS CODING MACHINE: systemd user services are unavailable on this host" >&2
   exit 1
 fi
 
-kill "$BUILD_PID" >/dev/null 2>&1 || true
-wait "$BUILD_PID" >/dev/null 2>&1 || true
+mkdir -p "$SERVICE_DIR" "$STATE_ROOT"
+chmod +x "$ROOT/ui/project-owner/start-local.sh"
+chmod +x "$ROOT/ui/project-owner/install-service.sh"
 
-python3 - "$UNIT_SOURCE" "$UNIT_TARGET" "$NODE_BIN" <<'PY'
+export PATH="$(dirname "$NODE_BIN"):${PATH}"
+cd "$ROOT"
+
+if [[ ! -x "$ROOT/node_modules/.bin/tsc" ]]; then
+  echo "KINGS CODING MACHINE: installing repository toolchain..."
+  "$NPM_BIN" install --no-audit --no-fund
+fi
+
+echo "KINGS CODING MACHINE: compiling current adaptive superhost runtime..."
+"$NPM_BIN" run build:owner-ui
+
+python3 - \
+  "$UNIT_SOURCE" \
+  "$UNIT_TARGET" \
+  "$ROOT" \
+  "$PORT" \
+  "$BIND" \
+  "$HOSTNAME_VALUE" \
+  "$STATE_ROOT" \
+  "$NODE_BIN" \
+  "$NPM_BIN" <<'PY'
 from pathlib import Path
 import sys
 
-source = Path(sys.argv[1]).read_text()
-target = Path(sys.argv[2])
-node = sys.argv[3]
-
-source = source.replace(
-    "ExecStart=%h/.config/nvm/versions/node/v24.19.0/bin/node %h/KINGS-AI/ui/project-owner/start-service.js",
-    f"ExecStart={node} %h/KINGS-AI/.kings-ui-build/ui/project-owner/local-server.js",
-)
-source = source.replace(
-    "ExecStart=/usr/bin/env node %h/KINGS-AI/ui/project-owner/start-service.js",
-    f"ExecStart={node} %h/KINGS-AI/.kings-ui-build/ui/project-owner/local-server.js",
-)
-
-target.write_text(source)
+source_path, target_path, root, port, bind, host, state_root, node_bin, npm_bin = sys.argv[1:]
+source = Path(source_path).read_text()
+replacements = {
+    "@KINGS_ROOT@": root,
+    "@PORT@": port,
+    "@BIND@": bind,
+    "@HOST@": host,
+    "@STATE_ROOT@": state_root,
+    "@NODE_BIN@": node_bin,
+    "@NPM_BIN@": npm_bin,
+    "@NODE_DIR@": str(Path(node_bin).parent),
+}
+for marker, value in replacements.items():
+    if "\n" in value or "\r" in value:
+        raise SystemExit(f"unsafe newline in service value for {marker}")
+    source = source.replace(marker, value)
+if "@" in source:
+    unresolved = sorted({part for part in source.split() if "@" in part})
+    raise SystemExit(f"unresolved service template marker(s): {unresolved}")
+Path(target_path).write_text(source)
 PY
 
+systemctl --user stop "$UNIT_NAME" >/dev/null 2>&1 || true
 systemctl --user daemon-reload
 systemctl --user enable "$UNIT_NAME" >/dev/null
 systemctl --user start "$UNIT_NAME"
 
-sleep 2
+for _ in $(seq 1 80); do
+  if systemctl --user is-active --quiet "$UNIT_NAME"; then
+    break
+  fi
+  if systemctl --user is-failed --quiet "$UNIT_NAME"; then
+    break
+  fi
+  sleep 0.25
+done
 
-if systemctl --user is-active --quiet "$UNIT_NAME"; then
-  echo "KINGS CODING MACHINE SERVICE: RUNNING"
-  echo "Open: http://kings.local:8787"
-  echo "Fallback: http://127.0.0.1:8787"
-  echo "Node: $NODE_BIN"
-  echo "Runtime: freshly compiled from current checkout"
-else
+if ! systemctl --user is-active --quiet "$UNIT_NAME"; then
   echo "KINGS CODING MACHINE SERVICE: FAILED TO START" >&2
   systemctl --user --no-pager -l status "$UNIT_NAME" || true
-  echo
+  echo >&2
   echo "===== SERVICE JOURNAL =====" >&2
-  journalctl --user -u "$UNIT_NAME" --no-pager -n 60 >&2 || true
+  journalctl --user -u "$UNIT_NAME" --no-pager -n 80 >&2 || true
   exit 1
+fi
+
+echo
+ echo "KINGS CODING MACHINE SERVICE: RUNNING"
+echo "Runtime root: $ROOT"
+echo "Node: $NODE_BIN"
+echo "Bind: ${BIND}:${PORT}"
+echo "Routing: gateway-first adaptive multi-route failover"
+
+if is_loopback_bind "$BIND"; then
+  echo "Open: http://${HOSTNAME_VALUE}:${PORT}"
+  echo "Security: loopback-only runtime"
+else
+  for _ in $(seq 1 40); do
+    [[ -s "$TOKEN_FILE" ]] && break
+    sleep 0.25
+  done
+  if [[ -s "$TOKEN_FILE" ]]; then
+    OWNER_TOKEN="$(tr -d '\r\n' < "$TOKEN_FILE")"
+    echo "Android / LAN pairing: http://${HOSTNAME_VALUE}:${PORT}/?token=${OWNER_TOKEN}"
+    echo "Owner token file: $TOKEN_FILE"
+    echo "Security: LAN diagnostics and APIs require the paired owner credential"
+  else
+    echo "KINGS CODING MACHINE: service is running, but the owner token file was not created." >&2
+    echo "Inspect: systemctl --user status $UNIT_NAME" >&2
+    exit 1
+  fi
 fi

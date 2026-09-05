@@ -33,6 +33,8 @@ export const EXTERNAL_RESEARCH_TOOL_DEFINITION:
     "external-research",
     "source-retrieval",
     "source-provenance",
+    "external-content",
+    "untrusted-output",
   ],
   enabled:
     true,
@@ -59,6 +61,8 @@ export function registerExternalResearchTool(
       capabilities: [
         "web-access",
         "source-retrieval",
+        "external-content",
+        "untrusted-output",
       ],
       enabled:
         true,

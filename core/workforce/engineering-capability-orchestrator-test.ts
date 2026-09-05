@@ -26,7 +26,7 @@ function toolchain(
     id,
     language,
     displayName: `${language} test toolchain`,
-    fileExtensions: [],
+    fileExtensions: [".ts"],
     commands: [
       {
         operation: "typecheck",

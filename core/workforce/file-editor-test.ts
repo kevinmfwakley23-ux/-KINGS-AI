@@ -1,5 +1,9 @@
 import {
   mkdtemp,
+  mkdir,
+  writeFile,
+  symlink,
+  access,
   rm,
 } from "node:fs/promises";
 
@@ -150,6 +154,51 @@ async function main(): Promise<void> {
       "Writes outside the authorized root must be rejected.",
     );
 
+    await mkdir(outside, { recursive: true });
+    const outsideSecret = join(outside, "host-secret.txt");
+    await writeFile(outsideSecret, "HOST_SECRET=never-leak\n", "utf8");
+    const linkedSecret = join(allowed, "linked-secret.txt");
+    const linkedDirectory = join(allowed, "linked-outside");
+    await symlink(outsideSecret, linkedSecret);
+    await symlink(outside, linkedDirectory, "dir");
+
+    let symlinkReadRejected = false;
+    try {
+      await editor.read({ path: linkedSecret });
+    } catch {
+      symlinkReadRejected = true;
+    }
+    assert(
+      symlinkReadRejected,
+      "Reads through an authorized-root symlink must be rejected.",
+    );
+
+    const escapedWritePath = join(linkedDirectory, "escaped.ts");
+    let symlinkWriteRejected = false;
+    try {
+      await editor.write({
+        path: escapedWritePath,
+        content: "export const ESCAPED = true;\n",
+      });
+    } catch {
+      symlinkWriteRejected = true;
+    }
+    assert(
+      symlinkWriteRejected,
+      "Writes through an authorized-root symlink directory must be rejected.",
+    );
+
+    let escapedFileExists = true;
+    try {
+      await access(join(outside, "escaped.ts"));
+    } catch {
+      escapedFileExists = false;
+    }
+    assert(
+      !escapedFileExists,
+      "Rejected symlink write must not create a host-side file.",
+    );
+
     let oversizedRejected =
       false;
 
@@ -189,6 +238,10 @@ async function main(): Promise<void> {
 
     console.log(
       "TREE-06 traversal protection: SUCCESS",
+    );
+
+    console.log(
+      "TREE-06 symlink escape protection: SUCCESS",
     );
 
     console.log(

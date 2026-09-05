@@ -27,6 +27,11 @@ function main(): void {
   const gate =
     new EngineeringVerificationGateAuthority();
 
+  const compileCriterion =
+    "Project must compile successfully.";
+  const verificationCriterion =
+    "Project verification must pass.";
+
   const commandResult:
     EngineeringCommandResult =
     {
@@ -48,6 +53,10 @@ function main(): void {
         100,
       completedAt:
         new Date().toISOString(),
+      verifiesCriteria: [
+        compileCriterion,
+        verificationCriterion,
+      ],
     };
 
   const accepted =
@@ -55,8 +64,8 @@ function main(): void {
       projectId:
         "project-tree-0817",
       requiredCriteria: [
-        "Project must compile successfully.",
-        "Project verification must pass.",
+        compileCriterion,
+        verificationCriterion,
       ],
       commandResults: [
         commandResult,
@@ -66,7 +75,7 @@ function main(): void {
 
   assert(
     accepted.accepted,
-    "Successful engineering evidence must satisfy the verification gate.",
+    "Explicit criterion-bound engineering evidence must satisfy the verification gate.",
   );
 
   assert(
@@ -82,7 +91,29 @@ function main(): void {
   );
 
   console.log(
-    "08.17 successful engineering verification: SUCCESS",
+    "08.17 criterion-bound engineering verification: SUCCESS",
+  );
+
+  const unrelated =
+    gate.verify({
+      projectId:
+        "project-tree-0817",
+      requiredCriteria: [
+        "The real application must launch on the target platform.",
+      ],
+      commandResults: [
+        commandResult,
+      ],
+      repairResults: [],
+    });
+
+  assert(
+    !unrelated.accepted,
+    "A successful unrelated command must not satisfy another acceptance criterion.",
+  );
+
+  console.log(
+    "08.17 unrelated green command rejection: SUCCESS",
   );
 
   const repairResult:
@@ -101,7 +132,7 @@ function main(): void {
         true,
     };
 
-  const repaired =
+  const repairedWithoutCheck =
     gate.verify({
       projectId:
         "project-tree-0817-repaired",
@@ -115,12 +146,12 @@ function main(): void {
     });
 
   assert(
-    repaired.accepted,
-    "Verified repair evidence must satisfy the engineering gate.",
+    !repairedWithoutCheck.accepted,
+    "Repair completion alone must not replace a post-repair verification command.",
   );
 
   console.log(
-    "08.17 verified repair acceptance: SUCCESS",
+    "08.17 repair-without-post-check rejection: SUCCESS",
   );
 
   const rejected =
@@ -128,7 +159,7 @@ function main(): void {
       projectId:
         "project-tree-0817-rejected",
       requiredCriteria: [
-        "Project must compile successfully.",
+        compileCriterion,
       ],
       commandResults: [
         {

@@ -30,6 +30,8 @@ export interface EngineeringCommandResult {
     number;
   completedAt:
     string;
+  verifiesCriteria?:
+    string[];
 }
 
 export interface EngineeringExecutionAttempt {

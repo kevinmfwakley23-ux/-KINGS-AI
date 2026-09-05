@@ -1,6 +1,8 @@
 import {
   readdir,
   stat,
+  lstat,
+  realpath,
   readFile,
 } from "node:fs/promises";
 
@@ -9,6 +11,7 @@ import {
   relative,
   resolve,
   basename,
+  isAbsolute,
 } from "node:path";
 
 import type {
@@ -78,16 +81,23 @@ function isExcluded(
     );
 
   return excluded.some(
-    (segment) =>
-      normalized ===
-        segment ||
-      normalized.startsWith(
-        `${segment}/`,
-      ) ||
-      normalized.includes(
-        `/${segment}/`,
-      ),
+    (segment) => {
+      const normalizedSegment = normalizeRelativePath(segment);
+      if (!normalizedSegment) return false;
+      return normalized === normalizedSegment ||
+        normalized.startsWith(`${normalizedSegment}/`) ||
+        normalized.includes(`/${normalizedSegment}/`) ||
+        normalized.endsWith(`/${normalizedSegment}`);
+    },
   );
+}
+
+function isWithinRoot(
+  candidate: string,
+  root: string,
+): boolean {
+  const rel = relative(root, candidate);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
 async function walk(
@@ -145,6 +155,10 @@ async function walk(
         policy.excludedPathSegments,
       )
     ) {
+      continue;
+    }
+
+    if (entry.isSymbolicLink()) {
       continue;
     }
 
@@ -406,9 +420,26 @@ export class RepositoryInspector {
       );
     }
 
+    const lexicalStat = await lstat(absolute);
+    if (lexicalStat.isSymbolicLink()) {
+      throw new RepositoryInspectionError(
+        `path "${normalized}" is a symbolic link and cannot be inspected`,
+      );
+    }
+
+    const [realRoot, realFile] = await Promise.all([
+      realpath(root),
+      realpath(absolute),
+    ]);
+    if (!isWithinRoot(realFile, realRoot)) {
+      throw new RepositoryInspectionError(
+        `path "${normalized}" resolves outside the repository root`,
+      );
+    }
+
     const fileStat =
       await stat(
-        absolute,
+        realFile,
       );
 
     if (
@@ -429,7 +460,7 @@ export class RepositoryInspector {
     }
 
     return readFile(
-      absolute,
+      realFile,
       "utf8",
     );
   }

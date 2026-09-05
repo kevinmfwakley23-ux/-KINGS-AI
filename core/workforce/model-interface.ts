@@ -10,7 +10,8 @@ export type IntelligenceProviderKind =
   | "internal-local"
   | "internal-self-hosted"
   | "external-free"
-  | "external-paid";
+  | "external-paid"
+  | "external-routed";
 
 export type IntelligenceCapability =
   | "reasoning"
@@ -41,15 +42,29 @@ export type ModelRequestMessageRole =
   | "assistant"
   | "tool";
 
-export interface ModelRequestMessage {
-  role: ModelRequestMessageRole;
-  content: string;
-}
-
 export interface ModelToolCallProposal {
   id: ID;
   toolId: ID;
   arguments: Record<string, unknown>;
+  /** Present when a provider emitted malformed/non-object JSON arguments. */
+  argumentParseError?: string;
+}
+
+export interface ModelRequestMessage {
+  role: ModelRequestMessageRole;
+  content: string;
+  /** Required for a tool-result message that answers one provider tool call. */
+  toolCallId?: ID;
+  /** Preserves assistant tool calls when continuing a provider-native tool loop. */
+  toolCalls?: readonly ModelToolCallProposal[];
+}
+
+export interface ModelToolDefinition {
+  /** Internal K.I.N.G.S. tool id. Provider-facing aliases are derived by adapters. */
+  toolId: ID;
+  description: string;
+  /** JSON Schema for arguments. Validation remains mandatory at K.I.N.G.S. boundaries. */
+  inputSchema: Record<string, unknown>;
 }
 
 export interface ModelExecutionRequest {
@@ -64,6 +79,10 @@ export interface ModelExecutionRequest {
   temperature?: number;
   requireStructuredOutput?: boolean;
   allowToolProposals: boolean;
+  /** Tools the model may propose. Absence means no provider-native tool advertisement. */
+  toolDefinitions?: readonly ModelToolDefinition[];
+  /** Defaults false in K.I.N.G.S. so side-effecting tools are not parallelized accidentally. */
+  parallelToolCalls?: boolean;
 }
 
 export interface ModelIdentity {
@@ -84,6 +103,12 @@ export interface ModelExecutionUsage
   extends BudgetUsage {
   inputTokens: number;
   outputTokens: number;
+  /** Provider-reported cache hits. Undefined means the provider did not report it. */
+  cachedTokens?: number;
+  /** Provider-reported tokens removed/saved by compression. Never estimated by K.I.N.G.S. */
+  savedTokens?: number;
+  /** Actual cost reported by the provider/gateway for this response, when exposed. */
+  reportedCostUsd?: number;
 }
 
 export interface ModelExecutionMetadata {
@@ -92,6 +117,8 @@ export interface ModelExecutionMetadata {
   startedAt: string;
   completedAt: string;
   latencyMs: number;
+  usagePersisted?: boolean;
+  usagePersistenceError?: string;
 }
 
 export interface ModelExecutionResponse {
