@@ -1,5 +1,6 @@
 import {
   OpenAICompatibleGatewayAdapter,
+  createConfiguredGatewayAdapters,
   createNineRouterAdapter,
   createOmniRouteAdapter,
 } from "./openai-compatible-gateway";
@@ -9,6 +10,19 @@ function assert(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
 }
 async function main(): Promise<void> {
+  const unconfigured = createConfiguredGatewayAdapters({});
+  assert(unconfigured.length === 0, "Unconfigured gateways must not be advertised as available");
+
+  const discovered = createConfiguredGatewayAdapters({
+    KINGS_OMNIROUTE_BASE_URL: "https://omniroute.example/v1",
+    KINGS_OMNIROUTE_MODELS: "auto/coding",
+    KINGS_9ROUTER_BASE_URL: "https://9router.example/v1",
+    KINGS_9ROUTER_MODELS: "auto",
+  });
+  assert(discovered.length === 2, "Configured gateways must be discovered");
+  assert(discovered.some((adapter) => adapter.descriptor.id === "omniroute"), "Configured OmniRoute gateway was not discovered");
+  assert(discovered.some((adapter) => adapter.descriptor.id === "9router"), "Configured 9Router gateway was not discovered");
+
   const omni = createOmniRouteAdapter({
     KINGS_OMNIROUTE_BASE_URL: "http://localhost:20128/v1/",
     KINGS_OMNIROUTE_MODELS: "auto/coding,auto/cheap",
