@@ -1,11 +1,8 @@
 import {
-  existsSync,
   readFileSync,
 } from "node:fs";
 
 import {
-  delimiter,
-  dirname,
   join,
 } from "node:path";
 
@@ -25,6 +22,10 @@ import {
   packageManagerCommandCapability,
   packageManagerScriptName,
 } from "./javascript-package-manager-toolchain";
+
+import {
+  safeToolchainInvocation,
+} from "./safe-toolchain-invocation";
 
 import type {
   ToolchainProbe,
@@ -51,11 +52,6 @@ export interface LocalToolchainProbeRequest {
   workingDirectory?: string;
 }
 
-interface SafeInvocation {
-  executable: string;
-  args: string[];
-}
-
 export class NodeToolchainProbeProcessRunner
   implements ToolchainProbeProcessRunner {
   run(
@@ -63,7 +59,7 @@ export class NodeToolchainProbeProcessRunner
     args: string[],
     workingDirectory?: string,
   ): ToolchainProbeProcessResult {
-    const invocation = safeInvocation(executable, args);
+    const invocation = safeToolchainInvocation(executable, args);
     const result = spawnSync(invocation.executable, invocation.args, {
       cwd: workingDirectory,
       encoding: "utf8",
@@ -200,90 +196,6 @@ export class LocalToolchainProbeAuthority {
       capabilities.add(packageCapability);
     }
   }
-}
-
-function safeInvocation(
-  executable: string,
-  args: string[],
-): SafeInvocation {
-  if (process.platform !== "win32") {
-    return { executable, args };
-  }
-
-  if (executable === "python3") {
-    return {
-      executable: "python",
-      args,
-    };
-  }
-
-  if (executable === "npm" || executable === "npx") {
-    const npmExecPath = process.env.npm_execpath;
-    if (npmExecPath) {
-      const cliPath = executable === "npm"
-        ? npmExecPath
-        : join(dirname(npmExecPath), "npx-cli.js");
-
-      if (existsSync(cliPath)) {
-        return {
-          executable: process.execPath,
-          args: [cliPath, ...args],
-        };
-      }
-    }
-  }
-
-  if (
-    executable === "pnpm" ||
-    executable === "yarn"
-  ) {
-    const cliPath = resolveWindowsNodeShim(executable);
-    if (cliPath) {
-      return {
-        executable: process.execPath,
-        args: [cliPath, ...args],
-      };
-    }
-  }
-
-  return { executable, args };
-}
-
-function resolveWindowsNodeShim(
-  executable: string,
-): string | undefined {
-  const pathEntries = (process.env.PATH ?? "")
-    .split(delimiter)
-    .filter(Boolean);
-
-  for (const directory of pathEntries) {
-    const shimPath = join(directory, `${executable}.cmd`);
-    if (!existsSync(shimPath)) continue;
-
-    try {
-      const source = readFileSync(shimPath, "utf8");
-      const matches = [
-        ...source.matchAll(
-          /%~?dp0[\\/]([^"\r\n]+\.(?:cjs|mjs|js))/giu,
-        ),
-      ];
-
-      const preferred = matches.find((match) =>
-        match[1].toLowerCase().includes(executable.toLowerCase()),
-      ) ?? matches[0];
-
-      if (!preferred?.[1]) continue;
-      const cliPath = join(
-        directory,
-        preferred[1].replaceAll("\\", "/"),
-      );
-      if (existsSync(cliPath)) return cliPath;
-    } catch {
-      // Keep searching PATH. Never execute or source the command shim.
-    }
-  }
-
-  return undefined;
 }
 
 function projectHasPackageScript(
