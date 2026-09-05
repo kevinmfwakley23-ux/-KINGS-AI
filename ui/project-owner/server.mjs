@@ -4,6 +4,9 @@ import { readFileSync } from "node:fs";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { URL } from "node:url";
 
+import { inspectEngineeringProject } from "./engineering-service.mjs";
+import { getEngineeringJob, startEngineeringJob } from "./engineering-jobs.mjs";
+
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
 const host = String(process.env.KINGS_CODING_MACHINE_BIND ?? "127.0.0.1").trim();
 const timeoutMs = Number(process.env.KINGS_CONNECTOR_HEALTH_TIMEOUT_MS ?? 1500);
@@ -12,6 +15,7 @@ const ownerCookieName = "__Host-kings_owner_access";
 const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1"]);
 const remoteMode = !loopbackHosts.has(host);
 const royalCss = readFileSync(new URL("../../native-shell/royal.css", import.meta.url), "utf8");
+const engineeringUiJs = readFileSync(new URL("./engineering-ui.js", import.meta.url), "utf8");
 const ownerSessionToken = ownerToken
   ? createHash("sha256").update(`kings-owner-session:${ownerToken}`).digest("hex")
   : "";
@@ -149,10 +153,39 @@ function html(res, body) {
     "cache-control": "no-store",
     "x-content-type-options": "nosniff",
     "x-frame-options": "DENY",
-    "content-security-policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'",
+    "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'",
     "referrer-policy": "no-referrer",
   });
   res.end(body);
+}
+
+function javascript(res, body) {
+  res.writeHead(200, {
+    "content-type": "text/javascript; charset=utf-8",
+    "content-length": Buffer.byteLength(body),
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "no-referrer",
+  });
+  res.end(body);
+}
+
+async function readJsonBody(req, maxBytes = 64 * 1024) {
+  const contentType = String(req.headers["content-type"] ?? "").toLowerCase();
+  if (!contentType.startsWith("application/json")) {
+    throw new Error("Owner engineering requests must use application/json.");
+  }
+  let raw = "";
+  for await (const chunk of req) {
+    raw += String(chunk);
+    if (Buffer.byteLength(raw) > maxBytes) throw new Error(`Owner engineering request exceeds ${maxBytes} bytes.`);
+  }
+  if (!raw.trim()) throw new Error("Owner engineering request body is required.");
+  let value;
+  try { value = JSON.parse(raw); }
+  catch { throw new Error("Owner engineering request body must contain valid JSON."); }
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Owner engineering request body must be a JSON object.");
+  return value;
 }
 
 function establishOwnerSession(res) {
@@ -179,6 +212,12 @@ function unauthorized(res) {
   );
 }
 
+function errorStatus(message) {
+  if (/outside KINGS_ENGINEERING_ROOTS/.test(message)) return 403;
+  if (/requires a successful npm run build/.test(message)) return 503;
+  return 400;
+}
+
 const page = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="light dark">
 <title>K.I.N.G.S. AI — Owner Command Palace</title>
@@ -203,31 +242,59 @@ function preferredTheme(){const saved=localStorage.getItem(THEME_KEY);if(saved==
 document.getElementById('theme-toggle').addEventListener('click',()=>applyTheme(document.documentElement.dataset.kingsTheme==='dark'?'light':'dark',true));
 async function refresh(){try{const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();document.getElementById('runtime').innerHTML='<strong>'+esc(d.platform)+'</strong><br>Node '+esc(d.node)+' · host '+esc(d.hostname);document.getElementById('connectors').innerHTML=d.connectors.map(c=>{const cls=!c.configured?'warn':c.reachable?'ok':'bad';const label=!c.configured?'Not configured':c.reachable?'Reachable':'Unreachable';return '<div class="status '+cls+'"><strong><span class="dot"></span>'+esc(c.label)+'</strong><div class="state">'+esc(label)+(c.status?' · HTTP '+esc(c.status):'')+'</div></div>'}).join('')}catch(e){document.getElementById('runtime').textContent='Runtime status unavailable';}}
 applyTheme(preferredTheme(),false);refresh();setInterval(refresh,15000);
-</script></body></html>`;
+</script><script src="/owner-engineering.js" defer></script></body></html>`;
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+  try {
+    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
-  if (req.method === "GET" && url.pathname === "/health") {
-    return json(res, 200, { ok: true, service: "kings-owner-console" });
+    if (req.method === "GET" && url.pathname === "/health") {
+      return json(res, 200, { ok: true, service: "kings-owner-console" });
+    }
+
+    const authorization = authorizeOwnerRequest(req, url);
+    if (!authorization.allowed) return unauthorized(res);
+    if (authorization.bootstrap) return establishOwnerSession(res);
+
+    if (req.method === "GET" && url.pathname === "/owner-engineering.js") {
+      return javascript(res, engineeringUiJs);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/engineering/inspect") {
+      const input = await readJsonBody(req);
+      const inspection = await inspectEngineeringProject(input, process.env);
+      return json(res, 200, inspection.public);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/engineering/jobs") {
+      const input = await readJsonBody(req);
+      const job = await startEngineeringJob(input, process.env);
+      return json(res, 202, job);
+    }
+
+    const jobMatch = url.pathname.match(/^\/api\/engineering\/jobs\/(engineering-[a-f0-9-]{36})$/);
+    if (req.method === "GET" && jobMatch) {
+      const job = await getEngineeringJob(jobMatch[1], process.env);
+      return job ? json(res, 200, job) : json(res, 404, { ok: false, error: "engineering_job_not_found", message: "Engineering job was not found." });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/status") {
+      const results = await Promise.all(connectors.map(probe));
+      return json(res, 200, {
+        ok: true, platform: process.platform, node: process.version,
+        hostname: os.hostname(), connectors: results,
+      });
+    }
+    if (req.method === "GET" && url.pathname === "/") return html(res, page);
+    return json(res, 404, { ok: false, error: "not_found" });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (res.headersSent) return res.destroy();
+    return json(res, errorStatus(message), { ok: false, error: "owner_engineering_request_failed", message });
   }
-
-  const authorization = authorizeOwnerRequest(req, url);
-  if (!authorization.allowed) return unauthorized(res);
-  if (authorization.bootstrap) return establishOwnerSession(res);
-
-  if (req.method === "GET" && url.pathname === "/api/status") {
-    const results = await Promise.all(connectors.map(probe));
-    return json(res, 200, {
-      ok: true, platform: process.platform, node: process.version,
-      hostname: os.hostname(), connectors: results,
-    });
-  }
-  if (req.method === "GET" && url.pathname === "/") return html(res, page);
-  return json(res, 404, { ok: false, error: "not_found" });
 });
 
-server.requestTimeout = 15_000;
+server.requestTimeout = 30_000;
 server.headersTimeout = 10_000;
 server.listen(port, host, () => {
   if (remoteMode) {
