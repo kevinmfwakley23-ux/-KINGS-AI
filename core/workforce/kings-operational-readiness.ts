@@ -4,7 +4,10 @@ import type { EngineeringToolchain } from "./engineering-toolchain";
 export interface KingsOperationalReadinessInput {
   machineBuildPassing: boolean;
   ownerApiAvailable: boolean;
-  ollamaAvailable: boolean;
+  appRouterAvailable: boolean;
+  highCapabilityAiRouteAvailable: boolean;
+  verifiedProviderCount: number;
+  optionalLocalModelAvailable?: boolean;
   engineeringToolchains: EngineeringToolchain[];
   workforceExecutionAvailable: boolean;
   researchGatewayAvailable: boolean;
@@ -19,9 +22,12 @@ export interface KingsOperationalReadinessResult {
 }
 
 /**
- * Lightweight release gate for the K.I.N.G.S. builder itself.
- * This is intentionally dependency-free: it reports readiness from already
- * verified runtime facts rather than installing or probing new software.
+ * Release gate for the K.I.N.G.S. builder itself.
+ *
+ * Readiness is based on verified runtime facts. A weak or optional local model
+ * is never sufficient evidence that K.I.N.G.S. can perform production work.
+ * The system must have an operational app router plus at least one verified
+ * high-capability AI route suitable for real reasoning/coding missions.
  */
 export class KingsOperationalReadinessAuthority {
   evaluate(input: KingsOperationalReadinessInput): KingsOperationalReadinessResult {
@@ -40,20 +46,36 @@ export class KingsOperationalReadinessAuthority {
       blockers.push("owner API is unavailable");
     }
 
-    if (input.ollamaAvailable) {
-      verifiedCapabilities.push("local-model-runtime");
+    if (input.appRouterAvailable) {
+      verifiedCapabilities.push("shared-app-ai-router");
     } else {
-      blockers.push("Ollama/local model runtime is unavailable");
+      blockers.push("shared app AI router is unavailable");
     }
 
-    if (input.engineeringToolchains.length > 0) {
+    if (input.verifiedProviderCount > 0) {
+      verifiedCapabilities.push(`verified-ai-providers:${input.verifiedProviderCount}`);
+    } else {
+      blockers.push("no verified AI provider is available");
+    }
+
+    if (input.highCapabilityAiRouteAvailable) {
+      verifiedCapabilities.push("high-capability-ai-route");
+    } else {
+      blockers.push("no verified high-capability AI route is available for real coding/reasoning work");
+    }
+
+    if (input.optionalLocalModelAvailable) {
+      verifiedCapabilities.push("optional-local-model-runtime");
+    }
+
+    const enabledToolchains = input.engineeringToolchains
+      .filter((toolchain) => toolchain.enabled);
+    if (enabledToolchains.length > 0) {
       verifiedCapabilities.push(
-        ...input.engineeringToolchains
-          .filter((toolchain) => toolchain.enabled)
-          .map((toolchain) => `toolchain:${toolchain.language}`),
+        ...enabledToolchains.map((toolchain) => `toolchain:${toolchain.language}`),
       );
     } else {
-      blockers.push("no engineering toolchains are registered");
+      blockers.push("no enabled engineering toolchains are registered");
     }
 
     if (input.workforceExecutionAvailable) {
