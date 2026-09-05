@@ -2,7 +2,10 @@ import { timingSafeEqual } from "node:crypto";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 
 import { AppAiRouter, AppAiRouterError, type AppAiRouteRequest } from "../../core/workforce/app-ai-router";
-import { createNineRouterAdapter, createOmniRouteAdapter } from "../../core/workforce/openai-compatible-gateway";
+import {
+  bootstrapVerifiedGatewayProviders,
+  type VerifiedGatewayStatus,
+} from "../../core/workforce/gateway-provider-bootstrap";
 import { ProviderAdapterRegistry } from "../../core/workforce/provider-adapters";
 
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -88,11 +91,8 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 export function createAppRouterRuntime(
   config = loadConfig(),
   providers = new ProviderAdapterRegistry(),
+  gatewayStatuses: readonly VerifiedGatewayStatus[] = [],
 ): http.Server {
-  if (providers.list().length === 0) {
-    providers.register(createOmniRouteAdapter());
-    providers.register(createNineRouterAdapter());
-  }
   const router = new AppAiRouter(providers, config.providerOrder);
 
   return http.createServer(async (request, response) => {
@@ -100,10 +100,21 @@ export function createAppRouterRuntime(
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
     try {
       if (request.method === "GET" && url.pathname === "/health") {
-        return sendJson(response, 200, {
-          ok: true,
+        const availableProviders = providers.listAvailable();
+        const healthy = availableProviders.length > 0;
+        return sendJson(response, healthy ? 200 : 503, {
+          ok: healthy,
           service: "kings-ai-app-router",
-          providers: providers.listAvailable().map((provider) => provider.id),
+          providers: availableProviders.map((provider) => provider.id),
+          gateways: gatewayStatuses.map((status) => ({
+            providerId: status.providerId,
+            configured: status.configured,
+            reachable: status.reachable,
+            verified: status.verified,
+            discoveredModels: status.discoveredModels,
+            routableModels: status.routableModels,
+            error: status.error,
+          })),
         });
       }
 
@@ -116,10 +127,21 @@ export function createAppRouterRuntime(
           const adapter = providers.get(provider.id);
           return adapter?.listModels() ?? [];
         });
-        return sendJson(response, 200, { ok: true, models });
+        return sendJson(response, models.length > 0 ? 200 : 503, {
+          ok: models.length > 0,
+          models,
+        });
       }
 
       if (request.method === "POST" && url.pathname === "/v1/route") {
+        if (providers.listAvailable().length === 0) {
+          return sendJson(response, 503, {
+            success: false,
+            code: "NO_VERIFIED_PROVIDER",
+            message: "K.I.N.G.S. has no verified AI provider available.",
+          });
+        }
+
         const body = await readJson(request);
         if (!body || typeof body !== "object" || Array.isArray(body)) {
           throw new AppAiRouterError("INVALID_REQUEST", "Request body must be a JSON object.");
@@ -155,12 +177,22 @@ export function createAppRouterRuntime(
   });
 }
 
-if (require.main === module) {
+async function start(): Promise<void> {
   const config = loadConfig();
-  const server = createAppRouterRuntime(config);
+  const bootstrap = await bootstrapVerifiedGatewayProviders(process.env);
+  const server = createAppRouterRuntime(config, bootstrap.registry, bootstrap.statuses);
   server.requestTimeout = 70_000;
   server.headersTimeout = 10_000;
   server.listen(config.port, config.host, () => {
+    const verified = bootstrap.registry.listAvailable().map((provider) => provider.id);
     console.log(`K.I.N.G.S. App AI Router: http://${config.host}:${config.port}`);
+    console.log(`Verified AI providers: ${verified.length > 0 ? verified.join(", ") : "NONE"}`);
+  });
+}
+
+if (require.main === module) {
+  void start().catch((error) => {
+    console.error("K.I.N.G.S. App AI Router failed to start", error);
+    process.exitCode = 1;
   });
 }
