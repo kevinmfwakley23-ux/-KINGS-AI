@@ -1,13 +1,31 @@
 import http from "node:http";
 import os from "node:os";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { URL } from "node:url";
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
-const host = process.env.KINGS_CODING_MACHINE_BIND ?? "127.0.0.1";
+const host = String(process.env.KINGS_CODING_MACHINE_BIND ?? "127.0.0.1").trim();
 const timeoutMs = Number(process.env.KINGS_CONNECTOR_HEALTH_TIMEOUT_MS ?? 1500);
+const ownerToken = String(process.env.KINGS_CODING_MACHINE_TOKEN ?? "").trim();
+const ownerCookieName = "__Host-kings_owner_access";
+const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1"]);
+const remoteMode = !loopbackHosts.has(host);
+const ownerSessionToken = ownerToken
+  ? createHash("sha256").update(`kings-owner-session:${ownerToken}`).digest("hex")
+  : "";
 
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error("KINGS_CODING_MACHINE_PORT must be a valid TCP port");
+}
+
+if (!host) {
+  throw new Error("KINGS_CODING_MACHINE_BIND must not be empty");
+}
+
+if (remoteMode && ownerToken.length < 24) {
+  throw new Error(
+    "K.I.N.G.S. Owner Console refuses non-loopback binding without KINGS_CODING_MACHINE_TOKEN of at least 24 characters",
+  );
 }
 
 const connectors = [
@@ -40,6 +58,53 @@ function joinUrl(base, path) {
   return `${base.replace(/\/+$/, "")}${path}`;
 }
 
+function tokenMatches(actual, expected) {
+  const left = Buffer.from(String(actual ?? ""));
+  const right = Buffer.from(String(expected ?? ""));
+  return left.length === right.length && left.length > 0 && timingSafeEqual(left, right);
+}
+
+function parseCookies(value) {
+  const cookies = Object.create(null);
+  for (const part of String(value ?? "").split(";")) {
+    const index = part.indexOf("=");
+    if (index <= 0) continue;
+    const name = part.slice(0, index).trim();
+    const raw = part.slice(index + 1).trim();
+    if (!name) continue;
+    try {
+      cookies[name] = decodeURIComponent(raw);
+    } catch {
+      cookies[name] = raw;
+    }
+  }
+  return cookies;
+}
+
+function authorizeOwnerRequest(req, url) {
+  if (!remoteMode) return { allowed: true, bootstrap: false };
+
+  if (url.searchParams.has("access")) {
+    const supplied = url.searchParams.get("access") ?? "";
+    return {
+      allowed: req.method === "GET" && url.pathname === "/" && tokenMatches(supplied, ownerToken),
+      bootstrap: req.method === "GET" && url.pathname === "/" && tokenMatches(supplied, ownerToken),
+    };
+  }
+
+  const authorization = String(req.headers.authorization ?? "");
+  if (authorization.startsWith("Bearer ") && tokenMatches(authorization.slice(7).trim(), ownerToken)) {
+    return { allowed: true, bootstrap: false };
+  }
+
+  const cookies = parseCookies(req.headers.cookie);
+  if (tokenMatches(cookies[ownerCookieName], ownerSessionToken)) {
+    return { allowed: true, bootstrap: false };
+  }
+
+  return { allowed: false, bootstrap: false };
+}
+
 async function probe(connector) {
   if (!connector.configured) {
     return { id: connector.id, label: connector.label, configured: false, reachable: false };
@@ -62,13 +127,15 @@ async function probe(connector) {
   }
 }
 
-function json(res, status, body) {
+function json(res, status, body, extraHeaders = {}) {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "content-length": Buffer.byteLength(payload),
     "cache-control": "no-store",
     "x-content-type-options": "nosniff",
+    "referrer-policy": "no-referrer",
+    ...extraHeaders,
   });
   res.end(payload);
 }
@@ -84,6 +151,30 @@ function html(res, body) {
     "referrer-policy": "no-referrer",
   });
   res.end(body);
+}
+
+function establishOwnerSession(res) {
+  res.writeHead(303, {
+    location: "/",
+    "set-cookie": `${ownerCookieName}=${encodeURIComponent(ownerSessionToken)}; Path=/; HttpOnly; Secure; SameSite=Strict`,
+    "cache-control": "no-store",
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
+  });
+  res.end();
+}
+
+function unauthorized(res) {
+  return json(
+    res,
+    401,
+    {
+      ok: false,
+      error: "owner_authentication_required",
+      message: "Authenticate through the secure owner bootstrap URL or a Bearer token.",
+    },
+    { "www-authenticate": 'Bearer realm="K.I.N.G.S. Owner Console"' },
+  );
 }
 
 const page = `<!doctype html>
@@ -105,7 +196,7 @@ code{background:#0b0d12;padding:.15rem .35rem;border-radius:5px}button{backgroun
 <section class="card"><h2>Token controls</h2><p class="muted">Context budgets, model output caps, provider-side routing/caching, and measured usage remain enforced by the K.I.N.G.S. workforce runtime.</p></section>
 </main><script>
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-async function refresh(){try{const d=await fetch('/api/status',{cache:'no-store'}).then(r=>r.json());
+async function refresh(){try{const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();
 document.getElementById('runtime').innerHTML=esc(d.platform)+' · Node '+esc(d.node)+' · '+esc(d.hostname);
 document.getElementById('connectors').innerHTML=d.connectors.map(c=>{
 const cls=!c.configured?'warn':c.reachable?'ok':'bad';const label=!c.configured?'not configured':c.reachable?'reachable':'unreachable';
@@ -116,9 +207,15 @@ refresh();setInterval(refresh,15000);
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+
   if (req.method === "GET" && url.pathname === "/health") {
     return json(res, 200, { ok: true, service: "kings-owner-console" });
   }
+
+  const authorization = authorizeOwnerRequest(req, url);
+  if (!authorization.allowed) return unauthorized(res);
+  if (authorization.bootstrap) return establishOwnerSession(res);
+
   if (req.method === "GET" && url.pathname === "/api/status") {
     const results = await Promise.all(connectors.map(probe));
     return json(res, 200, {
@@ -133,5 +230,9 @@ const server = http.createServer(async (req, res) => {
 server.requestTimeout = 15_000;
 server.headersTimeout = 10_000;
 server.listen(port, host, () => {
-  console.log(`K.I.N.G.S. Owner Console: http://${host === "0.0.0.0" ? "127.0.0.1" : host}:${port}`);
+  if (remoteMode) {
+    console.log(`K.I.N.G.S. Owner Console: authenticated remote mode on ${host}:${port}; terminate transport at trusted HTTPS and bootstrap with ?access=<KINGS_CODING_MACHINE_TOKEN>`);
+  } else {
+    console.log(`K.I.N.G.S. Owner Console: http://${host}:${port}`);
+  }
 });
