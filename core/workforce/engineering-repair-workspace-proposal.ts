@@ -1,6 +1,5 @@
 import type {
   EngineeringLanguage,
-  ToolchainOperation,
 } from "./engineering-toolchain";
 
 import type {
@@ -45,6 +44,11 @@ export interface EngineeringRepairWorkspaceProposalResult
  * repair proposal before it reaches the filesystem editor. The earlier strict
  * parser proves shape and the exact repair allow-list; this authority proves the
  * same changes still fit the active EngineeringWorkspace policy.
+ *
+ * EngineeringWorkspace represents governed filesystem mutation with the
+ * existing "create" capability. Proposal-level "replace" remains a semantic
+ * distinction for revision evidence, but it does not invent a second workspace
+ * permission that the core ToolchainOperation vocabulary does not define.
  */
 export class EngineeringRepairWorkspaceProposalAuthority {
   authorize(
@@ -58,6 +62,11 @@ export class EngineeringRepairWorkspaceProposalAuthority {
     if (!request.workspace.active) {
       throw new Error(
         "K.I.N.G.S. Engineering Repair Workspace Proposal: engineering workspace is inactive.",
+      );
+    }
+    if (!request.workspace.allowedOperations.includes("create")) {
+      throw new Error(
+        "K.I.N.G.S. Engineering Repair Workspace Proposal: workspace does not authorize governed file mutation.",
       );
     }
     if (request.proposal.taskId !== request.step.id) {
@@ -114,13 +123,6 @@ export class EngineeringRepairWorkspaceProposalAuthority {
     ) {
       throw new Error(
         `K.I.N.G.S. Engineering Repair Workspace Proposal: path "${path}" is outside the authorized workspace.`,
-      );
-    }
-
-    const operation = change.operation as ToolchainOperation;
-    if (!workspace.allowedOperations.includes(operation)) {
-      throw new Error(
-        `K.I.N.G.S. Engineering Repair Workspace Proposal: operation "${change.operation}" is not authorized for this workspace.`,
       );
     }
 
