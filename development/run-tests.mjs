@@ -4,18 +4,18 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const root = new URL("../", import.meta.url);
-const buildRoot = new URL("../build/core/workforce/", import.meta.url);
+const buildRoot = new URL("../build/", import.meta.url);
 const rootPath = fileURLToPath(root);
 const buildPath = fileURLToPath(buildRoot);
 const runLive = process.argv.includes("--live");
 
 const liveOnly = new Set([
-  "execution/crewai-selection-test.js",
-  "execution/real-knowledge-execution-test.js",
-  "execution/research-backed-acquisition-execution-test.js",
-  "ollama-real-model-test.js",
-  "real-local-code-change-loop-test.js",
-  "real-local-coding-proof-test.js",
+  "core/workforce/execution/crewai-selection-test.js",
+  "core/workforce/execution/real-knowledge-execution-test.js",
+  "core/workforce/execution/research-backed-acquisition-execution-test.js",
+  "core/workforce/ollama-real-model-test.js",
+  "core/workforce/real-local-code-change-loop-test.js",
+  "core/workforce/real-local-coding-proof-test.js",
 ]);
 
 async function discover(directory) {
