@@ -96,56 +96,43 @@ export class LocalCodingWriteBridge {
       );
     }
 
-    const writes:
-      {
-        path:
-          string;
-        bytesWritten:
-          number;
-      }[] = [];
+    const edits:
+      EngineeringRepairEdit[] =
+      request.proposal.changes.map(
+        (
+          change,
+        ) => ({
+          stepId:
+            request.step.id,
+          projectId:
+            request.projectId,
+          path:
+            resolve(
+              request.workspaceRoot,
+              change.path,
+            ),
+          content:
+            change.content,
+        }),
+      );
 
-    for (
-      const change of
-      request.proposal.changes
+    const results =
+      await this.editor.executeBatch(
+        request.step,
+        edits,
+      );
+
+    if (
+      results.some(
+        (
+          result,
+        ) =>
+          !result.success,
+      )
     ) {
-      const absolutePath =
-        resolve(
-          request.workspaceRoot,
-          change.path,
-        );
-
-      const edit:
-        EngineeringRepairEdit = {
-        stepId:
-          request.step.id,
-        projectId:
-          request.projectId,
-        path:
-          absolutePath,
-        content:
-          change.content,
-      };
-
-      const result =
-        await this.editor.execute(
-          request.step,
-          edit,
-        );
-
-      if (
-        !result.success
-      ) {
-        throw new Error(
-          `K.I.N.G.S. Local Coding Write Bridge: governed write failed for "${absolutePath}".`,
-        );
-      }
-
-      writes.push({
-        path:
-          result.path,
-        bytesWritten:
-          result.bytesWritten,
-      });
+      throw new Error(
+        "K.I.N.G.S. Local Coding Write Bridge: governed repair batch reported an unsuccessful write.",
+      );
     }
 
     return {
@@ -153,7 +140,17 @@ export class LocalCodingWriteBridge {
         request.step.id,
       projectId:
         request.projectId,
-      writes,
+      writes:
+        results.map(
+          (
+            result,
+          ) => ({
+            path:
+              result.path,
+            bytesWritten:
+              result.bytesWritten,
+          }),
+        ),
     };
   }
 }
