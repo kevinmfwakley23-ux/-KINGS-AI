@@ -50,7 +50,7 @@ const fetcher: WebAccessFetcher = async (url) => sourceResponse(url);
 async function runTest(): Promise<void> {
   const providers = new ProviderAdapterRegistry();
   providers.register({
-    descriptor: { id: "stub", name: "Stub", kind: "local", available: false },
+    descriptor: { id: "stub", name: "Stub", kind: "internal-local", available: false },
     listModels: () => [],
     getModel: () => undefined,
     async execute() {
