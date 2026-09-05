@@ -226,7 +226,7 @@ export class AppAiRouter {
             inputTokens: response.usage.inputTokens,
             outputTokens: response.usage.outputTokens,
             totalTokens: response.usage.inputTokens + response.usage.outputTokens,
-            estimatedCost: response.usage.estimatedCost,
+            estimatedCost: response.usage.estimatedCost ?? 0,
             elapsedMs: response.usage.elapsedMs,
           },
           attempts,
