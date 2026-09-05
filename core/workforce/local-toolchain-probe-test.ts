@@ -67,7 +67,7 @@ function main(): void {
 
   assert(
     verification.missingExecutables.length === 0 &&
-      verification.missingCapabilities.length === 0,
+      (verification.missingCapabilities ?? []).length === 0,
     "A verified local TypeScript toolchain must have no hidden executable, package, or project-script gaps.",
   );
 
