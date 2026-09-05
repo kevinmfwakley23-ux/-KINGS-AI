@@ -35,7 +35,7 @@ assert.match(owner, /Owner Command Palace/);
 assert.match(owner, /THE MODEL COURT/);
 assert.match(owner, /ROYAL LAW/);
 assert.match(owner, /id="theme-toggle"/);
-assert.match(owner, /data\.kingsTheme/);
+assert.match(owner, /document\.documentElement\.dataset\.kingsTheme/);
 assert.doesNotMatch(owner, /background:#0b0d12;color:#f3f5f7/, "legacy dark-admin skin must not return");
 
 // Visual work must not weaken the already-verified remote owner boundary.
