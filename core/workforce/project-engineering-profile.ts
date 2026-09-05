@@ -60,52 +60,83 @@ export class ProjectEngineeringProfileAuthority {
       ProjectEngineeringProfileRequest,
   ):
     ProjectEngineeringProfile {
-    const verifiedToolchains =
-      request.toolchainResults.filter(
-        (result) =>
-          result.verified,
+    const requestedLanguages =
+      new Set(
+        request.languages.map(
+          (language) =>
+            language.language,
+        ),
       );
 
-    const unsupportedLanguages =
-      request.toolchainResults
-        .filter(
-          (result) =>
-            !result.verified,
+    const verifiedByLanguage =
+      new Map<
+        EngineeringLanguage,
+        ToolchainVerificationResult
+      >();
+
+    for (
+      const result of
+        request.toolchainResults
+    ) {
+      if (
+        !requestedLanguages.has(
+          result.language,
+        ) ||
+        !result.verified ||
+        verifiedByLanguage.has(
+          result.language,
         )
+      ) {
+        continue;
+      }
+
+      verifiedByLanguage.set(
+        result.language,
+        result,
+      );
+    }
+
+    const verifiedToolchains =
+      [
+        ...verifiedByLanguage.values(),
+      ];
+
+    const unsupportedLanguages =
+      request.languages
         .map(
-          (result) =>
-            result.language,
+          (language) =>
+            language.language,
+        )
+        .filter(
+          (language) =>
+            !verifiedByLanguage.has(
+              language,
+            ),
         );
 
-    const uniqueUnsupported =
-      [
-        ...new Set(
-          unsupportedLanguages,
-        ),
-      ];
+    const allRequiredLanguagesVerified =
+      unsupportedLanguages.length ===
+      0;
 
     const buildReady =
       request.requiredOperations.includes(
         "build",
       )
-        ? verifiedToolchains.length ===
-          request.languages.length
+        ? allRequiredLanguagesVerified
         : true;
 
     const testReady =
       request.requiredOperations.includes(
         "test",
       )
-        ? verifiedToolchains.length ===
-          request.languages.length
+        ? allRequiredLanguagesVerified
         : true;
 
     const debugReady =
       request.requiredOperations.includes(
         "run",
       ) &&
-      verifiedToolchains.length ===
-        request.languages.length;
+      allRequiredLanguagesVerified;
 
     return {
       id:
@@ -142,8 +173,9 @@ export class ProjectEngineeringProfileAuthority {
             ],
           }),
         ),
-      unsupportedLanguages:
-        uniqueUnsupported,
+      unsupportedLanguages: [
+        ...unsupportedLanguages,
+      ],
       buildReady,
       testReady,
       debugReady,
