@@ -359,3 +359,19 @@ export function createNineRouterAdapter(
     models: csv(env.KINGS_9ROUTER_MODELS, ["auto"]).map((id) => ({ id })),
   });
 }
+
+export function createConfiguredGatewayAdapters(
+  env: NodeJS.ProcessEnv = process.env,
+): OpenAICompatibleGatewayAdapter[] {
+  const adapters: OpenAICompatibleGatewayAdapter[] = [];
+  const omniConfigured = Boolean(
+    env.KINGS_OMNIROUTE_BASE_URL?.trim() || env.KINGS_OMNIROUTE_MODELS?.trim(),
+  );
+  const nineConfigured = Boolean(
+    env.KINGS_9ROUTER_BASE_URL?.trim() || env.KINGS_9ROUTER_MODELS?.trim(),
+  );
+
+  if (omniConfigured) adapters.push(createOmniRouteAdapter(env));
+  if (nineConfigured) adapters.push(createNineRouterAdapter(env));
+  return adapters;
+}
