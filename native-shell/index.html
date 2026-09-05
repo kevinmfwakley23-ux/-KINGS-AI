@@ -4,49 +4,71 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#111315">
   <title>K.I.N.G.S. AI</title>
+  <link rel="stylesheet" href="./royal.css">
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <main class="shell">
-    <section class="crest" aria-labelledby="title">
-      <div class="crown" aria-hidden="true">♛</div>
-      <p class="eyebrow">KNOWLEDGE · INVESTIGATION · NARRATIVE · GENERATION · SYSTEM</p>
-      <h1 id="title">K.I.N.G.S. AI</h1>
-      <p class="lead">Secure Android gateway to your real K.I.N.G.S. owner runtime.</p>
-    </section>
+    <header class="royal-header">
+      <div class="header-actions">
+        <span class="realm-badge">OWNER COMMAND GATEWAY</span>
+        <button id="theme-toggle" class="kings-button kings-theme-toggle theme-toggle" type="button" aria-pressed="false">Dark court</button>
+      </div>
+      <section class="crest" aria-labelledby="title">
+        <div class="crown kings-seal" aria-hidden="true">♛</div>
+        <p class="kings-eyebrow">KNOWLEDGE · INVESTIGATION · NARRATIVE · GENERATION · SYSTEM</p>
+        <h1 id="title" class="kings-display">K.I.N.G.S.</h1>
+        <div class="kings-rule" aria-hidden="true"></div>
+        <p class="lead kings-serif">Your secure royal gateway to the K.I.N.G.S. AI command runtime.</p>
+      </section>
+    </header>
 
-    <section class="card" aria-labelledby="connect-title">
-      <h2 id="connect-title">Connect to K.I.N.G.S.</h2>
-      <p class="muted">Your owner runtime must be reachable through trusted HTTPS. The owner token is used only for the one-time bootstrap request and is never saved by this app.</p>
+    <section class="card kings-panel kings-panel-strong" aria-labelledby="connect-title">
+      <div class="card-title-row">
+        <div>
+          <p class="kings-eyebrow">THE OUTER GATE</p>
+          <h2 id="connect-title" class="kings-serif">Enter the Command Palace</h2>
+        </div>
+        <div class="mini-crest kings-seal" aria-hidden="true">K</div>
+      </div>
+      <p class="muted">Connect only to your trusted HTTPS owner runtime. Your owner token is used for the one-time audience at the gate and is never stored by this app.</p>
 
       <form id="connect-form" novalidate>
-        <label for="owner-url">Owner runtime URL</label>
+        <label for="owner-url">Owner runtime</label>
         <input id="owner-url" name="ownerUrl" type="url" inputmode="url" autocomplete="url" spellcheck="false" placeholder="https://kings.example.com" required>
 
-        <label for="owner-token">Owner token</label>
+        <label for="owner-token">Royal owner token</label>
         <div class="secret-row">
           <input id="owner-token" name="ownerToken" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" minlength="24" required>
-          <button id="toggle-token" class="secondary" type="button" aria-pressed="false">Show</button>
+          <button id="toggle-token" class="kings-button secondary" type="button" aria-pressed="false">Show</button>
         </div>
 
-        <button class="primary" type="submit">Open K.I.N.G.S.</button>
+        <button class="kings-button kings-button-primary primary" type="submit">Enter K.I.N.G.S.</button>
       </form>
 
-      <button id="open-saved" class="secondary full" type="button" hidden>Open saved secure host</button>
-      <button id="forget-host" class="text-button" type="button" hidden>Forget saved host</button>
+      <div class="saved-actions">
+        <button id="open-saved" class="kings-button secondary full" type="button" hidden>Open saved secure host</button>
+        <button id="forget-host" class="text-button" type="button" hidden>Forget saved host</button>
+      </div>
       <p id="status" class="status" role="status" aria-live="polite">Enter your HTTPS owner runtime and token.</p>
     </section>
 
-    <section class="card compact">
-      <h2>Security boundary</h2>
-      <ul>
-        <li>HTTPS remote hosts only.</li>
-        <li>No credentials in the saved host URL.</li>
-        <li>No owner token stored in localStorage.</li>
-        <li>K.I.N.G.S. replaces bootstrap credentials with its HttpOnly secure session cookie.</li>
-      </ul>
+    <section class="card compact kings-panel" aria-labelledby="security-title">
+      <div class="court-heading">
+        <span class="court-icon" aria-hidden="true">◆</span>
+        <div><p class="kings-eyebrow">ROYAL GUARD</p><h2 id="security-title" class="kings-serif">Security Boundary</h2></div>
+      </div>
+      <div class="guard-grid">
+        <div><strong>HTTPS only</strong><span>Remote command traffic never opts into plain HTTP.</span></div>
+        <div><strong>Token ephemeral</strong><span>The reusable owner token is erased before navigation.</span></div>
+        <div><strong>Host only saved</strong><span>No credentials are written into the remembered URL.</span></div>
+        <div><strong>Server session</strong><span>K.I.N.G.S. replaces bootstrap access with its HttpOnly secure cookie.</span></div>
+      </div>
     </section>
+
+    <footer class="royal-footer"><span>♛</span> GOVERNED OWNER ACCESS · K.I.N.G.S. AI <span>♛</span></footer>
   </main>
   <script src="./app.js"></script>
 </body>
