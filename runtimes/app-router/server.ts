@@ -7,6 +7,8 @@ import { ProviderAdapterRegistry } from "../../core/workforce/provider-adapters"
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const DEFAULT_PORT = 8790;
+const RESPONSES_APP_ID = "authors.forge";
+const RESPONSE_ROLES = new Set(["system", "user", "assistant", "tool"]);
 
 interface RouterRuntimeConfig {
   host: string;
@@ -14,6 +16,8 @@ interface RouterRuntimeConfig {
   accessToken?: string;
   providerOrder: string[];
 }
+
+type ResponsesRole = "system" | "user" | "assistant" | "tool";
 
 function parsePort(raw: string | undefined): number {
   const value = Number.parseInt(raw ?? String(DEFAULT_PORT), 10);
@@ -85,6 +89,58 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   }
 }
 
+function parseResponsesInput(input: unknown): Array<{ role: ResponsesRole; content: string }> {
+  if (typeof input === "string" && input.trim()) {
+    return [{ role: "user", content: input }];
+  }
+  if (!Array.isArray(input) || input.length < 1 || input.length > 100) {
+    throw new AppAiRouterError("INVALID_RESPONSES_INPUT", "input must be a non-empty string or an array of 1 to 100 role/content messages.");
+  }
+  return input.map((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new AppAiRouterError("INVALID_RESPONSES_INPUT", `input[${index}] must be an object.`);
+    }
+    const record = entry as Record<string, unknown>;
+    const role = record.role;
+    const content = record.content;
+    if (typeof role !== "string" || !RESPONSE_ROLES.has(role)) {
+      throw new AppAiRouterError("INVALID_RESPONSES_ROLE", `input[${index}].role is not supported.`);
+    }
+    if (typeof content !== "string" || content.length < 1 || content.length > 100_000) {
+      throw new AppAiRouterError("INVALID_RESPONSES_CONTENT", `input[${index}].content must contain 1 to 100000 characters.`);
+    }
+    return { role: role as ResponsesRole, content };
+  });
+}
+
+function parseResponsesRequest(body: unknown): AppAiRouteRequest {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new AppAiRouterError("INVALID_RESPONSES_REQUEST", "Request body must be a JSON object.");
+  }
+  const record = body as Record<string, unknown>;
+  const model = record.model;
+  if (typeof model !== "string" || !model.trim()) {
+    throw new AppAiRouterError("INVALID_RESPONSES_MODEL", "model must be a non-empty string.");
+  }
+  const maxOutputTokens = record.max_output_tokens;
+  if (maxOutputTokens !== undefined && (!Number.isInteger(maxOutputTokens) || Number(maxOutputTokens) < 1 || Number(maxOutputTokens) > 65_536)) {
+    throw new AppAiRouterError("INVALID_MAX_OUTPUT_TOKENS", "max_output_tokens must be an integer between 1 and 65536.");
+  }
+  const temperature = record.temperature;
+  if (temperature !== undefined && (typeof temperature !== "number" || !Number.isFinite(temperature) || temperature < 0 || temperature > 2)) {
+    throw new AppAiRouterError("INVALID_TEMPERATURE", "temperature must be between 0 and 2.");
+  }
+  return {
+    appId: RESPONSES_APP_ID,
+    messages: parseResponsesInput(record.input),
+    ...(model.trim().toLowerCase() === "auto" ? {} : { modelId: model.trim() }),
+    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens: Number(maxOutputTokens) }),
+    ...(temperature === undefined ? {} : { temperature }),
+    requiredCapabilities: ["reasoning"],
+    allowToolProposals: false,
+  };
+}
+
 export function createAppRouterRuntime(
   config = loadConfig(),
   providers = new ProviderAdapterRegistry(),
@@ -116,6 +172,46 @@ export function createAppRouterRuntime(
           return adapter?.listModels() ?? [];
         });
         return sendJson(response, 200, { ok: true, models });
+      }
+
+      if (request.method === "POST" && (url.pathname === "/responses" || url.pathname === "/v1/responses")) {
+        const result = await router.route(parseResponsesRequest(await readJson(request)));
+        console.log(JSON.stringify({
+          timestamp: new Date().toISOString(),
+          event: "app_ai_responses",
+          appId: result.appId,
+          requestId: result.requestId,
+          success: result.success,
+          providerId: result.success ? result.providerId : undefined,
+          modelId: result.success ? result.modelId : undefined,
+          attempts: result.attempts.length,
+          durationMs: Date.now() - startedAt,
+        }));
+        if (!result.success) {
+          const statusCode = result.code === "NO_ROUTABLE_MODEL" ? 503 : 502;
+          return sendJson(response, statusCode, {
+            error: { code: result.code, message: result.message },
+            request_id: result.requestId,
+          });
+        }
+        return sendJson(response, 200, {
+          id: result.requestId,
+          object: "response",
+          status: "completed",
+          model: result.modelId,
+          provider: result.providerId,
+          output_text: result.content,
+          output: [{
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: result.content }],
+          }],
+          usage: {
+            input_tokens: result.usage.inputTokens,
+            output_tokens: result.usage.outputTokens,
+            total_tokens: result.usage.totalTokens,
+          },
+        });
       }
 
       if (request.method === "POST" && url.pathname === "/v1/route") {
