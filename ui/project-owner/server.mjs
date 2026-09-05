@@ -13,25 +13,25 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 const connectors = [
   {
     id: "ollama",
-    label: "Ollama",
-    url: process.env.KINGS_CODING_MACHINE_OLLAMA_URL ?? "http://127.0.0.1:11434",
+    label: "Ollama (optional local fallback)",
+    url: process.env.KINGS_CODING_MACHINE_OLLAMA_URL ?? "",
     healthPath: "/api/tags",
-    configured: true,
+    configured: Boolean(process.env.KINGS_CODING_MACHINE_OLLAMA_URL),
   },
   {
     id: "omniroute",
     label: "OmniRoute",
-    url: process.env.KINGS_OMNIROUTE_BASE_URL ?? "http://127.0.0.1:20128/v1",
+    url: process.env.KINGS_OMNIROUTE_BASE_URL ?? "",
     healthPath: "/models",
-    configured: Boolean(process.env.KINGS_OMNIROUTE_BASE_URL || process.env.KINGS_OMNIROUTE_MODELS),
+    configured: Boolean(process.env.KINGS_OMNIROUTE_BASE_URL),
     apiKey: process.env.KINGS_OMNIROUTE_API_KEY,
   },
   {
     id: "9router",
     label: "9Router",
-    url: process.env.KINGS_9ROUTER_BASE_URL ?? "http://127.0.0.1:20128/v1",
+    url: process.env.KINGS_9ROUTER_BASE_URL ?? "",
     healthPath: "/models",
-    configured: Boolean(process.env.KINGS_9ROUTER_BASE_URL || process.env.KINGS_9ROUTER_MODELS),
+    configured: Boolean(process.env.KINGS_9ROUTER_BASE_URL),
     apiKey: process.env.KINGS_9ROUTER_API_KEY,
   },
 ];
@@ -102,7 +102,7 @@ code{background:#0b0d12;padding:.15rem .35rem;border-radius:5px}button{backgroun
 <header><div><div class="muted">Project Owner Runtime</div><h1>K.I.N.G.S. AI</h1><div class="muted">Cross-platform operational console</div></div><button onclick="refresh()">Refresh</button></header>
 <section class="card"><h2>Runtime</h2><div id="runtime" class="muted">Loading…</div></section>
 <section class="card"><h2>AI Connectors</h2><div id="connectors" class="grid"></div></section>
-<section class="card"><h2>Token controls</h2><p class="muted">Context budgets, model output caps, provider-side routing/caching, and measured usage remain enforced by the K.I.N.G.S. workforce runtime.</p></section>
+<section class="card"><h2>Routing policy</h2><p class="muted">High-capability verified routes power production work. Local models are optional fallbacks only. Context budgets, model output caps, provider-side routing/caching, and measured usage remain enforced by the K.I.N.G.S. workforce runtime.</p></section>
 </main><script>
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 async function refresh(){try{const d=await fetch('/api/status',{cache:'no-store'}).then(r=>r.json());
