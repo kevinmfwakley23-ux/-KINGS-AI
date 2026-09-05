@@ -6,11 +6,11 @@
   "scripts": {
     "clean": "node development/clean-build.mjs",
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node development/run-tests.mjs && node ui/project-owner/server-auth-test.mjs && node ui/project-owner/royal-ui-test.mjs && npm run test:knowledge",
+    "test": "npm run build && node development/run-tests.mjs && node ui/project-owner/server-auth-test.mjs && node ui/project-owner/royal-ui-test.mjs && node ui/project-owner/engineering-api-test.mjs && npm run test:knowledge",
     "test:live": "npm run build && node development/run-tests.mjs --live",
     "accept:local-only": "npm run build && node build/core/workforce/v1-acceptance-009-local-only-mission-test.js",
     "test:knowledge": "python3 runtimes/knowledge-retrieval/retriever-test.py",
-    "start": "node ui/project-owner/server.mjs",
+    "start": "npm run build && node ui/project-owner/server.mjs",
     "start:router": "npm run build && node build/runtimes/app-router/server.js",
     "platform:check": "node development/platform-check.mjs",
     "verify": "npm run platform:check && npm test"
