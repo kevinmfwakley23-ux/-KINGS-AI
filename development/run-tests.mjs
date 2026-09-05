@@ -1,9 +1,12 @@
 import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const root = new URL("../", import.meta.url);
 const buildRoot = new URL("../build/core/workforce/", import.meta.url);
+const rootPath = fileURLToPath(root);
+const buildPath = fileURLToPath(buildRoot);
 const runLive = process.argv.includes("--live");
 
 const liveOnly = new Set([
@@ -29,7 +32,7 @@ async function discover(directory) {
 function execute(path) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [path], {
-      cwd: root,
+      cwd: rootPath,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
@@ -40,7 +43,6 @@ function execute(path) {
   });
 }
 
-const buildPath = buildRoot.pathname;
 const tests = (await discover(buildPath)).sort();
 const selected = tests.filter((path) => {
   const name = relative(buildPath, path).replaceAll("\\", "/");
