@@ -14,6 +14,9 @@ build/
 src-tauri/gen/
 src-tauri/target/
 
+# Owner-local runtime state
+.kings-owner/
+
 # Python cache
 __pycache__/
 *.pyc
