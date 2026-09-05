@@ -15,6 +15,9 @@ import {
 import {
   loadKingsAiGatewayRuntime,
 } from "./ai-gateway-runtime";
+import {
+  DurableGatewayUsageLedger,
+} from "./gateway-usage-ledger";
 import type {
   OpenAiCompatibleGatewayConfig,
   OpenAiCompatibleGatewayTransport,
@@ -275,9 +278,13 @@ async function main(): Promise<void> {
     );
 
     const usage =
-      await runtime.usageLedger.list?.();
+      await new DurableGatewayUsageLedger(
+        join(
+          stateRoot,
+          "gateway-usage.jsonl",
+        ),
+      ).list();
     assert(
-      Array.isArray(usage) &&
       usage.length === 1 &&
       usage[0]?.providerId ===
         "omniroute" &&
