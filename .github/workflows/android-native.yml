@@ -95,15 +95,15 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             src-tauri/target
-          key: kings-android-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.toml', 'src-tauri/tauri.conf.json', 'src-tauri/tauri.android.conf.json') }}
+          key: kings-android-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.toml', 'src-tauri/tauri.conf.json', 'src-tauri/tauri.android.conf.json', 'native-shell/kings-ai-official-logo.png') }}
 
       - name: Install pinned Tauri CLI
         shell: bash
         run: cargo install tauri-cli --version "$TAURI_CLI_VERSION" --locked
 
-      - name: Generate K.I.N.G.S. native launcher icons
+      - name: Generate K.I.N.G.S. native launcher icons from official crest
         shell: bash
-        run: cargo tauri icon native-shell/kings-icon.svg
+        run: cargo tauri icon native-shell/kings-ai-official-logo.png
 
       - name: Initialize deterministic Android project
         shell: bash
