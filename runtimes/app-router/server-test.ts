@@ -68,6 +68,9 @@ async function main(): Promise<void> {
     port: 8790,
     accessToken: "test-router-token",
     providerOrder: ["test-provider"],
+    researchMaxSources: 8,
+    researchMaxResponseBytes: 512 * 1024,
+    researchTimeoutMs: 15_000,
   }, providers);
 
   await new Promise<void>((resolve, reject) => {
