@@ -58,11 +58,13 @@ const DEFAULT_IGNORED_DIRECTORIES = [
 ];
 
 const MARKERS: ProjectMarker[] = [
+  exactMarker("package.json", undefined, ["node"]),
   exactMarker("package-lock.json", ["npm"]),
   exactMarker("pnpm-lock.yaml", ["pnpm"]),
   exactMarker("yarn.lock", ["yarn"]),
   exactMarker("bun.lock", ["bun"]),
   exactMarker("bun.lockb", ["bun"]),
+  exactMarker("pyproject.toml", undefined, ["python"]),
   exactMarker("requirements.txt", ["pip"]),
   exactMarker("uv.lock", ["uv"]),
   exactMarker("poetry.lock", ["poetry"]),
@@ -157,10 +159,14 @@ export class LocalProjectLanguageDetector {
         fileCount: entry.count,
         extensions: [...entry.extensions].sort(),
       }))
-      .sort((left, right) =>
-        right.fileCount - left.fileCount ||
-        left.language.localeCompare(right.language),
-      );
+      .sort((left, right) => {
+        const driverDifference =
+          projectDriverScore(right.language, buildSystems) -
+          projectDriverScore(left.language, buildSystems);
+        return driverDifference ||
+          right.fileCount - left.fileCount ||
+          left.language.localeCompare(right.language);
+      });
 
     return {
       projectPath,
@@ -203,6 +209,54 @@ export class LocalProjectLanguageDetector {
       if (!entry.isFile()) continue;
       files.push(normalizeRelative(relative(projectRoot, absolute)));
     }
+  }
+}
+
+function projectDriverScore(
+  language: EngineeringLanguage,
+  buildSystems: Set<string>,
+): number {
+  switch (language) {
+    case "typescript":
+      return buildSystems.has("typescript")
+        ? 300
+        : buildSystems.has("node")
+          ? 220
+          : 80;
+    case "javascript":
+      return buildSystems.has("node")
+        ? 220
+        : 80;
+    case "python":
+      return buildSystems.has("python")
+        ? 280
+        : 100;
+    case "rust":
+      return buildSystems.has("cargo")
+        ? 300
+        : 120;
+    case "go":
+      return buildSystems.has("go")
+        ? 300
+        : 120;
+    case "java":
+      return buildSystems.has("maven") || buildSystems.has("gradle")
+        ? 300
+        : 120;
+    case "c":
+    case "cpp":
+      return buildSystems.has("cmake") || buildSystems.has("make")
+        ? 260
+        : 110;
+    case "shell":
+      return 60;
+    case "sql":
+      return 40;
+    case "html":
+    case "css":
+      return 20;
+    default:
+      return 70;
   }
 }
 
