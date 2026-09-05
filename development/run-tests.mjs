@@ -16,6 +16,7 @@ const liveOnly = new Set([
   "ollama-real-model-test.js",
   "real-local-code-change-loop-test.js",
   "real-local-coding-proof-test.js",
+  "v1-acceptance-009-local-only-mission-test.js",
 ]);
 
 async function discover(directory) {
