@@ -4,6 +4,7 @@ import {
 } from "node:fs";
 
 import {
+  delimiter,
   dirname,
   join,
 } from "node:path";
@@ -18,6 +19,12 @@ import type {
   ToolchainCommand,
   ToolchainOperation,
 } from "./engineering-toolchain";
+
+import {
+  packageManagerBinaryProbeArgs,
+  packageManagerCommandCapability,
+  packageManagerScriptName,
+} from "./javascript-package-manager-toolchain";
 
 import type {
   ToolchainProbe,
@@ -170,27 +177,27 @@ export class LocalToolchainProbeAuthority {
       }
     }
 
-    if (executable === "npx" && command.args[0]) {
-      const packageName = command.args[0];
+    const packageProbeArgs = packageManagerBinaryProbeArgs(command);
+    const packageCapability = packageManagerCommandCapability(command);
+    if (packageProbeArgs && packageCapability) {
       const packageProbe = this.runner.run(
         executable,
-        ["--no-install", packageName, "--version"],
+        packageProbeArgs,
         workingDirectory,
       );
       if (packageProbe.started && packageProbe.status === 0) {
-        capabilities.add(`npx-package:${packageName}`);
+        capabilities.add(packageCapability);
       }
     }
 
-    if (executable === "npm") {
-      const scriptName = npmScriptName(command);
-      if (
-        scriptName &&
-        workingDirectory &&
-        projectHasNpmScript(workingDirectory, scriptName)
-      ) {
-        capabilities.add(`npm-script:${scriptName}`);
-      }
+    const scriptName = packageManagerScriptName(command);
+    if (
+      scriptName &&
+      packageCapability &&
+      workingDirectory &&
+      projectHasPackageScript(workingDirectory, scriptName)
+    ) {
+      capabilities.add(packageCapability);
     }
   }
 }
@@ -226,22 +233,60 @@ function safeInvocation(
     }
   }
 
+  if (
+    executable === "pnpm" ||
+    executable === "yarn"
+  ) {
+    const cliPath = resolveWindowsNodeShim(executable);
+    if (cliPath) {
+      return {
+        executable: process.execPath,
+        args: [cliPath, ...args],
+      };
+    }
+  }
+
   return { executable, args };
 }
 
-function npmScriptName(
-  command: ToolchainCommand,
+function resolveWindowsNodeShim(
+  executable: string,
 ): string | undefined {
-  if (command.args[0] === "run" && command.args[1]) {
-    return command.args[1];
+  const pathEntries = (process.env.PATH ?? "")
+    .split(delimiter)
+    .filter(Boolean);
+
+  for (const directory of pathEntries) {
+    const shimPath = join(directory, `${executable}.cmd`);
+    if (!existsSync(shimPath)) continue;
+
+    try {
+      const source = readFileSync(shimPath, "utf8");
+      const matches = [
+        ...source.matchAll(
+          /%~?dp0[\\/]([^"\r\n]+\.(?:cjs|mjs|js))/giu,
+        ),
+      ];
+
+      const preferred = matches.find((match) =>
+        match[1].toLowerCase().includes(executable.toLowerCase()),
+      ) ?? matches[0];
+
+      if (!preferred?.[1]) continue;
+      const cliPath = join(
+        directory,
+        preferred[1].replaceAll("\\", "/"),
+      );
+      if (existsSync(cliPath)) return cliPath;
+    } catch {
+      // Keep searching PATH. Never execute or source the command shim.
+    }
   }
-  if (command.args[0] === "test") {
-    return "test";
-  }
+
   return undefined;
 }
 
-function projectHasNpmScript(
+function projectHasPackageScript(
   workingDirectory: string,
   scriptName: string,
 ): boolean {
