@@ -1,4 +1,5 @@
 import {
+  readFile,
   readdir,
 } from "node:fs/promises";
 
@@ -28,6 +29,7 @@ export interface ProjectDevelopmentEnvironment {
   languages: ProjectLanguageEvidence[];
   primaryLanguage?: EngineeringLanguage;
   packageManagers: string[];
+  declaredPackageManager?: string;
   buildSystems: string[];
   manifestFiles: string[];
 }
@@ -168,12 +170,20 @@ export class LocalProjectLanguageDetector {
           left.language.localeCompare(right.language);
       });
 
+    const declaredPackageManager =
+      files.includes("package.json")
+        ? await readDeclaredPackageManager(projectPath)
+        : undefined;
+
     return {
       projectPath,
       scannedFileCount: files.length,
       languages: detectedLanguages,
       primaryLanguage: detectedLanguages[0]?.language,
       packageManagers: [...packageManagers].sort(),
+      ...(declaredPackageManager
+        ? { declaredPackageManager }
+        : {}),
       buildSystems: [...buildSystems].sort(),
       manifestFiles: [...manifestFiles].sort(),
     };
@@ -210,6 +220,29 @@ export class LocalProjectLanguageDetector {
       files.push(normalizeRelative(relative(projectRoot, absolute)));
     }
   }
+}
+
+async function readDeclaredPackageManager(
+  projectPath: string,
+): Promise<string | undefined> {
+  try {
+    const parsed = JSON.parse(
+      await readFile(
+        join(projectPath, "package.json"),
+        "utf8",
+      ),
+    ) as { packageManager?: unknown };
+
+    if (
+      typeof parsed.packageManager === "string" &&
+      parsed.packageManager.trim()
+    ) {
+      return parsed.packageManager.trim();
+    }
+  } catch {
+    // Malformed package.json is handled later by script/capability verification.
+  }
+  return undefined;
 }
 
 function projectDriverScore(

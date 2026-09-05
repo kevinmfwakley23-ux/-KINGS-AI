@@ -6,6 +6,10 @@ import type {
   ToolchainOperation,
 } from "./engineering-toolchain";
 
+import {
+  packageManagerCommandCapability,
+} from "./javascript-package-manager-toolchain";
+
 export interface ToolchainProbe {
   executable:
     string;
@@ -170,36 +174,10 @@ function requiredCommandCapabilities(
     );
   }
 
-  if (
-    command.command ===
-      "npx" &&
-    command.args[0]
-  ) {
-    capabilities.push(
-      `npx-package:${command.args[0]}`,
-    );
-  }
-
-  if (
-    command.command ===
-      "npm"
-  ) {
-    if (
-      command.args[0] ===
-        "run" &&
-      command.args[1]
-    ) {
-      capabilities.push(
-        `npm-script:${command.args[1]}`,
-      );
-    } else if (
-      command.args[0] ===
-        "test"
-    ) {
-      capabilities.push(
-        "npm-script:test",
-      );
-    }
+  const packageManagerCapability =
+    packageManagerCommandCapability(command);
+  if (packageManagerCapability) {
+    capabilities.push(packageManagerCapability);
   }
 
   return capabilities;

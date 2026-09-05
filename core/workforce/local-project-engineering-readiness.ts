@@ -11,6 +11,7 @@ import {
   EngineeringToolchainRegistry,
   createDefaultEngineeringToolchains,
   type EngineeringLanguage,
+  type EngineeringToolchain,
   type ToolchainOperation,
 } from "./engineering-toolchain";
 
@@ -21,12 +22,19 @@ import {
 
 import {
   LocalToolchainProbeAuthority,
+  NodeToolchainProbeProcessRunner,
+  type ToolchainProbeProcessRunner,
 } from "./local-toolchain-probe";
 
 import {
   ToolchainVerificationAuthority,
   type ToolchainVerificationResult,
 } from "./toolchain-verification";
+
+import {
+  createJavaScriptPackageManagerToolchain,
+  resolveJavaScriptPackageManager,
+} from "./javascript-package-manager-toolchain";
 
 import {
   ProjectEngineeringProfileAuthority,
@@ -65,14 +73,12 @@ export interface LocalProjectEngineeringReadinessResult {
  * Turns a real local repository into governed engineering readiness evidence.
  *
  * Detection and probing are non-destructive. This authority does not install
- * dependencies, execute project build/test scripts, edit source, or infer that
- * an unrelated executable is equivalent to the project's declared package
- * manager. It prepares the truthful boundary that later execution may consume.
+ * dependencies or execute project build/test scripts. For JavaScript/TypeScript
+ * it resolves npm, pnpm, Yarn, or Bun from repository evidence and verifies that
+ * exact manager instead of silently substituting another one.
  */
 export class LocalProjectEngineeringReadinessAuthority {
   private readonly detector: LocalProjectLanguageDetector;
-  private readonly probe: LocalToolchainProbeAuthority;
-  private readonly verifier: ToolchainVerificationAuthority;
   private readonly profiles = new ProjectEngineeringProfileAuthority();
   private readonly workUnits = new EngineeringWorkUnitBridge();
   private readonly executions = new AutonomousEngineeringExecutionAuthority();
@@ -82,10 +88,10 @@ export class LocalProjectEngineeringReadinessAuthority {
       createLanguageRegistry(),
     private readonly toolchains: EngineeringToolchainRegistry =
       createToolchainRegistry(),
+    private readonly runner: ToolchainProbeProcessRunner =
+      new NodeToolchainProbeProcessRunner(),
   ) {
     this.detector = new LocalProjectLanguageDetector(this.languages);
-    this.probe = new LocalToolchainProbeAuthority(this.toolchains);
-    this.verifier = new ToolchainVerificationAuthority(this.toolchains);
   }
 
   async inspect(
@@ -131,32 +137,40 @@ export class LocalProjectEngineeringReadinessAuthority {
     const verifications: ToolchainVerificationResult[] = [];
 
     for (const language of executionLanguages) {
-      const toolchain = this.toolchains.get(language.language);
-      if (!toolchain) {
+      const baseToolchain = this.toolchains.get(language.language);
+      if (!baseToolchain) {
         blockedReasons.push(
           `No verified engineering toolchain is registered for detected execution language "${language.language}".`,
         );
         continue;
       }
 
-      const packageMismatch = packageManagerMismatchReason(
-        language.language,
+      const resolved = resolveProjectToolchain(
+        baseToolchain,
         environment,
-        toolchain.commands.map((command) => command.command),
       );
 
-      if (packageMismatch) {
-        blockedReasons.push(packageMismatch);
+      if (resolved.blockedReason) {
+        blockedReasons.push(resolved.blockedReason);
         continue;
       }
 
-      const probes = this.probe.probe({
+      const effectiveToolchain = resolved.toolchain;
+      const scopedRegistry = new EngineeringToolchainRegistry();
+      scopedRegistry.register(effectiveToolchain);
+
+      const probes = new LocalToolchainProbeAuthority(
+        scopedRegistry,
+        this.runner,
+      ).probe({
         language: language.language,
         requiredOperations,
         workingDirectory: request.projectPath,
       });
 
-      const verification = this.verifier.verify({
+      const verification = new ToolchainVerificationAuthority(
+        scopedRegistry,
+      ).verify({
         language: language.language,
         requiredOperations,
         probes,
@@ -239,6 +253,42 @@ export function selectExecutionLanguages(
   });
 }
 
+function resolveProjectToolchain(
+  base: EngineeringToolchain,
+  environment: ProjectDevelopmentEnvironment,
+): {
+  toolchain: EngineeringToolchain;
+  blockedReason?: string;
+} {
+  if (
+    base.language !== "typescript" &&
+    base.language !== "javascript"
+  ) {
+    return { toolchain: base };
+  }
+
+  const packageManager = resolveJavaScriptPackageManager({
+    packageManagers: environment.packageManagers,
+    declaredPackageManager: environment.declaredPackageManager,
+  });
+
+  if (!packageManager.manager) {
+    return {
+      toolchain: base,
+      blockedReason:
+        packageManager.blockedReason ??
+        "JavaScript package manager could not be resolved.",
+    };
+  }
+
+  return {
+    toolchain: createJavaScriptPackageManagerToolchain(
+      base,
+      packageManager.manager,
+    ),
+  };
+}
+
 function hasIndependentProjectDriver(
   language: EngineeringLanguage,
   manifests: string[],
@@ -282,39 +332,6 @@ function hasIndependentProjectDriver(
     default:
       return false;
   }
-}
-
-function packageManagerMismatchReason(
-  language: EngineeringLanguage,
-  environment: ProjectDevelopmentEnvironment,
-  executables: string[],
-): string | undefined {
-  if (
-    language !== "typescript" &&
-    language !== "javascript"
-  ) {
-    return undefined;
-  }
-
-  const detected = environment.packageManagers.filter(
-    (manager) =>
-      ["npm", "pnpm", "yarn", "bun"].includes(manager),
-  );
-
-  if (!detected.length) return undefined;
-
-  const usesNpmTooling =
-    executables.includes("npm") ||
-    executables.includes("npx");
-
-  if (
-    usesNpmTooling &&
-    !detected.includes("npm")
-  ) {
-    return `Detected JavaScript package manager ${detected.join(", ")} does not match the registered npm/npx toolchain. K.I.N.G.S. will not substitute npm implicitly.`;
-  }
-
-  return undefined;
 }
 
 function verificationFailureReason(
