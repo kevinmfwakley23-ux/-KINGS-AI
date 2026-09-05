@@ -1,5 +1,6 @@
 import http from "node:http";
 import os from "node:os";
+import { readFileSync } from "node:fs";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { URL } from "node:url";
 
@@ -10,6 +11,7 @@ const ownerToken = String(process.env.KINGS_CODING_MACHINE_TOKEN ?? "").trim();
 const ownerCookieName = "__Host-kings_owner_access";
 const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1"]);
 const remoteMode = !loopbackHosts.has(host);
+const royalCss = readFileSync(new URL("../../native-shell/royal.css", import.meta.url), "utf8");
 const ownerSessionToken = ownerToken
   ? createHash("sha256").update(`kings-owner-session:${ownerToken}`).digest("hex")
   : "";
@@ -178,31 +180,29 @@ function unauthorized(res) {
 }
 
 const page = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>K.I.N.G.S. Owner Console</title>
-<style>
-:root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color-scheme:dark;background:#0b0d12;color:#f3f5f7}
-*{box-sizing:border-box}body{margin:0}.wrap{max-width:980px;margin:auto;padding:28px 18px}
-header{display:flex;justify-content:space-between;gap:20px;align-items:center;flex-wrap:wrap}
-h1{font-size:clamp(1.6rem,5vw,2.7rem);margin:.2rem 0}.muted{color:#a9b1bd}.card{background:#131720;border:1px solid #282f3a;border-radius:16px;padding:18px;margin-top:18px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
-.status{padding:14px;border:1px solid #303846;border-radius:12px}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#7d8590;margin-right:7px}
-.ok .dot{background:#3fb950}.bad .dot{background:#f85149}.warn .dot{background:#d29922}
-code{background:#0b0d12;padding:.15rem .35rem;border-radius:5px}button{background:#f3f5f7;color:#111;border:0;border-radius:9px;padding:10px 14px;font-weight:700;cursor:pointer}
-</style></head><body><main class="wrap">
-<header><div><div class="muted">Project Owner Runtime</div><h1>K.I.N.G.S. AI</h1><div class="muted">Cross-platform operational console</div></div><button onclick="refresh()">Refresh</button></header>
-<section class="card"><h2>Runtime</h2><div id="runtime" class="muted">Loading…</div></section>
-<section class="card"><h2>AI Connectors</h2><div id="connectors" class="grid"></div></section>
-<section class="card"><h2>Token controls</h2><p class="muted">Context budgets, model output caps, provider-side routing/caching, and measured usage remain enforced by the K.I.N.G.S. workforce runtime.</p></section>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="light dark">
+<title>K.I.N.G.S. AI — Owner Command Palace</title>
+<style>${royalCss}
+body{display:block}.palace{width:min(1180px,100%);margin:auto;padding:22px 20px 58px}.dais{position:relative;overflow:hidden;padding:24px 26px;margin-bottom:18px;border:1px solid var(--kings-border-strong);border-radius:22px;background:linear-gradient(145deg,var(--kings-black-soft),var(--kings-black));color:#f4eee2;box-shadow:var(--kings-shadow)}
+.dais::before,.dais::after{content:"";position:absolute;left:18px;right:18px;height:1px;background:linear-gradient(90deg,transparent,var(--kings-gold-bright),transparent);opacity:.58}.dais::before{top:10px}.dais::after{bottom:10px}.dais-grid{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:20px;align-items:center}.crown{width:68px;height:78px;border-radius:36px 36px 14px 14px;font-size:2.5rem}.dais .kings-eyebrow{color:#a9987d}.dais h1{margin:2px 0 4px;color:#fff8eb;font-size:clamp(1.8rem,6vw,3.4rem);line-height:1;letter-spacing:.12em}.dais p{margin:0;color:#c9bdac;font-size:.82rem}.actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.actions button{color:#f4eee2;background:rgba(255,255,255,.04)}
+.court-grid{display:grid;grid-template-columns:1fr 1.35fr;gap:18px}.card{padding:20px}.card h2{margin:2px 0 12px;font-size:1.12rem}.card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px}.badge{display:inline-flex;align-items:center;min-height:27px;padding:4px 9px;border:1px solid var(--kings-border);border-radius:999px;color:var(--kings-muted);background:var(--kings-panel-soft);font-size:.62rem;font-weight:800;letter-spacing:.11em}.runtime-line{padding:15px;border-left:3px solid var(--kings-gold);border-radius:0 10px 10px 0;background:var(--kings-panel-soft);color:var(--kings-muted);line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.status{min-height:104px;padding:14px;border:1px solid var(--kings-border);border-radius:12px;background:var(--kings-panel-soft)}.status strong{display:block;margin-bottom:7px;font-family:"Libre Baskerville",Georgia,serif}.status .state{font-size:.78rem;color:var(--kings-muted)}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--kings-faint);margin-right:7px;box-shadow:0 0 0 3px rgba(0,0,0,.03)}.ok .dot{background:var(--kings-success)}.bad .dot{background:var(--kings-danger)}.warn .dot{background:var(--kings-warning)}
+.governance{grid-column:1/-1}.law-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.law{padding:13px;border-top:2px solid var(--kings-gold);background:var(--kings-panel-soft);border-radius:0 0 10px 10px}.law strong{display:block;margin-bottom:5px;font-family:"Libre Baskerville",Georgia,serif;font-size:.84rem}.law span{color:var(--kings-muted);font-size:.76rem;line-height:1.5}.foot{text-align:center;padding:22px 5px 0;color:var(--kings-faint);font-size:.62rem;font-weight:800;letter-spacing:.14em}.foot b{color:var(--kings-gold)}
+@media(max-width:760px){.palace{padding:14px 13px 40px}.dais{padding:22px 17px}.dais-grid{grid-template-columns:auto minmax(0,1fr)}.actions{grid-column:1/-1;justify-content:stretch}.actions button{flex:1}.court-grid{grid-template-columns:1fr}.governance{grid-column:auto}.law-grid{grid-template-columns:1fr}.crown{width:54px;height:62px;font-size:2rem}.card{padding:17px}}
+</style></head><body><main class="palace">
+<header class="dais"><div class="dais-grid"><div class="crown kings-seal" aria-hidden="true">♛</div><div><div class="kings-eyebrow">KNOWLEDGE · INVESTIGATION · NARRATIVE · GENERATION · SYSTEM</div><h1 class="kings-display">K.I.N.G.S.</h1><p class="kings-serif">Owner Command Palace · governed AI engineering runtime</p></div><div class="actions"><button id="theme-toggle" class="kings-button kings-theme-toggle" type="button" aria-pressed="false">Dark court</button><button class="kings-button" type="button" onclick="refresh()">Refresh court</button></div></div></header>
+<div class="court-grid">
+<section class="card kings-panel kings-panel-strong" aria-labelledby="runtime-title"><div class="card-head"><div><div class="kings-eyebrow">THRONE ROOM</div><h2 id="runtime-title" class="kings-serif">Runtime Authority</h2></div><span class="badge">OWNER</span></div><div id="runtime" class="runtime-line">Reading the royal runtime ledger…</div></section>
+<section class="card kings-panel kings-panel-strong" aria-labelledby="connectors-title"><div class="card-head"><div><div class="kings-eyebrow">THE MODEL COURT</div><h2 id="connectors-title" class="kings-serif">AI Connectors</h2></div><span class="badge">LIVE PROBES</span></div><div id="connectors" class="grid"></div></section>
+<section class="card kings-panel governance" aria-labelledby="governance-title"><div class="card-head"><div><div class="kings-eyebrow">ROYAL LAW</div><h2 id="governance-title" class="kings-serif">Governed Engineering</h2></div><span class="badge">FAIL CLOSED</span></div><div class="law-grid"><div class="law"><strong>Context discipline</strong><span>Mission memory and context budgets stay bounded by the workforce authorities.</span></div><div class="law"><strong>Model sovereignty</strong><span>Routing, provider fallback, cost ceilings and local-only policy remain enforced below this console.</span></div><div class="law"><strong>Verified work</strong><span>Filesystem changes, builds, tests and recovery must cross their real authorization and evidence gates.</span></div></div></section>
+</div><footer class="foot"><b>♛</b> K.I.N.G.S. OWNER AUTHORITY · SECURE GOVERNED RUNTIME <b>♛</b></footer>
 </main><script>
+const THEME_KEY='kings-ui-theme';
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-async function refresh(){try{const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();
-document.getElementById('runtime').innerHTML=esc(d.platform)+' · Node '+esc(d.node)+' · '+esc(d.hostname);
-document.getElementById('connectors').innerHTML=d.connectors.map(c=>{
-const cls=!c.configured?'warn':c.reachable?'ok':'bad';const label=!c.configured?'not configured':c.reachable?'reachable':'unreachable';
-return '<div class="status '+cls+'"><strong><span class="dot"></span>'+esc(c.label)+'</strong><div class="muted">'+esc(label)+(c.status?' · HTTP '+esc(c.status):'')+'</div></div>'}).join('');
-}catch(e){document.getElementById('runtime').textContent='Status unavailable';}}
-refresh();setInterval(refresh,15000);
+function applyTheme(theme,persist){const next=theme==='dark'?'dark':'light';if(next==='dark')document.documentElement.dataset.kingsTheme='dark';else delete document.documentElement.dataset.kingsTheme;document.documentElement.style.colorScheme=next;const button=document.getElementById('theme-toggle');button.textContent=next==='dark'?'Light court':'Dark court';button.setAttribute('aria-pressed',String(next==='dark'));if(persist)localStorage.setItem(THEME_KEY,next)}
+function preferredTheme(){const saved=localStorage.getItem(THEME_KEY);if(saved==='light'||saved==='dark')return saved;return window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}
+document.getElementById('theme-toggle').addEventListener('click',()=>applyTheme(document.documentElement.dataset.kingsTheme==='dark'?'light':'dark',true));
+async function refresh(){try{const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();document.getElementById('runtime').innerHTML='<strong>'+esc(d.platform)+'</strong><br>Node '+esc(d.node)+' · host '+esc(d.hostname);document.getElementById('connectors').innerHTML=d.connectors.map(c=>{const cls=!c.configured?'warn':c.reachable?'ok':'bad';const label=!c.configured?'Not configured':c.reachable?'Reachable':'Unreachable';return '<div class="status '+cls+'"><strong><span class="dot"></span>'+esc(c.label)+'</strong><div class="state">'+esc(label)+(c.status?' · HTTP '+esc(c.status):'')+'</div></div>'}).join('')}catch(e){document.getElementById('runtime').textContent='Runtime status unavailable';}}
+applyTheme(preferredTheme(),false);refresh();setInterval(refresh,15000);
 </script></body></html>`;
 
 const server = http.createServer(async (req, res) => {
