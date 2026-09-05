@@ -9,6 +9,7 @@
     "test": "npm run build && node development/run-tests.mjs && node ui/project-owner/server-auth-test.mjs && npm run test:knowledge",
     "test:live": "npm run build && node development/run-tests.mjs --live",
     "accept:local-only": "npm run build && node build/core/workforce/v1-acceptance-009-local-only-mission-test.js",
+    "accept:local-debug-repair": "npm run build && node build/core/workforce/v1-acceptance-010-local-debug-repair-mission-test.js",
     "test:knowledge": "python3 runtimes/knowledge-retrieval/retriever-test.py",
     "start": "npm run build && node ui/project-owner/server.mjs",
     "start:router": "npm run build && node build/runtimes/app-router/server.js",
