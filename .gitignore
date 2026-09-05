@@ -5,6 +5,7 @@ runtimes/beeai/
 # K.I.N.G.S. local runtime state
 .kings/
 .kings-ui-build/
+.kings-app-router-build/
 .kings-focused-test-build/
 .kings-focused-test-report.txt
 
