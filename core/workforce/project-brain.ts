@@ -40,6 +40,14 @@ export class ProjectBrain {
     );
   }
 
+  updateSource(
+    source: KnowledgeSource,
+  ): void {
+    this.registry.updateSource(
+      source,
+    );
+  }
+
   registerEvidence(
     evidence: Evidence,
   ): void {
