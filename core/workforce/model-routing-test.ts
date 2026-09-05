@@ -327,6 +327,81 @@ console.log(
   "04.4 internal intelligence preference: SUCCESS",
 );
 
+const internalOnly =
+  router.route({
+    requiredCapabilities: [
+      "coding",
+    ],
+    internalOnly:
+      true,
+  });
+
+assert(
+  internalOnly.selected &&
+  internalOnly.modelId ===
+    "model-internal" &&
+  internalOnly.candidates.every(
+    (candidate) =>
+      candidate.internal,
+  ),
+  "Internal-only routing must exclude every external candidate.",
+);
+
+console.log(
+  "04.4 internal-only routing: SUCCESS",
+);
+
+const internalOnlyFailClosed =
+  router.route({
+    requiredCapabilities: [
+      "coding",
+    ],
+    minimumCapabilityStrength:
+      95,
+    internalOnly:
+      true,
+  });
+
+assert(
+  !internalOnlyFailClosed.selected &&
+  internalOnlyFailClosed.candidates.length ===
+    0,
+  "Internal-only routing must fail closed rather than fall back to a stronger external model.",
+);
+
+assert(
+  internalOnlyFailClosed.reason.includes(
+    "internal",
+  ),
+  "Internal-only routing failure must explain the internal constraint.",
+);
+
+console.log(
+  "04.4 internal-only fail-closed routing: SUCCESS",
+);
+
+const freeExternalBlocked =
+  router.route({
+    requiredCapabilities: [
+      "coding",
+    ],
+    requiredInputModality:
+      "image",
+    maximumEstimatedCost:
+      0,
+    internalOnly:
+      true,
+  });
+
+assert(
+  !freeExternalBlocked.selected,
+  "Internal-only routing must block an external-free model even when it satisfies the zero-cost ceiling.",
+);
+
+console.log(
+  "04.4 internal-only blocks free external fallback: SUCCESS",
+);
+
 const structured =
   router.route({
     requiredCapabilities: [
