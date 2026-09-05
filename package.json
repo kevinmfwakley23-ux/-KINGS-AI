@@ -6,7 +6,7 @@
   "scripts": {
     "clean": "node development/clean-build.mjs",
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node development/run-tests.mjs && node ui/project-owner/server-auth-test.mjs && npm run test:knowledge",
+    "test": "npm run build && node development/run-tests.mjs && node ui/project-owner/server-auth-test.mjs && node ui/project-owner/server-execution-test.mjs && npm run test:knowledge",
     "test:live": "npm run build && node development/run-tests.mjs --live",
     "accept:local-only": "npm run build && node build/core/workforce/v1-acceptance-009-local-only-mission-test.js",
     "accept:local-debug-repair": "npm run build && node build/core/workforce/v1-acceptance-010-local-debug-repair-mission-test.js",
