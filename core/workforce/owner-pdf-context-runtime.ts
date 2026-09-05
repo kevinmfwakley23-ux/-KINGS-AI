@@ -37,6 +37,7 @@ export interface OwnerPdfContextDocument
   pageCount: number;
   characterCount: number;
   createdAt: string;
+  sourceFile: string;
 }
 
 export interface OwnerPdfContextMetadata {
@@ -47,6 +48,7 @@ export interface OwnerPdfContextMetadata {
   pageCount: number;
   characterCount: number;
   createdAt: string;
+  sourcePreserved: true;
 }
 
 interface OwnerPdfContextStoreFile {
@@ -67,14 +69,16 @@ export interface OwnerPdfContextRuntimeOptions {
  * Server-side project-context authority for owner-supplied PDFs.
  *
  * The browser supplies bytes only. K.I.N.G.S. validates the PDF envelope,
- * computes provenance, invokes the bounded local extractor, persists the
- * extracted text, and later resolves mission context by server-issued ids.
- * The HTTP client never gets to replace extracted text with its own content.
+ * computes provenance, invokes the bounded local extractor, preserves the
+ * original source bytes, persists the extracted text, and later resolves
+ * mission context by server-issued ids. The HTTP client never gets to replace
+ * extracted text with its own content.
  */
 export class OwnerPdfContextRuntime {
   private readonly documents = new Map<string, OwnerPdfContextDocument>();
   private initialized = false;
   private readonly storePath: string;
+  private readonly sourceRoot: string;
   private readonly extractorPath: string;
   private readonly pythonExecutable: string;
   private readonly maxPdfBytes: number;
@@ -84,6 +88,10 @@ export class OwnerPdfContextRuntime {
   constructor(options: OwnerPdfContextRuntimeOptions) {
     this.storePath = resolve(
       requiredText(options.storePath, "store path", 8_192),
+    );
+    this.sourceRoot = resolve(
+      dirname(this.storePath),
+      "owner-context-files",
     );
     this.extractorPath = resolve(
       options.extractorPath ??
@@ -149,7 +157,7 @@ export class OwnerPdfContextRuntime {
     }
 
     for (const document of parsed.documents) {
-      validateDocument(document);
+      await this.validatePersistedDocument(document);
       if (this.documents.has(document.id)) {
         throw new Error(
           `K.I.N.G.S. Owner PDF Context: duplicate persisted document "${document.id}".`,
@@ -186,6 +194,13 @@ export class OwnerPdfContextRuntime {
     const sha256 = createHash("sha256")
       .update(buffer)
       .digest("hex");
+    const duplicate = [...this.documents.values()].find(
+      (document) => document.sha256 === sha256,
+    );
+    if (duplicate) {
+      return metadata(duplicate);
+    }
+
     const extraction = await this.extract(buffer);
     if (
       !Number.isInteger(extraction.pageCount) ||
@@ -201,8 +216,12 @@ export class OwnerPdfContextRuntime {
       this.maxExtractedCharacters,
     );
 
+    const id = `owner-pdf-${randomUUID()}`;
+    const sourceFile = `${id}.pdf`;
+    await this.persistSource(sourceFile, buffer);
+
     const document: OwnerPdfContextDocument = {
-      id: `owner-pdf-${randomUUID()}`,
+      id,
       name: normalizedName,
       mediaType: "application/pdf",
       sha256,
@@ -210,6 +229,7 @@ export class OwnerPdfContextRuntime {
       pageCount: extraction.pageCount,
       characterCount: text.length,
       createdAt: new Date().toISOString(),
+      sourceFile,
     };
     this.documents.set(document.id, document);
 
@@ -217,6 +237,7 @@ export class OwnerPdfContextRuntime {
       await this.persist();
     } catch (error) {
       this.documents.delete(document.id);
+      await rm(this.sourcePath(sourceFile), { force: true });
       throw error;
     }
 
@@ -338,6 +359,54 @@ export class OwnerPdfContextRuntime {
     }
   }
 
+  private async persistSource(
+    sourceFile: string,
+    bytes: Buffer,
+  ): Promise<void> {
+    await mkdir(this.sourceRoot, {
+      recursive: true,
+    });
+    const finalPath = this.sourcePath(sourceFile);
+    const temporaryPath = `${finalPath}.${process.pid}.${randomUUID()}.tmp`;
+    await writeFile(temporaryPath, bytes, {
+      mode: 0o600,
+    });
+    await rename(temporaryPath, finalPath);
+  }
+
+  private async validatePersistedDocument(
+    document: OwnerPdfContextDocument,
+  ): Promise<void> {
+    validateDocument(document);
+    let source: Buffer;
+    try {
+      source = await readFile(this.sourcePath(document.sourceFile));
+    } catch (error) {
+      throw new Error(
+        `K.I.N.G.S. Owner PDF Context: preserved source for "${document.id}" is missing or unreadable: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+    const actualHash = createHash("sha256")
+      .update(source)
+      .digest("hex");
+    if (actualHash !== document.sha256) {
+      throw new Error(
+        `K.I.N.G.S. Owner PDF Context: preserved source hash mismatch for "${document.id}".`,
+      );
+    }
+  }
+
+  private sourcePath(sourceFile: string): string {
+    if (!/^owner-pdf-[A-Za-z0-9-]+\.pdf$/u.test(sourceFile)) {
+      throw new Error(
+        "K.I.N.G.S. Owner PDF Context: source file identity is invalid.",
+      );
+    }
+    return resolve(this.sourceRoot, sourceFile);
+  }
+
   private async persist(): Promise<void> {
     await mkdir(dirname(this.storePath), {
       recursive: true,
@@ -380,36 +449,43 @@ function metadata(
     pageCount: document.pageCount,
     characterCount: document.characterCount,
     createdAt: document.createdAt,
+    sourcePreserved: true,
   };
 }
 
 function validateDocument(
   document: OwnerPdfContextDocument,
 ): void {
-  requiredText(document.id, "document id", 256);
+  const id = requiredText(document.id, "document id", 256);
   requiredText(document.name, "document name", 512);
   if (document.mediaType !== "application/pdf") {
     throw new Error(
-      `K.I.N.G.S. Owner PDF Context: persisted document "${document.id}" has an unsupported media type.`,
+      `K.I.N.G.S. Owner PDF Context: persisted document "${id}" has an unsupported media type.`,
     );
   }
   if (!/^[a-f0-9]{64}$/u.test(document.sha256)) {
     throw new Error(
-      `K.I.N.G.S. Owner PDF Context: persisted document "${document.id}" has invalid provenance.`,
+      `K.I.N.G.S. Owner PDF Context: persisted document "${id}" has invalid provenance.`,
     );
   }
   requiredText(document.text, "document text", DEFAULT_MAX_EXTRACTED_CHARACTERS);
   if (!Number.isInteger(document.pageCount) || document.pageCount < 1) {
     throw new Error(
-      `K.I.N.G.S. Owner PDF Context: persisted document "${document.id}" has an invalid page count.`,
+      `K.I.N.G.S. Owner PDF Context: persisted document "${id}" has an invalid page count.`,
     );
   }
   if (document.characterCount !== document.text.length) {
     throw new Error(
-      `K.I.N.G.S. Owner PDF Context: persisted document "${document.id}" character count does not match text.`,
+      `K.I.N.G.S. Owner PDF Context: persisted document "${id}" character count does not match text.`,
     );
   }
   requiredText(document.createdAt, "document createdAt", 128);
+  const sourceFile = requiredText(document.sourceFile, "document source file", 512);
+  if (sourceFile !== `${id}.pdf`) {
+    throw new Error(
+      `K.I.N.G.S. Owner PDF Context: persisted document "${id}" source identity does not match its id.`,
+    );
+  }
 }
 
 function requiredText(
