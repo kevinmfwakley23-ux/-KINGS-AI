@@ -4,6 +4,11 @@ import type {
   MemoryType,
 } from "./types";
 
+import {
+  MemorySourceFreshnessAuthority,
+  type MemorySourceFreshnessReport,
+} from "./memory-source-freshness";
+
 export interface MemoryStoreQuery {
   type?: MemoryType;
   authoritativeOnly?: boolean;
@@ -16,6 +21,11 @@ export interface MemoryStoreQuery {
 export class MemoryStore {
   private readonly memories =
     new Map<ID, MemoryReference>();
+
+  constructor(
+    private readonly freshnessAuthority?:
+      MemorySourceFreshnessAuthority,
+  ) {}
 
   register(
     memory: MemoryReference,
@@ -49,12 +59,20 @@ export class MemoryStore {
       );
     }
 
+    const candidate =
+      this.freshnessAuthority
+        ? this.freshnessAuthority.attest(
+            memory,
+            memory.updatedAt,
+          )
+        : memory;
+
     this.memories.set(
       memory.id,
       {
-        ...memory,
+        ...candidate,
         sourceReferences: [
-          ...memory.sourceReferences,
+          ...candidate.sourceReferences,
         ],
       },
     );
@@ -75,6 +93,23 @@ export class MemoryStore {
             ...memory.sourceReferences,
           ],
         }
+      : undefined;
+  }
+
+  evaluateFreshness(
+    memoryId: ID,
+  ): MemorySourceFreshnessReport | undefined {
+    if (!this.freshnessAuthority) {
+      return undefined;
+    }
+
+    const memory =
+      this.memories.get(memoryId);
+
+    return memory
+      ? this.freshnessAuthority.evaluate(
+          memory,
+        )
       : undefined;
   }
 
@@ -122,6 +157,16 @@ export class MemoryStore {
 
     return this.list()
       .filter((memory) => {
+        if (
+          this.freshnessAuthority &&
+          memory.authoritative &&
+          !this.freshnessAuthority.isReusable(
+            memory,
+          )
+        ) {
+          return false;
+        }
+
         if (
           query.type &&
           memory.type !== query.type
@@ -191,6 +236,22 @@ export class MemoryStore {
       throw new Error(
         `K.I.N.G.S. Memory Store: memory "${memoryId}" cannot become authoritative without provenance`,
       );
+    }
+
+    if (this.freshnessAuthority) {
+      const freshness =
+        this.freshnessAuthority.evaluate(
+          memory,
+        );
+
+      if (
+        freshness.status === "stale" ||
+        freshness.status === "missing"
+      ) {
+        throw new Error(
+          `K.I.N.G.S. Memory Store: memory "${memoryId}" cannot become authoritative because its source provenance is ${freshness.status}`,
+        );
+      }
     }
 
     const promoted: MemoryReference = {
