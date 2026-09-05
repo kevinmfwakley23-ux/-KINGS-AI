@@ -9,9 +9,7 @@ import {
   readFile,
   writeFile,
   mkdir,
-} from "node:fs/promises";
-
-import {
+  unlink,
   access,
 } from "node:fs/promises";
 
@@ -30,6 +28,10 @@ export interface FileWriteRequest {
   content: string;
 }
 
+export interface FileDeleteRequest {
+  path: string;
+}
+
 export interface FileReadResult {
   path: string;
   content: string;
@@ -39,6 +41,11 @@ export interface FileReadResult {
 export interface FileWriteResult {
   path: string;
   bytesWritten: number;
+}
+
+export interface FileDeleteResult {
+  path: string;
+  deleted: boolean;
 }
 
 export class FileEditorPolicyError
@@ -93,7 +100,7 @@ function isPathWithin(
 function assertPathAllowed(
   path: string,
   allowedPaths: string[],
-  operation: "read" | "write",
+  operation: "read" | "write" | "delete",
 ): string {
   const normalized =
     normalizePath(
@@ -182,6 +189,25 @@ export class ControlledFileEditor {
     );
   }
 
+  authorizeDelete(
+    request:
+      FileDeleteRequest,
+  ): string {
+    if (
+      !request.path.trim()
+    ) {
+      throw new FileEditorPolicyError(
+        "delete path is required",
+      );
+    }
+
+    return assertPathAllowed(
+      request.path,
+      this.policy.allowedWritePaths,
+      "delete",
+    );
+  }
+
   async read(
     request:
       FileReadRequest,
@@ -264,6 +290,45 @@ export class ControlledFileEditor {
       bytesWritten:
         bytes,
     };
+  }
+
+  async delete(
+    request:
+      FileDeleteRequest,
+  ): Promise<FileDeleteResult> {
+    const path =
+      this.authorizeDelete(
+        request,
+      );
+
+    try {
+      await unlink(
+        path,
+      );
+
+      return {
+        path,
+        deleted:
+          true,
+      };
+    } catch (
+      error
+    ) {
+      if (
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "ENOENT"
+      ) {
+        return {
+          path,
+          deleted:
+            false,
+        };
+      }
+
+      throw error;
+    }
   }
 
   async exists(
