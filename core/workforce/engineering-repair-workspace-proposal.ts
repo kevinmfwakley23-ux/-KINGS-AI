@@ -19,6 +19,10 @@ import type {
   AuthorizedLocalCodingWriteProposal,
 } from "./local-coding-write-bridge";
 
+import {
+  isWorkspacePathAuthorized,
+} from "./workspace-path-authorization";
+
 export interface EngineeringRepairWorkspaceProposalRequest {
   step: EngineeringRepairStep;
   workspace: EngineeringWorkspace;
@@ -117,9 +121,11 @@ export class EngineeringRepairWorkspaceProposalAuthority {
       );
     }
     if (
-      !workspace.allowedPaths.some((allowedPath) =>
-        isWithinPath(path, allowedPath),
-      )
+      !isWorkspacePathAuthorized({
+        candidatePath: path,
+        allowedPaths: workspace.allowedPaths,
+        workspaceRoot: workspace.rootPath,
+      })
     ) {
       throw new Error(
         `K.I.N.G.S. Engineering Repair Workspace Proposal: path "${path}" is outside the authorized workspace.`,
@@ -158,12 +164,6 @@ function normalizePath(value: string): string {
     .replace(/^\.\/+/u, "")
     .replace(/\/{2,}/gu, "/")
     .trim();
-}
-
-function isWithinPath(path: string, allowedPath: string): boolean {
-  const candidate = normalizePath(path);
-  const root = normalizePath(allowedPath);
-  return candidate === root || candidate.startsWith(`${root}/`);
 }
 
 function inferLanguage(path: string): EngineeringLanguage | undefined {
