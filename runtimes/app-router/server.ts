@@ -13,7 +13,8 @@ import { WebAccessAdapter } from "../../core/workforce/web-access";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const DEFAULT_PORT = 8790;
-const RESPONSES_APP_ID = "authors.forge";
+const DEFAULT_RESPONSES_APP_ID = "authors.forge";
+const APP_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,63}$/;
 const RESPONSE_ROLES = new Set(["system", "user", "assistant", "tool"]);
 const DEFAULT_RESEARCH_MAX_SOURCES = 8;
 const DEFAULT_RESEARCH_MAX_RESPONSE_BYTES = 512 * 1024;
@@ -113,6 +114,22 @@ function authorized(request: IncomingMessage, accessToken?: string): boolean {
   return safeEqual(authorization.slice("Bearer ".length), accessToken);
 }
 
+function responsesAppId(request: IncomingMessage): string {
+  const header = request.headers["x-kings-app-id"];
+  if (header === undefined) return DEFAULT_RESPONSES_APP_ID;
+  if (Array.isArray(header)) {
+    throw new AppAiRouterError("INVALID_APP_ID", "x-kings-app-id must contain exactly one app id.");
+  }
+  const appId = header.trim();
+  if (!APP_ID_PATTERN.test(appId)) {
+    throw new AppAiRouterError(
+      "INVALID_APP_ID",
+      "x-kings-app-id must be 2 to 64 lowercase letters, numbers, dots, underscores, or hyphens.",
+    );
+  }
+  return appId;
+}
+
 function sendJson(response: ServerResponse, statusCode: number, body: unknown): void {
   const payload = JSON.stringify(body);
   response.writeHead(statusCode, {
@@ -179,7 +196,7 @@ function parseResponsesInput(input: unknown): Array<{ role: ResponsesRole; conte
   });
 }
 
-function parseResponsesRequest(body: unknown): AppAiRouteRequest {
+function parseResponsesRequest(body: unknown, appId: string): AppAiRouteRequest {
   const record = requireObject(body);
   const model = record.model;
   if (typeof model !== "string" || !model.trim()) {
@@ -194,7 +211,7 @@ function parseResponsesRequest(body: unknown): AppAiRouteRequest {
     throw new AppAiRouterError("INVALID_TEMPERATURE", "temperature must be between 0 and 2.");
   }
   return {
-    appId: RESPONSES_APP_ID,
+    appId,
     messages: parseResponsesInput(record.input),
     ...(model.trim().toLowerCase() === "auto" ? {} : { modelId: model.trim() }),
     ...(maxOutputTokens === undefined ? {} : { maxOutputTokens: Number(maxOutputTokens) }),
@@ -278,7 +295,8 @@ export function createAppRouterRuntime(
       }
 
       if (request.method === "POST" && (url.pathname === "/responses" || url.pathname === "/v1/responses")) {
-        const result = await router.route(parseResponsesRequest(await readJson(request)));
+        const appId = responsesAppId(request);
+        const result = await router.route(parseResponsesRequest(await readJson(request), appId));
         console.log(JSON.stringify({
           timestamp: new Date().toISOString(),
           event: "app_ai_responses",
@@ -295,12 +313,14 @@ export function createAppRouterRuntime(
           return sendJson(response, statusCode, {
             error: { code: result.code, message: result.message },
             request_id: result.requestId,
+            app_id: result.appId,
           });
         }
         return sendJson(response, 200, {
           id: result.requestId,
           object: "response",
           status: "completed",
+          app_id: result.appId,
           model: result.modelId,
           provider: result.providerId,
           output_text: result.content,
