@@ -80,7 +80,7 @@ function main(): void {
   assert(
     verified.missingExecutables.length ===
       0 &&
-    verified.missingCapabilities.length ===
+    (verified.missingCapabilities ?? []).length ===
       0,
     "Verified TypeScript toolchain must have no missing executable or package/script capabilities.",
   );
@@ -122,7 +122,7 @@ function main(): void {
   );
 
   assert(
-    missingPythonModule.missingCapabilities.includes(
+    (missingPythonModule.missingCapabilities ?? []).includes(
       "python-module:pytest",
     ),
     "Missing pytest must be reported as a module capability gap rather than a missing Python executable.",
@@ -154,7 +154,7 @@ function main(): void {
 
   assert(
     !missingNpxPackage.verified &&
-      missingNpxPackage.missingCapabilities.includes(
+      (missingNpxPackage.missingCapabilities ?? []).includes(
         "npx-package:tsc",
       ),
     "npx availability alone must never masquerade as TypeScript compiler availability.",
