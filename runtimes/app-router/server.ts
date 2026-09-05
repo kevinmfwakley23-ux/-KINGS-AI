@@ -2,19 +2,32 @@ import { timingSafeEqual } from "node:crypto";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 
 import { AppAiRouter, AppAiRouterError, type AppAiRouteRequest } from "../../core/workforce/app-ai-router";
+import {
+  AppBrainGateway,
+  type AppBrainMemorySelectionRequest,
+  type AppBrainResearchRequest,
+} from "../../core/workforce/app-brain-gateway";
 import { createConfiguredGatewayAdapters } from "../../core/workforce/openai-compatible-gateway";
 import { ProviderAdapterRegistry } from "../../core/workforce/provider-adapters";
+import { WebAccessAdapter } from "../../core/workforce/web-access";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const DEFAULT_PORT = 8790;
 const RESPONSES_APP_ID = "authors.forge";
 const RESPONSE_ROLES = new Set(["system", "user", "assistant", "tool"]);
+const DEFAULT_RESEARCH_MAX_SOURCES = 8;
+const DEFAULT_RESEARCH_MAX_RESPONSE_BYTES = 512 * 1024;
+const DEFAULT_RESEARCH_TIMEOUT_MS = 15_000;
 
-interface RouterRuntimeConfig {
+export interface RouterRuntimeConfig {
   host: string;
   port: number;
   accessToken?: string;
   providerOrder: string[];
+  researchMaxSources: number;
+  researchMaxResponseBytes: number;
+  researchTimeoutMs: number;
+  researchAllowedHosts?: string[];
 }
 
 type ResponsesRole = "system" | "user" | "assistant" | "tool";
@@ -27,7 +40,29 @@ function parsePort(raw: string | undefined): number {
   return value;
 }
 
-function loadConfig(env: NodeJS.ProcessEnv = process.env): RouterRuntimeConfig {
+function parsePositiveInteger(raw: string | undefined, name: string, fallback: number, max: number): number {
+  const value = Number.parseInt(raw ?? String(fallback), 10);
+  if (!Number.isInteger(value) || value < 1 || value > max) {
+    throw new Error(`${name} must be an integer between 1 and ${max}`);
+  }
+  return value;
+}
+
+function parseAllowedHosts(raw: string | undefined): string[] | undefined {
+  if (!raw?.trim()) return undefined;
+  const hosts = [...new Set(
+    raw.split(",").map((value) => value.trim().toLowerCase().replace(/\.$/, "")).filter(Boolean),
+  )];
+  if (hosts.length > 128) throw new Error("KINGS_APP_RESEARCH_ALLOWED_HOSTS may contain at most 128 hosts");
+  for (const host of hosts) {
+    if (!/^[a-z0-9.-]+$/.test(host) || host.startsWith(".") || host.endsWith(".") || host.includes("..")) {
+      throw new Error(`KINGS_APP_RESEARCH_ALLOWED_HOSTS contains an invalid host: ${host}`);
+    }
+  }
+  return hosts;
+}
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): RouterRuntimeConfig {
   const host = env.KINGS_APP_ROUTER_BIND?.trim() || "127.0.0.1";
   const accessToken = env.KINGS_APP_ROUTER_TOKEN?.trim() || undefined;
   if (!["127.0.0.1", "::1", "localhost"].includes(host) && !accessToken) {
@@ -38,7 +73,31 @@ function loadConfig(env: NodeJS.ProcessEnv = process.env): RouterRuntimeConfig {
     .map((value) => value.trim())
     .filter(Boolean);
   if (providerOrder.length === 0) throw new Error("KINGS_APP_ROUTER_PROVIDER_ORDER must contain at least one provider");
-  return { host, port: parsePort(env.KINGS_APP_ROUTER_PORT), accessToken, providerOrder };
+  return {
+    host,
+    port: parsePort(env.KINGS_APP_ROUTER_PORT),
+    accessToken,
+    providerOrder,
+    researchMaxSources: parsePositiveInteger(
+      env.KINGS_APP_RESEARCH_MAX_SOURCES,
+      "KINGS_APP_RESEARCH_MAX_SOURCES",
+      DEFAULT_RESEARCH_MAX_SOURCES,
+      50,
+    ),
+    researchMaxResponseBytes: parsePositiveInteger(
+      env.KINGS_APP_RESEARCH_MAX_RESPONSE_BYTES,
+      "KINGS_APP_RESEARCH_MAX_RESPONSE_BYTES",
+      DEFAULT_RESEARCH_MAX_RESPONSE_BYTES,
+      8 * 1024 * 1024,
+    ),
+    researchTimeoutMs: parsePositiveInteger(
+      env.KINGS_APP_RESEARCH_TIMEOUT_MS,
+      "KINGS_APP_RESEARCH_TIMEOUT_MS",
+      DEFAULT_RESEARCH_TIMEOUT_MS,
+      120_000,
+    ),
+    researchAllowedHosts: parseAllowedHosts(env.KINGS_APP_RESEARCH_ALLOWED_HOSTS),
+  };
 }
 
 function safeEqual(left: string, right: string): boolean {
@@ -89,6 +148,13 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   }
 }
 
+function requireObject(body: unknown): Record<string, unknown> {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new AppAiRouterError("INVALID_REQUEST", "Request body must be a JSON object.");
+  }
+  return body as Record<string, unknown>;
+}
+
 function parseResponsesInput(input: unknown): Array<{ role: ResponsesRole; content: string }> {
   if (typeof input === "string" && input.trim()) {
     return [{ role: "user", content: input }];
@@ -114,10 +180,7 @@ function parseResponsesInput(input: unknown): Array<{ role: ResponsesRole; conte
 }
 
 function parseResponsesRequest(body: unknown): AppAiRouteRequest {
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    throw new AppAiRouterError("INVALID_RESPONSES_REQUEST", "Request body must be a JSON object.");
-  }
-  const record = body as Record<string, unknown>;
+  const record = requireObject(body);
   const model = record.model;
   if (typeof model !== "string" || !model.trim()) {
     throw new AppAiRouterError("INVALID_RESPONSES_MODEL", "model must be a non-empty string.");
@@ -144,11 +207,22 @@ function parseResponsesRequest(body: unknown): AppAiRouteRequest {
 export function createAppRouterRuntime(
   config = loadConfig(),
   providers = new ProviderAdapterRegistry(),
+  webAccess?: WebAccessAdapter,
 ): http.Server {
   if (providers.list().length === 0) {
     for (const provider of createConfiguredGatewayAdapters()) providers.register(provider);
   }
   const router = new AppAiRouter(providers, config.providerOrder);
+  const researchWebAccess = webAccess ?? new WebAccessAdapter({
+    allowedHosts: config.researchAllowedHosts,
+    allowedMethods: ["GET"],
+    allowedSchemes: ["https"],
+    maxResponseBytes: config.researchMaxResponseBytes,
+    timeoutMs: config.researchTimeoutMs,
+    maxRedirects: 0,
+    blockPrivateNetworks: true,
+  });
+  const brain = new AppBrainGateway(researchWebAccess, config.researchMaxSources);
 
   return http.createServer(async (request, response) => {
     const startedAt = Date.now();
@@ -172,6 +246,35 @@ export function createAppRouterRuntime(
           return adapter?.listModels() ?? [];
         });
         return sendJson(response, 200, { ok: true, models });
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/brain/memory/select") {
+        const result = brain.selectMemory(requireObject(await readJson(request)) as unknown as AppBrainMemorySelectionRequest);
+        console.log(JSON.stringify({
+          timestamp: new Date().toISOString(),
+          event: "app_brain_memory_select",
+          appId: result.appId,
+          requestId: result.requestId,
+          taskId: result.taskId,
+          inspectedCount: result.inspectedCount,
+          selectedCount: result.selected.length,
+          durationMs: Date.now() - startedAt,
+        }));
+        return sendJson(response, 200, result);
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/brain/research/retrieve") {
+        const result = await brain.retrieveResearch(requireObject(await readJson(request)) as unknown as AppBrainResearchRequest);
+        console.log(JSON.stringify({
+          timestamp: new Date().toISOString(),
+          event: "app_brain_research_retrieve",
+          appId: result.appId,
+          requestId: result.requestId,
+          taskId: result.taskId,
+          sourceCount: result.sources.length,
+          durationMs: Date.now() - startedAt,
+        }));
+        return sendJson(response, 200, result);
       }
 
       if (request.method === "POST" && (url.pathname === "/responses" || url.pathname === "/v1/responses")) {
@@ -215,11 +318,7 @@ export function createAppRouterRuntime(
       }
 
       if (request.method === "POST" && url.pathname === "/v1/route") {
-        const body = await readJson(request);
-        if (!body || typeof body !== "object" || Array.isArray(body)) {
-          throw new AppAiRouterError("INVALID_REQUEST", "Request body must be a JSON object.");
-        }
-        const result = await router.route(body as AppAiRouteRequest);
+        const result = await router.route(requireObject(await readJson(request)) as unknown as AppAiRouteRequest);
         const statusCode = result.success ? 200 : result.code === "NO_ROUTABLE_MODEL" ? 503 : 502;
         console.log(JSON.stringify({
           timestamp: new Date().toISOString(),
