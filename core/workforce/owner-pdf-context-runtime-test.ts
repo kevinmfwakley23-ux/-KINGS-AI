@@ -1,6 +1,7 @@
 import {
   mkdtemp,
   rm,
+  writeFile,
 } from "node:fs/promises";
 import {
   tmpdir,
@@ -40,9 +41,10 @@ async function main(): Promise<void> {
     });
     await runtime.initialize();
 
+    const sourcePdf = createTextPdf("KINGS PDF CONTEXT TEST");
     const imported = await runtime.ingestPdf(
       "KINGS Product Requirements.pdf",
-      createTextPdf("KINGS PDF CONTEXT TEST"),
+      sourcePdf,
     );
 
     assert(
@@ -56,6 +58,19 @@ async function main(): Promise<void> {
     assert(
       /^[a-f0-9]{64}$/u.test(imported.sha256),
       "Imported PDF must receive SHA-256 provenance.",
+    );
+    assert(
+      imported.sourcePreserved === true,
+      "Owner PDF metadata must report that the original source is preserved.",
+    );
+
+    const duplicate = await runtime.ingestPdf(
+      "Same Bytes Different Name.pdf",
+      sourcePdf,
+    );
+    assert(
+      duplicate.id === imported.id,
+      "Identical PDF bytes must de-duplicate to the same governed source identity.",
     );
 
     const listed = runtime.list();
@@ -88,11 +103,11 @@ async function main(): Promise<void> {
     assert(
       restored[0].sha256 === imported.sha256 &&
       restored[0].text.includes("KINGS PDF CONTEXT TEST"),
-      "Extracted PDF context and provenance must survive a runtime restart.",
+      "Extracted PDF context, original source, and provenance must survive a runtime restart.",
     );
 
     console.log(
-      "05.OWNER-PDF restart persistence: SUCCESS",
+      "05.OWNER-PDF restart + source-hash verification: SUCCESS",
     );
 
     let invalidRejected = false;
@@ -118,6 +133,27 @@ async function main(): Promise<void> {
     assert(
       unknownRejected,
       "Mission context resolution must reject unknown browser-supplied document ids.",
+    );
+
+    await writeFile(
+      join(root, "owner-context-files", `${imported.id}.pdf`),
+      Buffer.from("tampered source", "utf8"),
+    );
+    const corrupted = new OwnerPdfContextRuntime({
+      storePath,
+      extractorPath,
+    });
+    let tamperRejected = false;
+    try {
+      await corrupted.initialize();
+    } catch (error) {
+      tamperRejected = /hash mismatch/i.test(
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    assert(
+      tamperRejected,
+      "Restart must fail closed when preserved PDF bytes no longer match recorded SHA-256 provenance.",
     );
 
     console.log(
