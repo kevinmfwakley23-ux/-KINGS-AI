@@ -49,6 +49,15 @@ function normalizedBaseUrl(value: string): string {
   return trimmed;
 }
 
+function renderPrivateBaseUrl(hostport: string | undefined): string | undefined {
+  const value = hostport?.trim();
+  if (!value) return undefined;
+  if (value.includes("://") || value.includes("/") || /\s/.test(value)) {
+    throw new Error("K.I.N.G.S. Gateway: private hostport must use host:port format");
+  }
+  return `http://${value}/v1`;
+}
+
 function failure(
   request: ModelExecutionRequest,
   model: ModelIdentity,
@@ -340,7 +349,7 @@ export function createOmniRouteAdapter(
   return new OpenAICompatibleGatewayAdapter({
     providerId: "omniroute",
     name: "OmniRoute",
-    baseUrl: env.KINGS_OMNIROUTE_BASE_URL ?? "http://127.0.0.1:20128/v1",
+    baseUrl: env.KINGS_OMNIROUTE_BASE_URL ?? renderPrivateBaseUrl(env.KINGS_OMNIROUTE_HOSTPORT) ?? "http://127.0.0.1:20128/v1",
     apiKey: env.KINGS_OMNIROUTE_API_KEY,
     models: csv(env.KINGS_OMNIROUTE_MODELS, ["auto/coding", "auto/cheap"]).map((id) => ({ id })),
     extraHeaders: env.KINGS_OMNIROUTE_NO_CACHE === "true"
@@ -354,7 +363,7 @@ export function createNineRouterAdapter(
   return new OpenAICompatibleGatewayAdapter({
     providerId: "9router",
     name: "9Router",
-    baseUrl: env.KINGS_9ROUTER_BASE_URL ?? "http://127.0.0.1:20128/v1",
+    baseUrl: env.KINGS_9ROUTER_BASE_URL ?? renderPrivateBaseUrl(env.KINGS_9ROUTER_HOSTPORT) ?? "http://127.0.0.1:20128/v1",
     apiKey: env.KINGS_9ROUTER_API_KEY,
     models: csv(env.KINGS_9ROUTER_MODELS, ["auto"]).map((id) => ({ id })),
   });
@@ -365,10 +374,14 @@ export function createConfiguredGatewayAdapters(
 ): OpenAICompatibleGatewayAdapter[] {
   const adapters: OpenAICompatibleGatewayAdapter[] = [];
   const omniConfigured = Boolean(
-    env.KINGS_OMNIROUTE_BASE_URL?.trim() || env.KINGS_OMNIROUTE_MODELS?.trim(),
+    env.KINGS_OMNIROUTE_BASE_URL?.trim() ||
+    env.KINGS_OMNIROUTE_HOSTPORT?.trim() ||
+    env.KINGS_OMNIROUTE_MODELS?.trim(),
   );
   const nineConfigured = Boolean(
-    env.KINGS_9ROUTER_BASE_URL?.trim() || env.KINGS_9ROUTER_MODELS?.trim(),
+    env.KINGS_9ROUTER_BASE_URL?.trim() ||
+    env.KINGS_9ROUTER_HOSTPORT?.trim() ||
+    env.KINGS_9ROUTER_MODELS?.trim(),
   );
 
   if (omniConfigured) adapters.push(createOmniRouteAdapter(env));

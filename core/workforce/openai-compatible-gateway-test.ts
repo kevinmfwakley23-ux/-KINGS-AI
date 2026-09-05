@@ -14,13 +14,13 @@ async function main(): Promise<void> {
   assert(unconfigured.length === 0, "Unconfigured gateways must not be advertised as available");
 
   const discovered = createConfiguredGatewayAdapters({
-    KINGS_OMNIROUTE_BASE_URL: "https://omniroute.example/v1",
-    KINGS_OMNIROUTE_MODELS: "auto/coding",
+    KINGS_OMNIROUTE_HOSTPORT: "omniroute:20128",
+    KINGS_OMNIROUTE_MODELS: "auto",
     KINGS_9ROUTER_BASE_URL: "https://9router.example/v1",
     KINGS_9ROUTER_MODELS: "auto",
   });
   assert(discovered.length === 2, "Configured gateways must be discovered");
-  assert(discovered.some((adapter) => adapter.descriptor.id === "omniroute"), "Configured OmniRoute gateway was not discovered");
+  assert(discovered.some((adapter) => adapter.descriptor.id === "omniroute"), "Render-private OmniRoute gateway was not discovered");
   assert(discovered.some((adapter) => adapter.descriptor.id === "9router"), "Configured 9Router gateway was not discovered");
 
   const omni = createOmniRouteAdapter({
@@ -30,6 +30,12 @@ async function main(): Promise<void> {
   assert(omni.descriptor.id === "omniroute", "OmniRoute provider id was not preserved");
   assert(omni.listModels().length === 2, "OmniRoute models were not parsed");
 
+  const privateOmni = createOmniRouteAdapter({
+    KINGS_OMNIROUTE_HOSTPORT: "omniroute-private:20128",
+    KINGS_OMNIROUTE_MODELS: "auto",
+  });
+  assert(privateOmni.listModels()[0]?.modelId === "auto", "Render-private OmniRoute must preserve the configured virtual model");
+
   const nine = createNineRouterAdapter({
     KINGS_9ROUTER_BASE_URL: "http://localhost:20129/v1",
     KINGS_9ROUTER_MODELS: "auto,cheap",
@@ -38,9 +44,11 @@ async function main(): Promise<void> {
   assert(nine.listModels().length === 2, "9Router models were not parsed");
 
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (_input, init) => {
+  let requestedUrl = "";
+  globalThis.fetch = async (input, init) => {
+    requestedUrl = String(input);
     const body = JSON.parse(String(init?.body)) as { model?: string; max_tokens?: number };
-    assert(body.model === "auto/coding", "Gateway virtual model must pass through unchanged");
+    assert(body.model === "auto", "Gateway virtual model must pass through unchanged");
     assert(body.max_tokens === 321, "Output token cap must pass through");
     return new Response(JSON.stringify({
       id: "gateway-request-1",
@@ -57,8 +65,9 @@ async function main(): Promise<void> {
     maxOutputTokens: 321, allowToolProposals: false,
   };
   try {
-    const result = await omni.execute("auto/coding", request);
-    assert(result.success, "Gateway execution should succeed");
+    const result = await privateOmni.execute("auto", request);
+    assert(result.success, "Render-private gateway execution should succeed");
+    assert(requestedUrl === "http://omniroute-private:20128/v1/chat/completions", "Render private hostport must resolve to the OpenAI-compatible v1 chat endpoint");
     assert(result.response?.usage.inputTokens === 12, "Input token usage was not preserved");
     assert(result.response?.usage.outputTokens === 3, "Output token usage was not preserved");
     assert(result.response?.usage.tokensUsed === 15, "Total token usage was not preserved");
@@ -73,6 +82,15 @@ async function main(): Promise<void> {
     });
   } catch { rejected = true; }
   assert(rejected, "Non-HTTP gateway URL must be rejected");
+
+  rejected = false;
+  try {
+    createOmniRouteAdapter({
+      KINGS_OMNIROUTE_HOSTPORT: "https://omniroute.example/v1",
+      KINGS_OMNIROUTE_MODELS: "auto",
+    });
+  } catch { rejected = true; }
+  assert(rejected, "Render private hostport must reject URL-shaped input");
 
   console.log("OpenAI-compatible OmniRoute/9Router gateway connector: SUCCESS");
 
