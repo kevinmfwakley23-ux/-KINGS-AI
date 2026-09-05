@@ -43,12 +43,14 @@ async function main(): Promise<void> {
     "qwen2.5-coder:0.5b",
     "qwen2.5-coder:1.5b",
   ]);
-  const identity = configured.getModel("qwen2.5-coder:1.5b")?.identity;
-  assert.equal(identity?.providerId, "ollama");
+  const model = configured.getModel("qwen2.5-coder:1.5b");
+  const identity = model?.identity;
+  assert.equal(identity?.providerId, "ollama-internal");
   assert.equal(identity?.providerKind, "internal-local");
   assert.equal(identity?.supportsToolCalling, false, "Adapter must not claim tool calls it cannot return");
   assert.equal(identity?.supportsStructuredOutput, false);
-  assert.equal(configured.getModel("qwen2.5-coder:1.5b")?.canHandle(request({ requireStructuredOutput: true })), false);
+  assert.equal(model?.canHandle(request({ requireStructuredOutput: true })), false);
+  assert.equal(model?.canHandle(request({ inputModalities: ["text", "image"] })), false, "Text-only Ollama model must reject mixed multimodal input");
 
   const originalFetch = global.fetch;
   let calledUrl = "";
@@ -68,7 +70,7 @@ async function main(): Promise<void> {
     const result = await configured.execute("qwen2.5-coder:0.5b", request());
     assert.equal(result.success, true);
     assert.equal(result.response?.content, "LOCAL_ROUTER_GREEN");
-    assert.equal(result.response?.model.providerId, "ollama");
+    assert.equal(result.response?.model.providerId, "ollama-internal");
     assert.equal(result.response?.usage.inputTokens, 11);
     assert.equal(result.response?.usage.outputTokens, 7);
     assert.equal(result.response?.usage.estimatedCost, 0);
