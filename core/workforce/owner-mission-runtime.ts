@@ -23,6 +23,7 @@ import { WorkforceRegistry } from "./registry";
 const STORE_VERSION = 1;
 const DEFAULT_MAX_VISION_CHARS = 200_000;
 const DEFAULT_MAX_CONTEXT_CHARS = 1_000_000;
+const RESTART_RECOVERY_REFERENCE = "owner-runtime-restart-recovery";
 
 export interface OwnerMissionContextDocument {
   id: string;
@@ -110,6 +111,12 @@ export class OwnerMissionRuntime {
       throw new Error("K.I.N.G.S. Owner Mission Runtime: persistent state has an unsupported schema.");
     }
     for (const record of parsed.records) this.restoreRecord(record);
+
+    let recoveredInterruptedExecution = false;
+    for (const missionId of this.records.keys()) {
+      recoveredInterruptedExecution = this.recoverInterruptedTasks(missionId) || recoveredInterruptedExecution;
+    }
+    if (recoveredInterruptedExecution) await this.persist();
   }
 
   async createMission(request: OwnerMissionCreateRequest): Promise<OwnerMissionSnapshot> {
@@ -292,6 +299,46 @@ export class OwnerMissionRuntime {
     this.continuity.registerPlan(clone(record.plan));
     for (const task of record.tasks) this.registry.registerTask(clone(task));
     this.records.set(missionId, { ...clone(record), results: (record.results ?? []).map(clone) });
+  }
+
+  /**
+   * A persisted running task means the process died after durable dispatch but
+   * before durable completion/failure. K.I.N.G.S. must never infer success from
+   * that state. Record the interruption, remove the stale lease/assignment,
+   * and return the same task to ready so the normal governed executor can retry.
+   */
+  private recoverInterruptedTasks(missionId: string): boolean {
+    const running = this.registry
+      .listTasks()
+      .filter((task) => task.missionId === missionId && task.status === "running");
+    if (!running.length) return false;
+
+    const record = this.requireRecord(missionId);
+    const now = new Date().toISOString();
+    for (const task of running) {
+      const interruptedAgentId = task.assignedAgentId ?? "kings-owner-engineer";
+      task.status = "ready";
+      delete task.assignedAgentId;
+      task.updatedAt = now;
+      (record.results ??= []).push({
+        id: `owner-result-restart-${randomUUID()}`,
+        taskId: task.id,
+        agentId: interruptedAgentId,
+        status: "partial",
+        summary: "Execution was interrupted by a process restart. No completion was inferred; the task was returned to ready for governed retry.",
+        artifactIds: [],
+        verificationReferences: [RESTART_RECOVERY_REFERENCE],
+        createdAt: now,
+      });
+    }
+
+    const mission = this.registry.getMission(missionId);
+    if (mission && !this.registry.listTasks().some((task) => task.missionId === missionId && task.status === "failed")) {
+      mission.status = "active";
+      mission.updatedAt = now;
+    }
+    this.syncRecord(missionId);
+    return true;
   }
 
   private syncRecord(missionId: string): void {
