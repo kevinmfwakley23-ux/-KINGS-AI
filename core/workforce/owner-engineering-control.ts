@@ -95,7 +95,7 @@ export async function runOwnerEngineeringControl(
 
   const workspacePath = resolve(requiredText(request.workspacePath, "workspace path"));
   const projectId = normalizeProjectId(
-    request.projectId ?? basename(workspacePath) || "owner-workspace",
+    (request.projectId ?? basename(workspacePath)) || "owner-workspace",
   );
 
   const readiness = await new LocalProjectEngineeringReadinessAuthority().inspect({
@@ -153,7 +153,7 @@ function summarizeReadiness(
     verifiedToolchains: readiness.verifications.map((verification) => ({
       language: verification.language,
       verified: verification.verified,
-      toolchainId: verification.toolchainId,
+      toolchainId: verification.toolchain.id,
     })),
     blockedReasons: [...readiness.blockedReasons],
     plannedSteps: readiness.execution.steps.map((step) => ({
