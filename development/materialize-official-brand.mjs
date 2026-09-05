@@ -1,35 +1,29 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const EXPECTED_SHA256 = "120a27fdad36b77eb9f0eae0e0e065c44d93eb57ed0aa3afd94e36d1ef04b1f0";
-const EXPECTED_PARTS = 8;
 const EXPECTED_BASE64_LENGTH = 62660;
 const EXPECTED_PNG_LENGTH = 46994;
+const EXPECTED_PARTS = [
+  "kings-ai-official-logo.part00.b64",
+  "kings-ai-official-logo.part01.b64",
+  "kings-ai-official-logo.part02.b64",
+  "kings-ai-official-logo.part03.b64",
+  "kings-ai-official-logo.part04.b64",
+  "kings-ai-official-logo.part05a.b64",
+  "kings-ai-official-logo.part05b.b64",
+  "kings-ai-official-logo.part06.b64",
+  "kings-ai-official-logo.part07.b64",
+];
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceDirectory = resolve(root, "native-shell", "brand-source");
 const outputPath = resolve(root, "native-shell", "kings-ai-official-logo.png");
 
-const partNames = (await readdir(sourceDirectory))
-  .filter((name) => /^kings-ai-official-logo\.part\d{2}\.b64$/u.test(name))
-  .sort();
-
-if (partNames.length !== EXPECTED_PARTS) {
-  throw new Error(`K.I.N.G.S. brand materializer: expected ${EXPECTED_PARTS} source parts, found ${partNames.length}.`);
-}
-
-const expectedNames = Array.from(
-  { length: EXPECTED_PARTS },
-  (_, index) => `kings-ai-official-logo.part${String(index).padStart(2, "0")}.b64`,
-);
-if (partNames.some((name, index) => name !== expectedNames[index])) {
-  throw new Error("K.I.N.G.S. brand materializer: official crest source parts are incomplete or misnumbered.");
-}
-
 const base64 = (
-  await Promise.all(partNames.map((name) => readFile(resolve(sourceDirectory, name), "utf8")))
+  await Promise.all(EXPECTED_PARTS.map((name) => readFile(resolve(sourceDirectory, name), "utf8")))
 ).join("").replace(/\s+/gu, "");
 
 if (base64.length !== EXPECTED_BASE64_LENGTH) {
