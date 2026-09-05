@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">K.I.N.G.S. AI crown emblem</title>
+  <desc id="desc">Black marble field with a gold royal crown and K monogram.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#080808"/>
+      <stop offset="0.55" stop-color="#1b1b1b"/>
+      <stop offset="1" stop-color="#050505"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f0d27b"/>
+      <stop offset="0.48" stop-color="#c79a3b"/>
+      <stop offset="1" stop-color="#7a5518"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="108" fill="url(#bg)"/>
+  <path d="M44 160C126 126 182 147 256 118c74 29 130 8 212 42" fill="none" stroke="#8e6b2c" stroke-width="5" opacity=".6"/>
+  <path d="M58 370c84-38 148-21 204-52 61 26 122 15 192-18" fill="none" stroke="#d6c9a8" stroke-width="4" opacity=".22"/>
+  <path d="M108 178l70 54 78-116 78 116 70-54-30 150H138z" fill="url(#gold)" stroke="#f1dc9d" stroke-width="8" stroke-linejoin="round"/>
+  <circle cx="108" cy="178" r="17" fill="#f0d27b"/>
+  <circle cx="256" cy="116" r="17" fill="#f0d27b"/>
+  <circle cx="404" cy="178" r="17" fill="#f0d27b"/>
+  <rect x="137" y="325" width="238" height="43" rx="12" fill="url(#gold)" stroke="#f1dc9d" stroke-width="7"/>
+  <text x="256" y="310" text-anchor="middle" font-family="Georgia,serif" font-size="132" font-weight="700" fill="#0a0a0a">K</text>
+</svg>
