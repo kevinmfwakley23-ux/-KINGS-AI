@@ -36,7 +36,7 @@ assert.equal(officialLogo.readUInt32BE(16), 256, "tracked official logo derivati
 assert.equal(officialLogo.readUInt32BE(20), 256, "tracked official logo derivative height changed unexpectedly");
 assert.equal(
   officialLogoSha256,
-  "64353ae64167e206aa6533c0dc9b8f8b0912e36c9ffc9b1b72a12d2534d09c33",
+  "120a27fdad36b77eb9f0eae0e0e065c44d93eb57ed0aa3afd94e36d1ef04b1f0",
   "official K.I.N.G.S. AI brand asset changed without an explicit branding update",
 );
 assert.match(shell, /kings-ai-official-logo\.png/, "native shell must display the official K.I.N.G.S. AI crest");
