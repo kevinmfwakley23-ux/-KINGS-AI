@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { inflateSync } from "node:zlib";
 
-export const OFFICIAL_KINGS_LOGO_FILE_SHA256 = "46575e83e6e5e68c77ce3523017817dd32ef954397554f618768b91c17939026";
+export const OFFICIAL_KINGS_LOGO_FILE_SHA256 = "120a27fdad36b77eb9f0eae0e0e065c44d93eb57ed0aa3afd94e36d1ef04b1f0";
 export const OFFICIAL_KINGS_LOGO_PIXEL_SHA256 = "593606dedc7e2e4ec47d492633959122fb74e3e59c7fd91546bfef13f81ad8ae";
 
 const PNG_SIGNATURE = Buffer.from("89504e470d0a1a0a", "hex");
