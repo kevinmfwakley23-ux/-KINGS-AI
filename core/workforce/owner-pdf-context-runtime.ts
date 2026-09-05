@@ -51,6 +51,11 @@ export interface OwnerPdfContextMetadata {
   sourcePreserved: true;
 }
 
+export interface OwnerPdfContextIngestRequest {
+  name: string;
+  bytes: Buffer | Uint8Array;
+}
+
 interface OwnerPdfContextStoreFile {
   version: number;
   documents: OwnerPdfContextDocument[];
@@ -165,6 +170,18 @@ export class OwnerPdfContextRuntime {
       }
       this.documents.set(document.id, clone(document));
     }
+  }
+
+  /** Structured server-boundary form used by HTTP/runtime adapters. */
+  async ingest(
+    request: OwnerPdfContextIngestRequest,
+  ): Promise<OwnerPdfContextMetadata> {
+    if (!request || typeof request !== "object") {
+      throw new Error(
+        "K.I.N.G.S. Owner PDF Context: ingest request is required.",
+      );
+    }
+    return this.ingestPdf(request.name, request.bytes);
   }
 
   async ingestPdf(
