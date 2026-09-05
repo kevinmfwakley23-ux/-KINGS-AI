@@ -205,6 +205,7 @@ export class LocalModelEngineeringRepairCoordinator {
           response: modelResult,
           request: modelRequest,
           allowedPaths: request.allowedPaths,
+          workspaceRoot: request.workspace.rootPath,
         },
         this.parser,
       );

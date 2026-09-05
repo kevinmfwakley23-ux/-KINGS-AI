@@ -4,7 +4,6 @@ import type {
 
 import type {
   EngineeringLanguage,
-  ToolchainOperation,
 } from "./engineering-toolchain";
 
 import type {
@@ -22,6 +21,10 @@ import type {
   LocalCodingChangeProposal,
   LocalCodingFileChange,
 } from "./local-coding-change-proposal";
+
+import {
+  isWorkspacePathAuthorized,
+} from "./workspace-path-authorization";
 
 export interface EngineeringWorkspaceProposalRequest {
   execution:
@@ -85,35 +88,6 @@ function normalizePath(
       "/",
     )
     .trim();
-}
-
-function isWithinPath(
-  path:
-    string,
-  allowedPath:
-    string,
-):
-  boolean {
-  const normalizedPath =
-    normalizePath(
-      path,
-    );
-
-  const normalizedAllowed =
-    normalizePath(
-      allowedPath,
-    );
-
-  if (
-    normalizedPath ===
-    normalizedAllowed
-  ) {
-    return true;
-  }
-
-  return normalizedPath.startsWith(
-    `${normalizedAllowed}/`,
-  );
 }
 
 function inferLanguage(
@@ -330,19 +304,15 @@ export class EngineeringWorkspaceProposalAuthority {
       );
     }
 
-    const withinWorkspace =
-      request.workspace.allowedPaths.some(
-        (
-          allowedPath,
-        ) =>
-          isWithinPath(
-            normalizedPath,
-            allowedPath,
-          ),
-      );
-
     if (
-      !withinWorkspace
+      !isWorkspacePathAuthorized({
+        candidatePath:
+          normalizedPath,
+        allowedPaths:
+          request.workspace.allowedPaths,
+        workspaceRoot:
+          request.workspace.rootPath,
+      })
     ) {
       throw new Error(
         `K.I.N.G.S. Engineering Workspace Proposal: path "${normalizedPath}" is outside the authorized workspace.`,
