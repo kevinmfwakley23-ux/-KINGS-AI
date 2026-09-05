@@ -2,19 +2,15 @@ import type {
   ID,
 } from "./types";
 
-export type EngineeringLanguage =
-  | "typescript"
-  | "javascript"
-  | "python"
-  | "rust"
-  | "go"
-  | "java"
-  | "c"
-  | "cpp"
-  | "css"
-  | "html"
-  | "sql"
-  | "shell";
+/**
+ * Open engineering-language identifier.
+ *
+ * K.I.N.G.S. ships verified defaults for common languages, but the architecture
+ * must not require a core-code change just to register a newly verified
+ * language/toolchain. Language definitions and toolchains remain governed by
+ * their registries and verification authorities at runtime.
+ */
+export type EngineeringLanguage = string;
 
 export type ToolchainOperation =
   | "create"
