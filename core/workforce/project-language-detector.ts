@@ -15,6 +15,10 @@ import type {
 } from "./engineering-language";
 
 import type {
+  EngineeringLanguage,
+} from "./engineering-toolchain";
+
+import type {
   ProjectLanguageEvidence,
 } from "./project-engineering-profile";
 
@@ -22,7 +26,7 @@ export interface ProjectDevelopmentEnvironment {
   projectPath: string;
   scannedFileCount: number;
   languages: ProjectLanguageEvidence[];
-  primaryLanguage?: string;
+  primaryLanguage?: EngineeringLanguage;
   packageManagers: string[];
   buildSystems: string[];
   manifestFiles: string[];
@@ -149,7 +153,7 @@ export class LocalProjectLanguageDetector {
       ...languageCounts.values(),
     ]
       .map((entry) => ({
-        language: entry.definition.id,
+        language: entry.definition.id as EngineeringLanguage,
         fileCount: entry.count,
         extensions: [...entry.extensions].sort(),
       }))
