@@ -135,7 +135,7 @@ export class ProjectEngineeringProfileAuthority {
               ...result.missingExecutables,
             ],
             missingCapabilities: [
-              ...result.missingCapabilities,
+              ...(result.missingCapabilities ?? []),
             ],
             unsupportedOperations: [
               ...result.unsupportedOperations,
