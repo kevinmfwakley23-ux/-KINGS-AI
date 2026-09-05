@@ -8,6 +8,7 @@ import {
   type AppBrainResearchRequest,
 } from "../../core/workforce/app-brain-gateway";
 import { createConfiguredGatewayAdapters } from "../../core/workforce/openai-compatible-gateway";
+import { createConfiguredOllamaAdapter } from "../../core/workforce/ollama-provider-adapter";
 import { ProviderAdapterRegistry } from "../../core/workforce/provider-adapters";
 import { WebAccessAdapter } from "../../core/workforce/web-access";
 
@@ -69,7 +70,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RouterRuntimeC
   if (!["127.0.0.1", "::1", "localhost"].includes(host) && !accessToken) {
     throw new Error("KINGS_APP_ROUTER_TOKEN is required when the app router binds beyond loopback");
   }
-  const providerOrder = (env.KINGS_APP_ROUTER_PROVIDER_ORDER ?? "omniroute,9router")
+  const providerOrder = (env.KINGS_APP_ROUTER_PROVIDER_ORDER ?? "omniroute,9router,ollama")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
@@ -228,6 +229,8 @@ export function createAppRouterRuntime(
 ): http.Server {
   if (providers.list().length === 0) {
     for (const provider of createConfiguredGatewayAdapters()) providers.register(provider);
+    const ollama = createConfiguredOllamaAdapter();
+    if (ollama) providers.register(ollama);
   }
   const router = new AppAiRouter(providers, config.providerOrder);
   const researchWebAccess = webAccess ?? new WebAccessAdapter({
