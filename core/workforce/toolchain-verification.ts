@@ -1,11 +1,8 @@
 import type {
-  ID,
-} from "./types";
-
-import type {
   EngineeringLanguage,
   EngineeringToolchain,
   EngineeringToolchainRegistry,
+  ToolchainCommand,
   ToolchainOperation,
 } from "./engineering-toolchain";
 
@@ -39,6 +36,8 @@ export interface ToolchainVerificationResult {
   availableExecutables:
     string[];
   missingExecutables:
+    string[];
+  missingCapabilities:
     string[];
   unsupportedOperations:
     ToolchainOperation[];
@@ -113,40 +112,18 @@ export class ToolchainVerificationAuthority {
       );
 
     const missingCapabilities =
-      requiredCommands.flatMap(
-        (command) => {
-          const moduleIndex =
-            command.args.indexOf(
-              "-m",
-            );
-
-          if (
-            moduleIndex >= 0 &&
-            command.args[
-              moduleIndex + 1
-            ]
-          ) {
-            const module =
-              command.args[
-                moduleIndex + 1
-              ];
-
-            return availableCapabilities.has(
-              module,
-            )
-              ? []
-              : [module];
-          }
-
-          return [];
-        },
-      );
-
-    const allMissing =
       [
-        ...missingExecutables,
-        ...missingCapabilities,
-      ];
+        ...new Set(
+          requiredCommands.flatMap(
+            requiredCommandCapabilities,
+          ),
+        ),
+      ].filter(
+        (capability) =>
+          !availableCapabilities.has(
+            capability,
+          ),
+      );
 
     return {
       language:
@@ -155,16 +132,75 @@ export class ToolchainVerificationAuthority {
         discovery.toolchain,
       verified:
         discovery.supported &&
-        allMissing.length ===
+        missingExecutables.length ===
+          0 &&
+        missingCapabilities.length ===
           0,
       availableExecutables:
         [
           ...availableExecutables,
-        ],
-      missingExecutables:
-        allMissing,
+        ].sort(),
+      missingExecutables,
+      missingCapabilities,
       unsupportedOperations:
         discovery.missingOperations,
     };
   }
+}
+
+function requiredCommandCapabilities(
+  command:
+    ToolchainCommand,
+): string[] {
+  const capabilities: string[] = [];
+
+  const moduleIndex =
+    command.args.indexOf(
+      "-m",
+    );
+
+  if (
+    moduleIndex >= 0 &&
+    command.args[
+      moduleIndex + 1
+    ]
+  ) {
+    capabilities.push(
+      `python-module:${command.args[moduleIndex + 1]}`,
+    );
+  }
+
+  if (
+    command.command ===
+      "npx" &&
+    command.args[0]
+  ) {
+    capabilities.push(
+      `npx-package:${command.args[0]}`,
+    );
+  }
+
+  if (
+    command.command ===
+      "npm"
+  ) {
+    if (
+      command.args[0] ===
+        "run" &&
+      command.args[1]
+    ) {
+      capabilities.push(
+        `npm-script:${command.args[1]}`,
+      );
+    } else if (
+      command.args[0] ===
+        "test"
+    ) {
+      capabilities.push(
+        "npm-script:test",
+      );
+    }
+  }
+
+  return capabilities;
 }
