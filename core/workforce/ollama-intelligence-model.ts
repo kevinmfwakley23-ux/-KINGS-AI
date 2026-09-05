@@ -24,13 +24,21 @@ export class OllamaIntelligenceModel
       string,
     capabilities:
       ModelIdentity["capabilities"],
+    providerId =
+      "internal-intelligence",
   ) {
     this.client =
       client;
 
+    if (!providerId.trim()) {
+      throw new Error(
+        "K.I.N.G.S. Ollama Model: provider id is required",
+      );
+    }
+
     this.identity = {
       providerId:
-        "internal-intelligence",
+        providerId.trim(),
       modelId,
       displayName:
         `Ollama: ${modelId}`,
@@ -48,7 +56,7 @@ export class OllamaIntelligenceModel
       contextWindowTokens:
         32768,
       supportsToolCalling:
-        true,
+        false,
       supportsStructuredOutput:
         false,
       available:
@@ -68,16 +76,26 @@ export class OllamaIntelligenceModel
     }
 
     if (
-      !request.inputModalities.includes(
-        "text",
+      !request.inputModalities.every(
+        (modality) =>
+          this.identity.inputModalities.includes(
+            modality,
+          ),
       )
     ) {
       return false;
     }
 
     if (
-      request.outputModality !==
-      "text"
+      !this.identity.outputModalities.includes(
+        request.outputModality,
+      )
+    ) {
+      return false;
+    }
+
+    if (
+      request.requireStructuredOutput
     ) {
       return false;
     }
