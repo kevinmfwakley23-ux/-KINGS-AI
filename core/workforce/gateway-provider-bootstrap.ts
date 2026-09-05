@@ -50,6 +50,9 @@ const GATEWAYS: readonly GatewayDefinition[] = [
   },
 ];
 
+const QUALITY_MODEL_PATTERN =
+  /coder|codex|codestral|devstral|opus|sonnet|gpt-5|gpt-6|gemini.*pro|glm-5|kimi|qwen.*coder|deepseek.*r1|reason/i;
+
 function normalizeBaseUrl(value: string): string {
   const normalized = value.trim().replace(/\/+$/, "");
   if (!/^https?:\/\//i.test(normalized)) {
@@ -63,12 +66,17 @@ function parseCsv(value: string | undefined): string[] {
   return [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
 }
 
-function timeoutMs(env: NodeJS.ProcessEnv): number {
-  const raw = env.KINGS_CONNECTOR_HEALTH_TIMEOUT_MS?.trim();
-  if (!raw) return 1500;
+function parseBoundedInteger(
+  raw: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+  name: string,
+): number {
+  if (!raw?.trim()) return fallback;
   const value = Number(raw);
-  if (!Number.isInteger(value) || value < 100 || value > 30_000) {
-    throw new Error("KINGS_CONNECTOR_HEALTH_TIMEOUT_MS must be an integer between 100 and 30000");
+  if (!Number.isInteger(value) || value < minimum || value > maximum) {
+    throw new Error(`${name} must be an integer between ${minimum} and ${maximum}`);
   }
   return value;
 }
@@ -164,18 +172,26 @@ function configuredRoutingModels(
   discovered: readonly string[],
 ): string[] {
   const discoveredSet = new Set(discovered);
-  const requested = configured.length > 0
-    ? configured.filter((id) => discoveredSet.has(id))
-    : providerId === "omniroute"
-      ? ["auto/coding", "auto/smart", "auto", "auto/fast", "auto/cheap"].filter((id) => discoveredSet.has(id))
-      : discovered.filter((id) => id === "auto" || /coder|codex|opus|sonnet|gpt-5|gpt-6|glm-5|kimi|qwen.*coder/i.test(id));
 
-  if (requested.length > 0) return [...new Set(requested)];
+  if (configured.length > 0) {
+    return [...new Set(configured.filter((id) => discoveredSet.has(id)))];
+  }
 
-  // If the upstream catalog is healthy but contains no recognized quality alias,
-  // expose a small verified subset rather than claiming hundreds of unprofiled
-  // models are equally fit for production coding.
-  return discovered.slice(0, 8);
+  if (providerId === "omniroute") {
+    const taskFitAliases = [
+      "auto/coding",
+      "auto/smart",
+      "auto",
+      "auto/fast",
+      "auto/cheap",
+    ].filter((id) => discoveredSet.has(id));
+    if (taskFitAliases.length > 0) return taskFitAliases;
+  }
+
+  // Only automatically expose models we can conservatively recognize as
+  // quality-oriented reasoning/coding routes. Unknown catalog entries remain
+  // discoverable upstream but do not become K.I.N.G.S. production candidates.
+  return discovered.filter((id) => QUALITY_MODEL_PATTERN.test(id)).slice(0, 32);
 }
 
 export async function bootstrapVerifiedGatewayProviders(
@@ -183,7 +199,20 @@ export async function bootstrapVerifiedGatewayProviders(
 ): Promise<VerifiedGatewayBootstrap> {
   const registry = new ProviderAdapterRegistry();
   const statuses: VerifiedGatewayStatus[] = [];
-  const probeTimeout = timeoutMs(env);
+  const probeTimeout = parseBoundedInteger(
+    env.KINGS_CONNECTOR_HEALTH_TIMEOUT_MS,
+    1500,
+    100,
+    30_000,
+    "KINGS_CONNECTOR_HEALTH_TIMEOUT_MS",
+  );
+  const requestTimeout = parseBoundedInteger(
+    env.KINGS_GATEWAY_REQUEST_TIMEOUT_MS,
+    60_000,
+    1000,
+    300_000,
+    "KINGS_GATEWAY_REQUEST_TIMEOUT_MS",
+  );
 
   for (const gateway of GATEWAYS) {
     const rawBaseUrl = env[gateway.baseUrlKey]?.trim();
@@ -236,7 +265,7 @@ export async function bootstrapVerifiedGatewayProviders(
         baseUrl,
         discoveredModels: discovery.models.length,
         routableModels: 0,
-        error: discovery.error ?? "no verified routable models",
+        error: discovery.error ?? "no verified quality-oriented routing models",
       });
       continue;
     }
@@ -247,7 +276,7 @@ export async function bootstrapVerifiedGatewayProviders(
       baseUrl,
       apiKey: env[gateway.apiKeyKey],
       models: routableIds.map(profileVerifiedGatewayModel),
-      timeoutMs: Number(env.KINGS_GATEWAY_REQUEST_TIMEOUT_MS ?? 60_000),
+      timeoutMs: requestTimeout,
       extraHeaders: gateway.providerId === "omniroute" && env.KINGS_OMNIROUTE_NO_CACHE === "true"
         ? { "X-OmniRoute-No-Cache": "true" }
         : undefined,
