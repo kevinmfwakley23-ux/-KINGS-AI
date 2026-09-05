@@ -115,7 +115,7 @@ class FetchOllamaTransport implements OllamaHttpTransport {
 
 export class OllamaProviderAdapter implements ProviderAdapter {
   readonly descriptor: ProviderDescriptor = {
-    id: "ollama",
+    id: "ollama-internal",
     name: "Ollama",
     kind: "internal-local",
     available: true,
