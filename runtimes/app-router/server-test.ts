@@ -109,12 +109,14 @@ async function main(): Promise<void> {
     const payload = await response.json() as {
       id: string;
       status: string;
+      app_id: string;
       model: string;
       provider: string;
       output_text: string;
       usage: { input_tokens: number; output_tokens: number; total_tokens: number };
     };
     assert.equal(payload.status, "completed");
+    assert.equal(payload.app_id, "authors.forge", "Responses bridge must keep the Forge default for backward compatibility");
     assert.equal(payload.model, "creative-route");
     assert.equal(payload.provider, "test-provider");
     assert.equal(payload.output_text, "Forge bridge verified.");
@@ -124,10 +126,42 @@ async function main(): Promise<void> {
     assert.ok(capturedRequest, "Responses bridge must route a real model execution request");
     assert.equal(capturedRequest.maxOutputTokens, 777);
     assert.equal(capturedRequest.temperature, 0.6);
+    assert.equal(capturedRequest.missionId, "app:authors.forge");
+    assert.match(capturedRequest.taskId, /^app:authors\.forge:/);
     assert.deepEqual(capturedRequest.messages, [
       { role: "system", content: "Preserve author intent." },
       { role: "user", content: "Improve this paragraph." },
     ]);
+
+    const kingdomResponse = await fetch(`${base}/v1/responses`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-router-token",
+        "content-type": "application/json",
+        "x-kings-app-id": "kings.collectors.kingdom",
+      },
+      body: JSON.stringify({ model: "creative-route", input: "Price this collectible responsibly." }),
+    });
+    assert.equal(kingdomResponse.status, 200);
+    const kingdomPayload = await kingdomResponse.json() as { app_id: string; output_text: string };
+    assert.equal(kingdomPayload.app_id, "kings.collectors.kingdom");
+    assert.equal(kingdomPayload.output_text, "Forge bridge verified.");
+    assert.ok(capturedRequest, "Collector's Kingdom request must reach model execution");
+    assert.equal(capturedRequest.missionId, "app:kings.collectors.kingdom");
+    assert.match(capturedRequest.taskId, /^app:kings\.collectors\.kingdom:/);
+
+    const invalidApp = await fetch(`${base}/v1/responses`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-router-token",
+        "content-type": "application/json",
+        "x-kings-app-id": "Bad App",
+      },
+      body: JSON.stringify({ model: "creative-route", input: "hello" }),
+    });
+    assert.equal(invalidApp.status, 400, "Invalid app identity must fail closed");
+    const invalidAppPayload = await invalidApp.json() as { error: string };
+    assert.equal(invalidAppPayload.error, "INVALID_APP_ID");
 
     const invalid = await fetch(`${base}/responses`, {
       method: "POST",
@@ -139,7 +173,7 @@ async function main(): Promise<void> {
     });
     assert.equal(invalid.status, 400, "Invalid Responses input must fail closed");
 
-    console.log("K.I.N.G.S. Forge Responses bridge: SUCCESS");
+    console.log("K.I.N.G.S. multi-app Responses bridge: SUCCESS");
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
