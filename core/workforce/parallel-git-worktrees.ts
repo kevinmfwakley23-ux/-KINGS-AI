@@ -179,7 +179,7 @@ export class ParallelGitWorktreeAuthority {
   async prepare(
     taskId: string,
     baseRef = "HEAD",
-    executionId = randomUUID(),
+    executionId: string = randomUUID(),
   ): Promise<ParallelGitWorktree> {
     const taskSegment = safeSegment(taskId, "task id", 56);
     const executionSegment = safeSegment(executionId, "execution id", 32);
