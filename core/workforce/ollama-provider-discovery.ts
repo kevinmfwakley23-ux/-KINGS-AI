@@ -77,11 +77,11 @@ export class OllamaProviderDiscovery {
                 "internal-local",
               capabilities: [
                 "reasoning",
+                "planning",
                 "coding",
                 "debugging",
                 "research",
                 "source-inspection",
-                "tool-use",
                 "verification",
                 "recovery",
               ],
