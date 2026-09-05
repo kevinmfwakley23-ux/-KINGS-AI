@@ -406,5 +406,11 @@ function stopEngineeringChild() {
   }
 }
 
-process.once("SIGTERM", stopEngineeringChild);
-process.once("SIGINT", stopEngineeringChild);
+function shutdown() {
+  stopEngineeringChild();
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 5_000).unref();
+}
+
+process.once("SIGTERM", shutdown);
+process.once("SIGINT", shutdown);
