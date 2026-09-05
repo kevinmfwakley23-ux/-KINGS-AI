@@ -37,7 +37,7 @@ export interface ToolchainVerificationResult {
     string[];
   missingExecutables:
     string[];
-  missingCapabilities:
+  missingCapabilities?:
     string[];
   unsupportedOperations:
     ToolchainOperation[];
