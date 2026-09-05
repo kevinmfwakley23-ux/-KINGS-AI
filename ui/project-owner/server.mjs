@@ -3,8 +3,12 @@ import os from "node:os";
 import { spawn } from "node:child_process";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { URL } from "node:url";
+
+const require = createRequire(import.meta.url);
+const { OwnerMissionRuntime } = require("../../build/core/workforce/owner-mission-runtime.js");
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
 const host = String(process.env.KINGS_CODING_MACHINE_BIND ?? "127.0.0.1").trim();
@@ -23,7 +27,14 @@ const engineeringControlPath = resolve(
   process.cwd(),
   "build/core/workforce/owner-engineering-control.js",
 );
+const ownerMissionStorePath = resolve(
+  String(
+    process.env.KINGS_OWNER_MISSION_STORE ??
+      resolve(process.cwd(), ".kings", "owner-missions.json"),
+  ).trim() || resolve(process.cwd(), ".kings", "owner-missions.json"),
+);
 const engineeringOutputLimit = 1024 * 1024;
+const ownerJsonBodyLimit = 1024 * 1024;
 let engineeringJob = null;
 let engineeringChild = null;
 let engineeringSequence = 0;
@@ -31,16 +42,17 @@ let engineeringSequence = 0;
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error("KINGS_CODING_MACHINE_PORT must be a valid TCP port");
 }
-
 if (!host) {
   throw new Error("KINGS_CODING_MACHINE_BIND must not be empty");
 }
-
 if (remoteMode && ownerToken.length < 24) {
   throw new Error(
     "K.I.N.G.S. Owner Console refuses non-loopback binding without KINGS_CODING_MACHINE_TOKEN of at least 24 characters",
   );
 }
+
+const ownerMissionRuntime = new OwnerMissionRuntime(ownerMissionStorePath);
+await ownerMissionRuntime.initialize();
 
 const connectors = [
   {
@@ -128,11 +140,16 @@ async function probe(connector) {
   try {
     const headers = connector.apiKey ? { authorization: `Bearer ${connector.apiKey}` } : {};
     const response = await fetch(joinUrl(connector.url, connector.healthPath), {
-      method: "GET", headers, signal: controller.signal,
+      method: "GET",
+      headers,
+      signal: controller.signal,
     });
     return {
-      id: connector.id, label: connector.label, configured: true,
-      reachable: response.ok, status: response.status,
+      id: connector.id,
+      label: connector.label,
+      configured: true,
+      reachable: response.ok,
+      status: response.status,
     };
   } catch {
     return { id: connector.id, label: connector.label, configured: true, reachable: false };
@@ -243,6 +260,41 @@ function engineeringActionHeaderMatches(req, action) {
   return String(req.headers["x-kings-owner-action"] ?? "").trim() === action;
 }
 
+async function readJsonBody(req) {
+  const contentType = String(req.headers["content-type"] ?? "").toLowerCase();
+  if (!contentType.startsWith("application/json")) {
+    const error = new Error("Content-Type must be application/json.");
+    error.statusCode = 415;
+    throw error;
+  }
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    bytes += buffer.length;
+    if (bytes > ownerJsonBodyLimit) {
+      const error = new Error("Owner request exceeds the 1 MiB JSON body limit.");
+      error.statusCode = 413;
+      throw error;
+    }
+    chunks.push(buffer);
+  }
+  try {
+    const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Owner request body must be a JSON object.");
+    }
+    return parsed;
+  } catch (error) {
+    if (error?.statusCode) throw error;
+    const wrapped = new Error(
+      error instanceof SyntaxError ? "Owner request body must contain valid JSON." : error.message,
+    );
+    wrapped.statusCode = 400;
+    throw wrapped;
+  }
+}
+
 function json(res, status, body, extraHeaders = {}) {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
@@ -297,33 +349,32 @@ const page = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>K.I.N.G.S. Owner Console</title>
 <style>
-:root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color-scheme:dark;background:#0b0d12;color:#f3f5f7}
-*{box-sizing:border-box}body{margin:0}.wrap{max-width:980px;margin:auto;padding:28px 18px}
-header{display:flex;justify-content:space-between;gap:20px;align-items:center;flex-wrap:wrap}
-h1{font-size:clamp(1.6rem,5vw,2.7rem);margin:.2rem 0}.muted{color:#a9b1bd}.card{background:#131720;border:1px solid #282f3a;border-radius:16px;padding:18px;margin-top:18px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.status{padding:14px;border:1px solid #303846;border-radius:12px}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#7d8590;margin-right:7px}
-.ok .dot{background:#3fb950}.bad .dot{background:#f85149}.warn .dot{background:#d29922}
-code,pre{background:#0b0d12;border-radius:5px}code{padding:.15rem .35rem}pre{padding:12px;overflow:auto;white-space:pre-wrap;word-break:break-word;max-height:320px}
-button{background:#f3f5f7;color:#111;border:0;border-radius:9px;padding:10px 14px;font-weight:700;cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}
+:root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color-scheme:light;--ink:#151515;--muted:#666057;--gold:#a77a21;--gold2:#d3b76e;--edge:#d9d3c7;--paper:rgba(255,255,255,.91);--shadow:0 18px 50px rgba(18,18,18,.10)}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);min-height:100vh;background:#f7f6f2;background-image:linear-gradient(118deg,transparent 0 23%,rgba(20,20,20,.045) 23.15%,transparent 23.45% 62%,rgba(176,133,44,.09) 62.15%,transparent 62.45%),linear-gradient(24deg,transparent 0 48%,rgba(24,24,24,.035) 48.15%,transparent 48.45%);background-attachment:fixed}.wrap{max-width:1040px;margin:auto;padding:24px 16px 48px}
+header{display:flex;justify-content:space-between;gap:18px;align-items:center;flex-wrap:wrap;padding:8px 2px 2px}.eyebrow{font-size:.76rem;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--gold)}h1{font-family:Georgia,serif;font-size:clamp(2rem,7vw,3.4rem);margin:.1rem 0;letter-spacing:.04em}.muted{color:var(--muted)}.card{background:var(--paper);border:1px solid var(--edge);border-top:2px solid var(--gold2);border-radius:14px;padding:18px;margin-top:16px;box-shadow:var(--shadow);backdrop-filter:blur(8px)}.hero{padding:22px}.hero h2{font-family:Georgia,serif;font-size:clamp(1.45rem,5vw,2.15rem);margin:.15rem 0 .4rem}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.grow{flex:1 1 240px}.status{padding:13px;border:1px solid var(--edge);border-radius:10px;background:rgba(255,255,255,.72)}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#7d776d;margin-right:7px}.ok .dot{background:#25823b}.bad .dot{background:#b22d24}.warn .dot{background:#b27a12}label{display:block;font-size:.82rem;font-weight:800;margin:0 0 6px}textarea,input{width:100%;font:inherit;color:var(--ink);background:#fff;border:1px solid #c9c2b7;border-radius:10px;padding:12px;outline:none}textarea{min-height:160px;resize:vertical;line-height:1.5}textarea:focus,input:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(167,122,33,.12)}button{background:#171717;color:#fff;border:1px solid #171717;border-radius:9px;padding:10px 14px;font-weight:800;cursor:pointer}button.secondary{background:#fff;color:#171717;border-color:#b9b1a4}button.gold{background:linear-gradient(180deg,#b58a32,#8d6419);border-color:#8d6419}button:disabled{opacity:.5;cursor:not-allowed}code,pre{background:#f1efe9;border-radius:6px}code{padding:.15rem .35rem}pre{padding:12px;overflow:auto;white-space:pre-wrap;word-break:break-word;max-height:320px}.composer-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.voice-state{font-size:.86rem;margin-top:8px}.mission{padding:13px;border:1px solid var(--edge);border-left:3px solid var(--gold);border-radius:10px;background:rgba(255,255,255,.72);margin-top:10px}.mission strong{font-family:Georgia,serif}.pill{display:inline-block;font-size:.72rem;font-weight:800;border:1px solid #cfc6b7;border-radius:999px;padding:3px 7px;margin:5px 5px 0 0;background:#fff}.success{color:#236a34}.error{color:#9c251f}details{margin-top:12px}summary{cursor:pointer;font-weight:800}@media(max-width:600px){.wrap{padding:14px 10px 36px}.card{padding:15px}.composer-actions button{flex:1 1 150px}}
 </style></head><body><main class="wrap">
-<header><div><div class="muted">Project Owner Runtime</div><h1>K.I.N.G.S. AI</h1><div class="muted">Cross-platform operational console</div></div><button onclick="refreshAll()">Refresh</button></header>
+<header><div><div class="eyebrow">Knowledge · Investigation · Narrative · Generation · System</div><h1>K.I.N.G.S. AI</h1><div class="muted">Owner command console · local coding authority</div></div><button class="secondary" onclick="refreshAll()">Refresh</button></header>
+<section class="card hero"><div class="eyebrow">Owner Vision</div><h2>Talk to K.I.N.G.S.</h2><p class="muted">Describe the application, feature, repair, or system you want built. Speak naturally or type it. K.I.N.G.S. stores the approved vision as a persistent mission and turns it into governed executable work.</p><label for="vision">What should K.I.N.G.S. build?</label><textarea id="vision" placeholder="Example: Build a mobile-first collector application that catalogs cards, recognizes items from photos, tracks value, and verifies every feature with real tests before release."></textarea><div id="voice-state" class="muted voice-state">Voice dictation availability depends on this browser. Text input always works.</div><details><summary>Advanced details</summary><div style="margin-top:10px"><label for="product-name">Mission / product name (optional)</label><input id="product-name" maxlength="160" placeholder="K.I.N.G.S. can derive this from your vision"></div></details><div class="composer-actions"><button id="voice-button" class="secondary" onclick="toggleVoice()">🎙 Talk</button><button id="build-button" class="gold" onclick="buildVision()">Build From This Vision</button></div><div id="mission-create-status" class="muted" style="margin-top:12px"></div></section>
+<section class="card"><div class="row"><div class="grow"><h2 style="margin:.1rem 0">Mission Control</h2><div class="muted">Persistent missions survive K.I.N.G.S. runtime restarts.</div></div><button class="secondary" onclick="refreshMissions()">Refresh Missions</button></div><div id="missions" class="muted" style="margin-top:10px">Loading…</div></section>
 <section class="card"><h2>Runtime</h2><div id="runtime" class="muted">Loading…</div></section>
 <section class="card"><h2>AI Connectors</h2><div id="connectors" class="grid"></div></section>
-<section class="card"><h2>Governed Engineering</h2><p class="muted">The console can inspect or run only the repository-native build/test plan for the server-configured workspace. No browser request can supply a shell command, executable, arguments, or alternate path.</p><p><strong>Workspace:</strong> <code id="engineering-workspace">Loading…</code></p><div class="row"><button id="engineering-readiness" onclick="startEngineering('readiness')">Inspect Readiness</button><button id="engineering-verify" onclick="startEngineering('verify')">Run Governed Verify</button></div><div id="engineering-status" class="muted" style="margin-top:12px">Loading…</div><pre id="engineering-evidence" hidden></pre></section>
-<section class="card"><h2>Token controls</h2><p class="muted">Context budgets, model output caps, provider-side routing/caching, and measured usage remain enforced by the K.I.N.G.S. workforce runtime.</p></section>
+<section class="card"><h2>Governed Engineering</h2><p class="muted">Only the repository-native build/test plan for the server-configured workspace can run here. Browser requests cannot supply a shell command, executable, arguments, or alternate path.</p><p><strong>Workspace:</strong> <code id="engineering-workspace">Loading…</code></p><div class="row"><button id="engineering-readiness" class="secondary" onclick="startEngineering('readiness')">Inspect Readiness</button><button id="engineering-verify" onclick="startEngineering('verify')">Run Governed Verify</button></div><div id="engineering-status" class="muted" style="margin-top:12px">Loading…</div><pre id="engineering-evidence" hidden></pre></section>
 </main><script>
-const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-async function refreshStatus(){try{const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();
-document.getElementById('runtime').innerHTML=esc(d.platform)+' · Node '+esc(d.node)+' · '+esc(d.hostname);
-document.getElementById('connectors').innerHTML=d.connectors.map(c=>{const cls=!c.configured?'warn':c.reachable?'ok':'bad';const label=!c.configured?'not configured':c.reachable?'reachable':'unreachable';return '<div class="status '+cls+'"><strong><span class="dot"></span>'+esc(c.label)+'</strong><div class="muted">'+esc(label)+(c.status?' · HTTP '+esc(c.status):'')+'</div></div>'}).join('');
-}catch(e){document.getElementById('runtime').textContent='Status unavailable';}}
+const esc=s=>String(s).replace(/[&<>\"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'\"':"&quot;"}[c]));
+let recognition=null,listening=false,speechPrefix='';
+function setVoiceState(text,cls='muted'){const el=document.getElementById('voice-state');el.className=cls+' voice-state';el.textContent=text;}
+function ensureRecognition(){if(recognition)return recognition;const C=window.SpeechRecognition||window.webkitSpeechRecognition;if(!C)return null;recognition=new C();recognition.continuous=true;recognition.interimResults=true;recognition.lang=navigator.language||'en-US';recognition.onstart=()=>{listening=true;speechPrefix=document.getElementById('vision').value.trim();document.getElementById('voice-button').textContent='■ Stop';setVoiceState('Listening… speak your full software vision.','success');};recognition.onresult=e=>{let finalText='',interim='';for(let i=0;i<e.results.length;i++){const text=e.results[i][0]?.transcript||'';if(e.results[i].isFinal)finalText+=text+' ';else interim+=text;}document.getElementById('vision').value=[speechPrefix,finalText.trim(),interim.trim()].filter(Boolean).join(' ').trim();};recognition.onerror=e=>{setVoiceState('Voice dictation error: '+String(e.error||'unknown')+'. You can keep typing.','error');};recognition.onend=()=>{listening=false;document.getElementById('voice-button').textContent='🎙 Talk';if(!document.getElementById('voice-state').classList.contains('error'))setVoiceState('Voice dictation stopped. Review or edit the vision, then build it.');};return recognition;}
+function toggleVoice(){const r=ensureRecognition();if(!r){setVoiceState('This browser does not expose speech recognition. Type your vision instead.','error');return;}try{if(listening)r.stop();else r.start();}catch(e){setVoiceState('Could not start voice dictation: '+e.message,'error');}}
+async function buildVision(){const vision=document.getElementById('vision').value.trim();const name=document.getElementById('product-name').value.trim();const status=document.getElementById('mission-create-status');const button=document.getElementById('build-button');if(vision.length<8){status.className='error';status.textContent='Describe what you want K.I.N.G.S. to build first.';return;}button.disabled=true;status.className='muted';status.textContent='Creating persistent K.I.N.G.S. mission…';try{const r=await fetch('/api/missions',{method:'POST',headers:{'content-type':'application/json','x-kings-owner-action':'create-mission'},body:JSON.stringify({ownerVision:vision,...(name?{productName:name}:{})})});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.message||d.error||('HTTP '+r.status));status.className='success';status.textContent='Mission created: '+d.mission.name+' · '+d.tasks.length+' governed tasks · '+d.execution.runnableTaskIds.length+' runnable now.';await refreshMissions();}catch(e){status.className='error';status.textContent='Could not create mission: '+e.message;}finally{button.disabled=false;}}
+function renderMission(m){const runnable=m.execution?.runnableTaskIds?.length||0,blocked=m.execution?.blockedTaskIds?.length||0,done=m.execution?.completedTaskIds?.length||0;return '<div class="mission"><strong>'+esc(m.mission.name)+'</strong><div class="muted">'+esc(m.mission.id)+'</div><span class="pill">'+esc(m.mission.status)+'</span><span class="pill">'+m.tasks.length+' tasks</span><span class="pill">'+runnable+' runnable</span><span class="pill">'+blocked+' waiting</span><span class="pill">'+done+' complete</span><span class="pill">plan '+(m.plan.approvedByHuman&&m.plan.locked?'approved + locked':'not locked')+'</span></div>';}
+async function refreshMissions(){const el=document.getElementById('missions');try{const r=await fetch('/api/missions',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();el.innerHTML=d.missions.length?d.missions.map(renderMission).join(''):'No owner missions yet. Tell K.I.N.G.S. what to build above.';}catch(e){el.textContent='Mission state unavailable: '+e.message;}}
+async function refreshStatus(){try{const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();document.getElementById('runtime').innerHTML=esc(d.platform)+' · Node '+esc(d.node)+' · '+esc(d.hostname);document.getElementById('connectors').innerHTML=d.connectors.map(c=>{const cls=!c.configured?'warn':c.reachable?'ok':'bad';const label=!c.configured?'not configured':c.reachable?'reachable':'unreachable';return '<div class="status '+cls+'"><strong><span class="dot"></span>'+esc(c.label)+'</strong><div class="muted">'+esc(label)+(c.status?' · HTTP '+esc(c.status):'')+'</div></div>'}).join('');}catch(e){document.getElementById('runtime').textContent='Status unavailable';}}
 function summarizeEngineering(job){if(!job)return 'No engineering job has run yet.';if(job.status==='running')return esc(job.action)+' job running since '+esc(job.startedAt);const result=job.result;if(result?.verify){const v=result.verify;return esc(job.action)+' · '+esc(job.status)+' · '+(v.verified?'VERIFIED':'NOT VERIFIED')+(v.failureReason?' · '+esc(v.failureReason):'');}if(result?.readiness){return esc(job.action)+' · '+esc(job.status)+' · readiness '+esc(result.readiness.status);}return esc(job.action)+' · '+esc(job.status)+(job.error?' · '+esc(job.error):'');}
 function evidenceText(job){const result=job?.result;if(!result)return job?.error||'';const lines=[];if(result.readiness){lines.push('Readiness: '+result.readiness.status);lines.push('Languages: '+(result.readiness.detectedLanguages||[]).join(', '));lines.push('Package managers: '+(result.readiness.packageManagers||[]).join(', '));for(const step of result.readiness.plannedSteps||[])lines.push('Plan '+step.sequence+': '+step.language+' '+step.operation);}if(result.verify){for(const entry of result.verify.evidence||[]){lines.push('');lines.push((entry.succeeded?'PASS ':'FAIL ')+entry.sequence+' '+entry.operation+' exit='+String(entry.exitCode)+' '+entry.durationMs+'ms');if(!entry.succeeded&&entry.stderr)lines.push(entry.stderr);}}if(job.error)lines.push('\nError: '+job.error);return lines.join('\n');}
 async function refreshEngineering(){try{const r=await fetch('/api/engineering',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();document.getElementById('engineering-workspace').textContent=d.workspace;const running=d.job?.status==='running';document.getElementById('engineering-readiness').disabled=running||!d.controlReady;document.getElementById('engineering-verify').disabled=running||!d.controlReady;document.getElementById('engineering-status').innerHTML=summarizeEngineering(d.job);const pre=document.getElementById('engineering-evidence');const text=evidenceText(d.job);pre.textContent=text;pre.hidden=!text;if(running)setTimeout(refreshEngineering,1500);}catch(e){document.getElementById('engineering-status').textContent='Engineering status unavailable';}}
 async function startEngineering(action){if(action!=='readiness'&&action!=='verify')return;const readiness=document.getElementById('engineering-readiness'),verify=document.getElementById('engineering-verify');readiness.disabled=true;verify.disabled=true;try{const r=await fetch('/api/engineering/'+action,{method:'POST',headers:{'x-kings-owner-action':action}});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.message||d.error||('HTTP '+r.status));document.getElementById('engineering-status').textContent=action+' job started.';setTimeout(refreshEngineering,350);}catch(e){document.getElementById('engineering-status').textContent='Could not start engineering job: '+e.message;await refreshEngineering();}}
-async function refreshAll(){await Promise.all([refreshStatus(),refreshEngineering()]);}
-refreshAll();setInterval(refreshStatus,15000);setInterval(()=>{const text=document.getElementById('engineering-status')?.textContent||'';if(!/running/i.test(text))refreshEngineering();},15000);
+async function refreshAll(){await Promise.all([refreshMissions(),refreshStatus(),refreshEngineering()]);}
+if(!(window.SpeechRecognition||window.webkitSpeechRecognition))setVoiceState('Voice dictation is not available in this browser. Text input is fully supported.');refreshAll();setInterval(refreshStatus,15000);setInterval(()=>{const text=document.getElementById('engineering-status')?.textContent||'';if(!/running/i.test(text))refreshEngineering();},15000);
 </script></body></html>`;
 
 const server = http.createServer(async (req, res) => {
@@ -340,9 +391,62 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && url.pathname === "/api/status") {
     const results = await Promise.all(connectors.map(probe));
     return json(res, 200, {
-      ok: true, platform: process.platform, node: process.version,
-      hostname: os.hostname(), connectors: results,
+      ok: true,
+      platform: process.platform,
+      node: process.version,
+      hostname: os.hostname(),
+      connectors: results,
     });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/missions") {
+    return json(res, 200, {
+      ok: true,
+      missions: ownerMissionRuntime.list(),
+    });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/missions") {
+    if (!engineeringActionHeaderMatches(req, "create-mission")) {
+      return json(res, 400, {
+        ok: false,
+        error: "mission_creation_confirmation_required",
+        message: "Set X-KINGS-Owner-Action to create-mission to approve and create this mission.",
+      });
+    }
+    try {
+      const body = await readJsonBody(req);
+      const snapshot = await ownerMissionRuntime.createMission({
+        ownerVision: body.ownerVision,
+        ...(body.productName === undefined ? {} : { productName: body.productName }),
+        ...(body.contextDocuments === undefined ? {} : { contextDocuments: body.contextDocuments }),
+      });
+      return json(res, 201, { ok: true, ...snapshot });
+    } catch (error) {
+      const statusCode = Number(error?.statusCode) || 400;
+      return json(res, statusCode, {
+        ok: false,
+        error: "owner_mission_creation_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const missionMatch = url.pathname.match(/^\/api\/missions\/([^/]+)$/u);
+  if (req.method === "GET" && missionMatch) {
+    try {
+      const missionId = decodeURIComponent(missionMatch[1]);
+      return json(res, 200, {
+        ok: true,
+        ...ownerMissionRuntime.snapshot(missionId),
+      });
+    } catch (error) {
+      return json(res, 404, {
+        ok: false,
+        error: "owner_mission_not_found",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   if (req.method === "GET" && url.pathname === "/api/engineering") {
@@ -398,6 +502,7 @@ server.listen(port, host, () => {
     console.log(`K.I.N.G.S. Owner Console: http://${host}:${port}`);
   }
   console.log(`K.I.N.G.S. governed engineering workspace: ${engineeringWorkspace}`);
+  console.log("K.I.N.G.S. persistent owner mission runtime: ready");
 });
 
 function stopEngineeringChild() {

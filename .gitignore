@@ -2,6 +2,9 @@
 runtimes/*/.venv/
 runtimes/beeai/
 
+# Local K.I.N.G.S. runtime state
+.kings/
+
 # Node dependencies
 node_modules/
 **/node_modules/
