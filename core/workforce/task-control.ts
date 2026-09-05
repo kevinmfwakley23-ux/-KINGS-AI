@@ -50,6 +50,15 @@ const ALLOWED_TRANSITIONS: Record<
   cancelled: [],
 };
 
+function nextTimestamp(previousValue: string): string {
+  const currentMs = Date.now();
+  const previousMs = Date.parse(previousValue);
+  const nextMs = Number.isFinite(previousMs)
+    ? Math.max(currentMs, previousMs + 1)
+    : currentMs;
+  return new Date(nextMs).toISOString();
+}
+
 export class TaskControl {
   constructor(
     private readonly registry: WorkforceRegistry,
@@ -175,7 +184,7 @@ export class TaskControl {
       nextStatus;
 
     task.updatedAt =
-      new Date().toISOString();
+      nextTimestamp(task.updatedAt);
 
     return {
       taskId,
