@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 
 import { AppAiRouter, AppAiRouterError, type AppAiRouteRequest } from "../../core/workforce/app-ai-router";
-import { createNineRouterAdapter, createOmniRouteAdapter } from "../../core/workforce/openai-compatible-gateway";
+import { createConfiguredGatewayAdapters } from "../../core/workforce/openai-compatible-gateway";
 import { ProviderAdapterRegistry } from "../../core/workforce/provider-adapters";
 
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -90,8 +90,7 @@ export function createAppRouterRuntime(
   providers = new ProviderAdapterRegistry(),
 ): http.Server {
   if (providers.list().length === 0) {
-    providers.register(createOmniRouteAdapter());
-    providers.register(createNineRouterAdapter());
+    for (const provider of createConfiguredGatewayAdapters()) providers.register(provider);
   }
   const router = new AppAiRouter(providers, config.providerOrder);
 
