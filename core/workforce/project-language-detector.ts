@@ -58,11 +58,13 @@ const DEFAULT_IGNORED_DIRECTORIES = [
 ];
 
 const MARKERS: ProjectMarker[] = [
+  exactMarker("package.json", undefined, ["node"]),
   exactMarker("package-lock.json", ["npm"]),
   exactMarker("pnpm-lock.yaml", ["pnpm"]),
   exactMarker("yarn.lock", ["yarn"]),
   exactMarker("bun.lock", ["bun"]),
   exactMarker("bun.lockb", ["bun"]),
+  exactMarker("pyproject.toml", undefined, ["python"]),
   exactMarker("requirements.txt", ["pip"]),
   exactMarker("uv.lock", ["uv"]),
   exactMarker("poetry.lock", ["poetry"]),
