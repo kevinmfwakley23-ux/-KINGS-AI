@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+const readBytes = (path) => readFileSync(new URL(`../${path}`, import.meta.url));
 const config = JSON.parse(read("src-tauri/tauri.conf.json"));
 const android = JSON.parse(read("src-tauri/tauri.android.conf.json"));
 const cargo = read("src-tauri/Cargo.toml");
@@ -9,6 +11,8 @@ const app = read("native-shell/app.js");
 const shell = read("native-shell/index.html");
 const workflow = read(".github/workflows/android-native.yml");
 const gitignore = read(".gitignore");
+const officialLogo = readBytes("native-shell/kings-ai-official-logo.png");
+const officialLogoSha256 = createHash("sha256").update(officialLogo).digest("hex");
 
 assert.equal(config.productName, "K.I.N.G.S. AI");
 assert.equal(config.version, "1.0.0");
@@ -27,6 +31,17 @@ assert.match(cargo, /tauri-build\s*=\s*\{\s*version\s*=\s*"=2\.6\.3"/);
 assert.match(cargo, /tauri\s*=\s*\{\s*version\s*=\s*"=2\.11\.5"/);
 assert.match(cargo, /crate-type\s*=\s*\["staticlib",\s*"cdylib",\s*"rlib"\]/, "mobile-compatible library crate types must remain enabled");
 
+assert.equal(officialLogo.subarray(0, 8).toString("hex"), "89504e470d0a1a0a", "official K.I.N.G.S. logo must remain a PNG");
+assert.equal(officialLogo.readUInt32BE(16), 256, "tracked official logo derivative width changed unexpectedly");
+assert.equal(officialLogo.readUInt32BE(20), 256, "tracked official logo derivative height changed unexpectedly");
+assert.equal(
+  officialLogoSha256,
+  "120a27fdad36b77eb9f0eae0e0e065c44d93eb57ed0aa3afd94e36d1ef04b1f0",
+  "official K.I.N.G.S. AI brand asset changed without an explicit branding update",
+);
+assert.match(shell, /kings-ai-official-logo\.png/, "native shell must display the official K.I.N.G.S. AI crest");
+assert.match(shell, /alt="K\.I\.N\.G\.S\. AI official crowned lion crest"/, "official crest must have accessible text");
+
 assert.match(app, /const STORAGE_KEY = "kings-owner-origin";/);
 assert.match(app, /parsed\.protocol !== "https:"/, "owner host normalization must reject non-HTTPS URLs");
 assert.match(app, /value\.length < 24/, "native bootstrap must enforce the owner-token floor");
@@ -42,6 +57,7 @@ for (const ignored of ["src-tauri/gen/", "src-tauri/target/", "*.jks", "*.keysto
 assert.match(workflow, /TAURI_CLI_VERSION:\s*"2\.11\.4"/);
 assert.match(workflow, /ANDROID_NDK_VERSION:\s*"27\.0\.12077973"/);
 assert.match(workflow, /ANDROID_PLATFORM:\s*"android-36"/);
+assert.match(workflow, /cargo tauri icon native-shell\/kings-ai-official-logo\.png/, "Android launcher icons must be generated from the official K.I.N.G.S. crest");
 assert.match(workflow, /cargo tauri android init --ci --skip-targets-install/);
 assert.match(workflow, /cargo tauri android build --debug --apk --ci/);
 assert.match(workflow, /apksigner/);
@@ -50,4 +66,4 @@ assert.match(workflow, /actions\/upload-artifact@v4/);
 assert.match(workflow, /if-no-files-found:\s*error/);
 assert.match(workflow, /development\/android-native-package-test\.mjs/, "the workflow must execute this packaging contract before native build work");
 
-console.log("K.I.N.G.S. Android native packaging contract: SUCCESS");
+console.log("K.I.N.G.S. Android native packaging + official brand contract: SUCCESS");
