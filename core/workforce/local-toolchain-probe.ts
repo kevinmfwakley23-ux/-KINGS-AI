@@ -1,8 +1,10 @@
 import {
+  existsSync,
   readFileSync,
 } from "node:fs";
 
 import {
+  dirname,
   join,
 } from "node:path";
 
@@ -42,6 +44,11 @@ export interface LocalToolchainProbeRequest {
   workingDirectory?: string;
 }
 
+interface SafeInvocation {
+  executable: string;
+  args: string[];
+}
+
 export class NodeToolchainProbeProcessRunner
   implements ToolchainProbeProcessRunner {
   run(
@@ -49,7 +56,8 @@ export class NodeToolchainProbeProcessRunner
     args: string[],
     workingDirectory?: string,
   ): ToolchainProbeProcessResult {
-    const result = spawnSync(executable, args, {
+    const invocation = safeInvocation(executable, args);
+    const result = spawnSync(invocation.executable, invocation.args, {
       cwd: workingDirectory,
       encoding: "utf8",
       shell: false,
@@ -185,6 +193,40 @@ export class LocalToolchainProbeAuthority {
       }
     }
   }
+}
+
+function safeInvocation(
+  executable: string,
+  args: string[],
+): SafeInvocation {
+  if (process.platform !== "win32") {
+    return { executable, args };
+  }
+
+  if (executable === "python3") {
+    return {
+      executable: "python",
+      args,
+    };
+  }
+
+  if (executable === "npm" || executable === "npx") {
+    const npmExecPath = process.env.npm_execpath;
+    if (npmExecPath) {
+      const cliPath = executable === "npm"
+        ? npmExecPath
+        : join(dirname(npmExecPath), "npx-cli.js");
+
+      if (existsSync(cliPath)) {
+        return {
+          executable: process.execPath,
+          args: [cliPath, ...args],
+        };
+      }
+    }
+  }
+
+  return { executable, args };
 }
 
 function npmScriptName(
