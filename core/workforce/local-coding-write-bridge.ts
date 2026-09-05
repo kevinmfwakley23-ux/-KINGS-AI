@@ -15,9 +15,24 @@ import {
   type EngineeringRepairEdit,
 } from "./engineering-repair-editor";
 
-import type {
-  EngineeringWorkspaceProposalResult,
-} from "./engineering-workspace-proposal";
+export interface AuthorizedLocalCodingWriteProposal {
+  taskId:
+    ID;
+
+  missionId:
+    ID;
+
+  changes:
+    readonly {
+      path:
+        string;
+      operation:
+        "create"
+        | "replace";
+      content:
+        string;
+    }[];
+}
 
 export interface LocalCodingWriteRequest {
   step:
@@ -30,7 +45,7 @@ export interface LocalCodingWriteRequest {
     string;
 
   proposal:
-    EngineeringWorkspaceProposalResult;
+    AuthorizedLocalCodingWriteProposal;
 }
 
 export interface LocalCodingWriteResult {
@@ -93,6 +108,15 @@ export class LocalCodingWriteBridge {
     ) {
       throw new Error(
         `K.I.N.G.S. Local Coding Write Bridge: repair step "${request.step.id}" is not an edit step.`,
+      );
+    }
+
+    if (
+      request.proposal.taskId !==
+      request.step.id
+    ) {
+      throw new Error(
+        "K.I.N.G.S. Local Coding Write Bridge: proposal task does not match the governed repair edit step.",
       );
     }
 

@@ -21,17 +21,18 @@ import {
   EngineeringRepairEditor,
 } from "./engineering-repair-editor";
 
-import type {
-  EngineeringWorkspaceProposalResult,
-} from "./engineering-workspace-proposal";
-
 import {
   LocalCodingWriteBridge,
+  type AuthorizedLocalCodingWriteProposal,
 } from "./local-coding-write-bridge";
 
 import {
   LocalEngineeringExecutionRunner,
 } from "./local-engineering-execution-runner";
+
+import {
+  LocalEngineeringRecoveryBridge,
+} from "./local-engineering-recovery-bridge";
 
 import {
   LocalEngineeringRecoveryCycle,
@@ -75,6 +76,22 @@ async function repairsRealFailedRepositoryAndRetests(): Promise<void> {
     assert(initialReport.status === "failed", "Fixture test must fail before repair.");
     assert(initialReport.evidence.at(-1)?.exitCode === 7, "Initial real test failure must preserve exit code 7.");
 
+    const policy = {
+      maxRetries: 0,
+      allowRepair: true,
+    };
+    const completedAt = "2026-09-05T15:00:00Z";
+    const recovery = new LocalEngineeringRecoveryBridge().analyze({
+      report: initialReport,
+      attemptNumber: 1,
+      policy,
+      completedAt,
+    });
+    const repairStepId = recovery.repairPlan.steps.find(
+      (step) => step.strategy === "edit",
+    )?.id;
+    assert(Boolean(repairStepId), "Repair fixture must derive the governed edit-step identity from recovery planning.");
+
     const writer = new LocalCodingWriteBridge(
       new EngineeringRepairEditor(
         new ControlledFileEditor({
@@ -87,23 +104,19 @@ async function repairsRealFailedRepositoryAndRetests(): Promise<void> {
     const cycle = new LocalEngineeringRecoveryCycle(writer, runner);
     const proposal = repairProposal(
       projectId,
-      root,
-      readiness.execution.steps.at(-1)?.id ?? "missing-step",
+      repairStepId ?? "missing-repair-step",
     );
 
     const result = await cycle.execute({
       readiness,
       report: initialReport,
       attemptNumber: 1,
-      policy: {
-        maxRetries: 0,
-        allowRepair: true,
-      },
+      policy,
       authorized: true,
       workspaceRoot: root,
       proposal,
       timeoutMs: 30_000,
-      completedAt: "2026-09-05T15:00:00Z",
+      completedAt,
     });
 
     assert(result.initialRecovery.analysis.action === "repair", "Verified failure must enter governed repair action.");
@@ -208,26 +221,15 @@ async function createFailingProject(prefix: string): Promise<string> {
 
 function repairProposal(
   projectId: string,
-  root: string,
-  executionStepId: string,
-): EngineeringWorkspaceProposalResult {
+  repairStepId: string,
+): AuthorizedLocalCodingWriteProposal {
   return {
-    command: {
-      id: `command-${executionStepId}`,
-      executionStepId,
-      projectId,
-      language: "javascript",
-      operation: "test",
-      workingDirectory: root,
-      allowed: true,
-    },
-    taskId: executionStepId,
+    taskId: repairStepId,
     missionId: projectId,
     changes: [
       {
         path: "test.cjs",
         operation: "replace",
-        language: "javascript",
         content: [
           "const fs = require('node:fs');",
           "if (!fs.existsSync('build-proof.txt')) { console.error('build proof missing'); process.exit(9); }",

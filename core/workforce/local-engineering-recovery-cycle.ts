@@ -2,12 +2,9 @@ import type {
   EngineeringFailureRecoveryPolicy,
 } from "./engineering-failure-recovery";
 
-import type {
-  EngineeringWorkspaceProposalResult,
-} from "./engineering-workspace-proposal";
-
 import {
   LocalCodingWriteBridge,
+  type AuthorizedLocalCodingWriteProposal,
   type LocalCodingWriteRequest,
   type LocalCodingWriteResult,
 } from "./local-coding-write-bridge";
@@ -46,7 +43,7 @@ export interface LocalEngineeringRecoveryCycleRequest {
   policy: EngineeringFailureRecoveryPolicy;
   authorized: boolean;
   workspaceRoot: string;
-  proposal?: EngineeringWorkspaceProposalResult;
+  proposal?: AuthorizedLocalCodingWriteProposal;
   timeoutMs?: number;
   completedAt?: string;
 }
