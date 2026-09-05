@@ -2,10 +2,12 @@
   "use strict";
 
   const STORAGE_KEY = "kings-owner-origin";
+  const THEME_KEY = "kings-ui-theme";
   const form = document.querySelector("#connect-form");
   const urlInput = document.querySelector("#owner-url");
   const tokenInput = document.querySelector("#owner-token");
   const toggleToken = document.querySelector("#toggle-token");
+  const themeToggle = document.querySelector("#theme-toggle");
   const openSaved = document.querySelector("#open-saved");
   const forgetHost = document.querySelector("#forget-host");
   const status = document.querySelector("#status");
@@ -13,6 +15,22 @@
   function setStatus(message, kind = "info") {
     status.textContent = message;
     status.dataset.kind = kind;
+  }
+
+  function preferredTheme() {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === "light" || saved === "dark") return saved;
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+
+  function applyTheme(theme, persist = false) {
+    const next = theme === "dark" ? "dark" : "light";
+    if (next === "dark") document.documentElement.dataset.kingsTheme = "dark";
+    else delete document.documentElement.dataset.kingsTheme;
+    document.documentElement.style.colorScheme = next;
+    themeToggle.textContent = next === "dark" ? "Light court" : "Dark court";
+    themeToggle.setAttribute("aria-pressed", String(next === "dark"));
+    if (persist) localStorage.setItem(THEME_KEY, next);
   }
 
   function normalizeOwnerOrigin(raw) {
@@ -99,6 +117,11 @@
     }
   });
 
+  themeToggle.addEventListener("click", () => {
+    const dark = document.documentElement.dataset.kingsTheme === "dark";
+    applyTheme(dark ? "light" : "dark", true);
+  });
+
   openSaved.addEventListener("click", () => {
     const origin = savedOrigin();
     if (!origin) return renderSavedOrigin();
@@ -128,5 +151,6 @@
     toggleToken.setAttribute("aria-pressed", "false");
   });
 
+  applyTheme(preferredTheme());
   renderSavedOrigin();
 })();
