@@ -10,7 +10,7 @@
     "test:live": "npm run build && node development/run-tests.mjs --live",
     "accept:local-only": "npm run build && node build/core/workforce/v1-acceptance-009-local-only-mission-test.js",
     "test:knowledge": "python3 runtimes/knowledge-retrieval/retriever-test.py",
-    "start": "node ui/project-owner/server.mjs",
+    "start": "npm run build && node ui/project-owner/server.mjs",
     "start:router": "npm run build && node build/runtimes/app-router/server.js",
     "platform:check": "node development/platform-check.mjs",
     "verify": "npm run platform:check && npm test"
