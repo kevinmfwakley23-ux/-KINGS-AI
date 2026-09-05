@@ -53,7 +53,7 @@ export function isWorkspacePathAuthorized(
   }
 
   const candidateIsAbsolute = isAbsolute(candidate);
-  const comparisonRoot = resolve("/");
+  const comparisonRoot = resolve("/", "__kings_workspace__");
   const candidateAbsolute = candidateIsAbsolute
     ? resolve(candidate)
     : resolve(comparisonRoot, candidate);
@@ -71,6 +71,10 @@ export function isWorkspacePathAuthorized(
     const allowedAbsolute = candidateIsAbsolute
       ? resolve(allowed)
       : resolve(comparisonRoot, allowed);
+
+    if (!candidateIsAbsolute && !isPathWithin(allowedAbsolute, comparisonRoot)) {
+      return false;
+    }
 
     return isPathWithin(candidateAbsolute, allowedAbsolute);
   });
