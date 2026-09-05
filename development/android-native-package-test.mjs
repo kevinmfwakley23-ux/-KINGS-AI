@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { assertOfficialKingsLogo } from "./kings-brand-integrity.mjs";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const readBytes = (path) => readFileSync(new URL(`../${path}`, import.meta.url));
@@ -12,7 +12,6 @@ const shell = read("native-shell/index.html");
 const workflow = read(".github/workflows/android-native.yml");
 const gitignore = read(".gitignore");
 const officialLogo = readBytes("native-shell/kings-ai-official-logo.png");
-const officialLogoSha256 = createHash("sha256").update(officialLogo).digest("hex");
 
 assert.equal(config.productName, "K.I.N.G.S. AI");
 assert.equal(config.version, "1.0.0");
@@ -31,14 +30,7 @@ assert.match(cargo, /tauri-build\s*=\s*\{\s*version\s*=\s*"=2\.6\.3"/);
 assert.match(cargo, /tauri\s*=\s*\{\s*version\s*=\s*"=2\.11\.5"/);
 assert.match(cargo, /crate-type\s*=\s*\["staticlib",\s*"cdylib",\s*"rlib"\]/, "mobile-compatible library crate types must remain enabled");
 
-assert.equal(officialLogo.subarray(0, 8).toString("hex"), "89504e470d0a1a0a", "official K.I.N.G.S. logo must remain a PNG");
-assert.equal(officialLogo.readUInt32BE(16), 256, "tracked official logo derivative width changed unexpectedly");
-assert.equal(officialLogo.readUInt32BE(20), 256, "tracked official logo derivative height changed unexpectedly");
-assert.equal(
-  officialLogoSha256,
-  "120a27fdad36b77eb9f0eae0e0e065c44d93eb57ed0aa3afd94e36d1ef04b1f0",
-  "official K.I.N.G.S. AI brand asset changed without an explicit branding update",
-);
+assertOfficialKingsLogo(officialLogo);
 assert.match(shell, /kings-ai-official-logo\.png/, "native shell must display the official K.I.N.G.S. AI crest");
 assert.match(shell, /alt="K\.I\.N\.G\.S\. AI official crowned lion crest"/, "official crest must have accessible text");
 

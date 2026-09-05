@@ -1,16 +1,11 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { assertOfficialKingsLogo } from "../../development/kings-brand-integrity.mjs";
 
 const source = readFileSync(new URL("./server.mjs", import.meta.url), "utf8");
 const logo = readFileSync(new URL("../../native-shell/kings-ai-official-logo.png", import.meta.url));
-const expectedSha256 = "120a27fdad36b77eb9f0eae0e0e065c44d93eb57ed0aa3afd94e36d1ef04b1f0";
 
-assert.equal(
-  createHash("sha256").update(logo).digest("hex"),
-  expectedSha256,
-  "owner console must use the locked official K.I.N.G.S. AI brand asset",
-);
+assertOfficialKingsLogo(logo);
 assert.match(source, /readFileSync\(officialLogoPath\)/, "owner console must load the tracked logo from disk rather than an external URL");
 assert.match(source, /href="\/assets\/kings-ai-official-logo\.png"/, "owner console favicon must use the official logo");
 assert.match(source, /class="brand-logo" src="\/assets\/kings-ai-official-logo\.png"/, "owner console header must display the official logo");
