@@ -8,11 +8,11 @@ The application-tracked web/native derivative is:
 
 `native-shell/kings-ai-official-logo.png`
 
-Tracked derivative SHA-256:
+Tracked repository derivative SHA-256:
 
-`120a27fdad36b77eb9f0eae0e0e065c44d93eb57ed0aa3afd94e36d1ef04b1f0`
+`64353ae64167e206aa6533c0dc9b8f8b0912e36c9ffc9b1b72a12d2534d09c33`
 
-The original owner-supplied 1254×1254 PNG source used to create this application derivative had SHA-256:
+The original owner-supplied 1254×1254 PNG source used to create the application derivative had SHA-256:
 
 `5ec47e7e1219add3e66f910239e390facdce280f63805da8e43660c21c71edbc`
 
