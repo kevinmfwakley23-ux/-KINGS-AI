@@ -12,7 +12,17 @@ export class KnowledgeRegistry {
 
   registerSource(source: KnowledgeSource): void {
     this.assertUnique(this.sources, source.id, "knowledge source");
-    this.sources.set(source.id, source);
+    this.sources.set(source.id, { ...source });
+  }
+
+  updateSource(source: KnowledgeSource): void {
+    if (!this.sources.has(source.id)) {
+      throw new Error(
+        `K.I.N.G.S. Knowledge Registry: knowledge source "${source.id}" must be registered before it can be updated`,
+      );
+    }
+
+    this.sources.set(source.id, { ...source });
   }
 
   registerEvidence(item: Evidence): void {
@@ -24,7 +34,7 @@ export class KnowledgeRegistry {
     }
 
     this.assertUnique(this.evidence, item.id, "evidence");
-    this.evidence.set(item.id, item);
+    this.evidence.set(item.id, { ...item });
   }
 
   registerRecord(record: KnowledgeRecord): void {
@@ -59,31 +69,40 @@ export class KnowledgeRegistry {
       "knowledge record",
     );
 
-    this.records.set(record.id, record);
+    this.records.set(record.id, {
+      ...record,
+      evidenceIds: [...record.evidenceIds],
+    });
   }
 
   getSource(id: ID): KnowledgeSource | undefined {
-    return this.sources.get(id);
+    const source = this.sources.get(id);
+    return source ? { ...source } : undefined;
   }
 
   getEvidence(id: ID): Evidence | undefined {
-    return this.evidence.get(id);
+    const item = this.evidence.get(id);
+    return item ? { ...item } : undefined;
   }
 
   getRecord(id: ID): KnowledgeRecord | undefined {
-    return this.records.get(id);
+    const record = this.records.get(id);
+    return record ? { ...record, evidenceIds: [...record.evidenceIds] } : undefined;
   }
 
   listSources(): KnowledgeSource[] {
-    return [...this.sources.values()];
+    return [...this.sources.values()].map((source) => ({ ...source }));
   }
 
   listEvidence(): Evidence[] {
-    return [...this.evidence.values()];
+    return [...this.evidence.values()].map((item) => ({ ...item }));
   }
 
   listRecords(): KnowledgeRecord[] {
-    return [...this.records.values()];
+    return [...this.records.values()].map((record) => ({
+      ...record,
+      evidenceIds: [...record.evidenceIds],
+    }));
   }
 
   clear(): void {
