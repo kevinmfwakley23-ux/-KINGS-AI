@@ -18,6 +18,11 @@ import {
   selectExecutionLanguages,
 } from "./local-project-engineering-readiness";
 
+import type {
+  ToolchainProbeProcessResult,
+  ToolchainProbeProcessRunner,
+} from "./local-toolchain-probe";
+
 function assert(
   condition: boolean,
   message: string,
@@ -27,7 +32,8 @@ function assert(
 
 async function main(): Promise<void> {
   await verifiesRealNodeProjectWithoutCallerSuppliedLanguage();
-  await rejectsPackageManagerSubstitution();
+  await verifiesNativePnpmReadiness();
+  await rejectsAmbiguousPackageManagers();
   verifiesIndependentLanguageDriverSelection();
   console.log("TREE-08 LOCAL PROJECT ENGINEERING READINESS: SUCCESS");
 }
@@ -79,34 +85,85 @@ async function verifiesRealNodeProjectWithoutCallerSuppliedLanguage(): Promise<v
   }
 }
 
-async function rejectsPackageManagerSubstitution(): Promise<void> {
+async function verifiesNativePnpmReadiness(): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "kings-readiness-pnpm-"));
   try {
     await mkdir(join(root, "src"), { recursive: true });
     await writeFile(join(root, "src", "index.ts"), "export const packageManager = 'pnpm';\n");
-    await writeFile(join(root, "package.json"), JSON.stringify({ scripts: { build: "tsc" } }));
+    await writeFile(join(root, "package.json"), JSON.stringify({
+      packageManager: "pnpm@10.17.1",
+      scripts: {
+        build: "tsc -p tsconfig.json",
+        test: "node --test",
+      },
+    }));
     await writeFile(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
     await writeFile(join(root, "tsconfig.json"), "{}\n");
 
-    const result = await new LocalProjectEngineeringReadinessAuthority().inspect({
+    const result = await new LocalProjectEngineeringReadinessAuthority(
+      undefined,
+      undefined,
+      new FakePnpmRunner(),
+    ).inspect({
       id: "pnpm-project",
+      projectPath: root,
+      requiredOperations: ["typecheck", "build", "test", "package"],
+    });
+
+    assert(
+      result.environment.packageManagers.includes("pnpm") &&
+        result.environment.declaredPackageManager === "pnpm@10.17.1",
+      "pnpm lock and authoritative packageManager evidence must both be retained.",
+    );
+    assert(
+      result.execution.status === "ready" &&
+        result.blockedReasons.length === 0,
+      "A verified pnpm project must become ready rather than remain blocked behind npm-only tooling.",
+    );
+    assert(
+      result.verifications[0]?.toolchain.id.endsWith("-pnpm") === true,
+      "Repository readiness must verify the resolved pnpm-specific toolchain.",
+    );
+    const commands = result.verifications[0]?.toolchain.commands ?? [];
+    assert(
+      commands.some((command) => command.operation === "typecheck" && command.command === "pnpm" && command.args.join(" ") === "exec tsc"),
+      "TypeScript typecheck must use pnpm exec rather than npx.",
+    );
+    assert(
+      commands.some((command) => command.operation === "build" && command.command === "pnpm" && command.args.join(" ") === "run build"),
+      "Build must use the repository's pnpm script boundary.",
+    );
+    console.log("08.PROJECT native pnpm readiness and capability proof: SUCCESS");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function rejectsAmbiguousPackageManagers(): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), "kings-readiness-ambiguous-js-"));
+  try {
+    await mkdir(join(root, "src"), { recursive: true });
+    await writeFile(join(root, "src", "index.ts"), "export const ambiguous = true;\n");
+    await writeFile(join(root, "package.json"), JSON.stringify({ scripts: { build: "tsc" } }));
+    await writeFile(join(root, "package-lock.json"), "{}\n");
+    await writeFile(join(root, "yarn.lock"), "# yarn lockfile\n");
+    await writeFile(join(root, "tsconfig.json"), "{}\n");
+
+    const result = await new LocalProjectEngineeringReadinessAuthority().inspect({
+      id: "ambiguous-js-project",
       projectPath: root,
       requiredOperations: ["build"],
     });
 
     assert(
-      result.environment.packageManagers.includes("pnpm"),
-      "pnpm lock evidence must be detected.",
-    );
-    assert(
       result.execution.status === "blocked",
-      "K.I.N.G.S. must fail closed rather than silently execute an npm toolchain for a pnpm project.",
+      "Conflicting package-manager evidence without an authoritative declaration must fail closed.",
     );
     assert(
-      result.blockedReasons.some((reason) => /does not match the registered npm\/npx toolchain/i.test(reason)),
-      "Package-manager mismatch must be explicit in readiness evidence.",
+      result.blockedReasons.some((reason) => /Multiple JavaScript package managers were detected/i.test(reason)),
+      "Package-manager ambiguity must be explicit in the engineering evidence.",
     );
-    console.log("08.PROJECT package-manager substitution protection: SUCCESS");
+    console.log("08.PROJECT ambiguous package-manager protection: SUCCESS");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -137,6 +194,51 @@ function verifiesIndependentLanguageDriverSelection(): void {
     "A secondary language with its own project manifest must remain an execution driver while support-only CSS does not.",
   );
   console.log("08.PROJECT independent polyglot driver selection: SUCCESS");
+}
+
+class FakePnpmRunner implements ToolchainProbeProcessRunner {
+  run(
+    executable: string,
+    args: string[],
+  ): ToolchainProbeProcessResult {
+    if (executable !== "pnpm") {
+      return {
+        started: false,
+        status: null,
+        stdout: "",
+        stderr: `unexpected executable ${executable}`,
+      };
+    }
+
+    if (
+      args[0] === "exec" &&
+      args[1] === "tsc" &&
+      args.at(-1) === "--version"
+    ) {
+      return {
+        started: true,
+        status: 0,
+        stdout: "Version 5.9.3\n",
+        stderr: "",
+      };
+    }
+
+    if (args.length === 1 && args[0] === "--version") {
+      return {
+        started: true,
+        status: 0,
+        stdout: "10.17.1\n",
+        stderr: "",
+      };
+    }
+
+    return {
+      started: true,
+      status: 1,
+      stdout: "",
+      stderr: `unexpected pnpm probe ${args.join(" ")}`,
+    };
+  }
 }
 
 main().catch((error) => {
