@@ -9,8 +9,8 @@
     "test": "npm run build && node development/run-tests.mjs && npm run test:knowledge",
     "test:live": "npm run build && node development/run-tests.mjs --live",
     "test:knowledge": "python3 runtimes/knowledge-retrieval/retriever-test.py",
-    "start": "node ui/project-owner/server.mjs",
-    "start:router": "npm run build && node build/runtimes/app-router/server.js",
+    "start": "node --env-file-if-exists=.env ui/project-owner/server.mjs",
+    "start:router": "npm run build && node --env-file-if-exists=.env build/runtimes/app-router/server.js",
     "platform:check": "node development/platform-check.mjs",
     "verify": "npm run platform:check && npm test"
   },
