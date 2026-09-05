@@ -54,6 +54,9 @@ function main(): void {
             true,
           version:
             "verified",
+          capabilities: [
+            "npx-package:tsc",
+          ],
         },
         {
           executable:
@@ -62,26 +65,31 @@ function main(): void {
             true,
           version:
             "verified",
+          capabilities: [
+            "npm-script:test",
+          ],
         },
       ],
     });
 
   assert(
     verified.verified,
-    "Available TypeScript toolchain must be verified.",
+    "Available TypeScript toolchain and required project capabilities must be verified.",
   );
 
   assert(
     verified.missingExecutables.length ===
+      0 &&
+    verified.missingCapabilities.length ===
       0,
-    "Verified TypeScript toolchain must have no missing executables.",
+    "Verified TypeScript toolchain must have no missing executable or package/script capabilities.",
   );
 
   console.log(
     "08.7 available toolchain verification: SUCCESS",
   );
 
-  const missing =
+  const missingPythonModule =
     authority.verify({
       language:
         "python",
@@ -103,26 +111,57 @@ function main(): void {
     });
 
   assert(
-    !missing.verified,
+    !missingPythonModule.verified,
     "Python test capability must fail when pytest is unavailable.",
   );
 
   assert(
-    missing.missingExecutables.includes(
-      "python3",
-    ) === false,
-    "Python runtime itself must remain recognized as available.",
-  );
-
-  assert(
-    missing.missingExecutables.includes(
-      "python3",
-    ) === false,
+    missingPythonModule.missingExecutables.length ===
+      0,
     "The available Python runtime must not be falsely reported missing.",
   );
 
+  assert(
+    missingPythonModule.missingCapabilities.includes(
+      "python-module:pytest",
+    ),
+    "Missing pytest must be reported as a module capability gap rather than a missing Python executable.",
+  );
+
   console.log(
-    "08.7 unavailable toolchain rejection: SUCCESS",
+    "08.7 unavailable Python module rejection: SUCCESS",
+  );
+
+  const missingNpxPackage =
+    authority.verify({
+      language:
+        "typescript",
+      requiredOperations: [
+        "typecheck",
+      ],
+      probes: [
+        {
+          executable:
+            "npx",
+          available:
+            true,
+          version:
+            "verified",
+          capabilities: [],
+        },
+      ],
+    });
+
+  assert(
+    !missingNpxPackage.verified &&
+      missingNpxPackage.missingCapabilities.includes(
+        "npx-package:tsc",
+      ),
+    "npx availability alone must never masquerade as TypeScript compiler availability.",
+  );
+
+  console.log(
+    "08.7 npx package false-positive protection: SUCCESS",
   );
 
   const rust =
