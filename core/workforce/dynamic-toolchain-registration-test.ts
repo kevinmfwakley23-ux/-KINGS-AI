@@ -34,9 +34,9 @@ function main(): void {
     id:
       "toolchain-kotlin-runtime",
     language:
-      "java",
+      "kotlin",
     displayName:
-      "Kotlin-Compatible JVM Toolchain",
+      "Kotlin JVM Toolchain",
     fileExtensions: [
       ".kt",
       ".kts",
@@ -83,7 +83,7 @@ function main(): void {
   const verification =
     {
       language:
-        "java" as const,
+        "kotlin",
       toolchain,
       verified:
         true,
@@ -107,19 +107,25 @@ function main(): void {
 
   assert(
     result.registered,
-    "Verified dynamic toolchain must register.",
+    "Verified dynamic toolchain for a non-default language must register.",
+  );
+
+  assert(
+    result.language ===
+      "kotlin",
+    "Dynamic registration must preserve the newly learned language identity.",
   );
 
   assert(
     registry.get(
-      "java",
+      "kotlin",
     )?.displayName ===
-      "Kotlin-Compatible JVM Toolchain",
-    "Registered toolchain must be available through the existing registry.",
+      "Kotlin JVM Toolchain",
+    "Newly verified language toolchain must be retrievable without masquerading as a default language.",
   );
 
   console.log(
-    "08.DYNAMIC verified toolchain registration: SUCCESS",
+    "08.DYNAMIC non-default language registration: SUCCESS",
   );
 
   let rejected =
