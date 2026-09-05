@@ -25,6 +25,13 @@ export interface ModelRoutingRequest {
     boolean;
   preferInternal?:
     boolean;
+  /**
+   * Fail closed unless the selected model is owned by an internal-local or
+   * internal-self-hosted provider. This is stronger than preferInternal and
+   * is required for missions that must not use external AI at any price.
+   */
+  internalOnly?:
+    boolean;
   maximumEstimatedCost?:
     number;
 }
@@ -128,6 +135,13 @@ export class ModelRouter {
           (
             candidate,
           ) =>
+            !request.internalOnly ||
+            candidate.internal,
+        )
+        .filter(
+          (
+            candidate,
+          ) =>
             request.maximumEstimatedCost ===
               undefined ||
             candidate.estimatedCost <=
@@ -153,7 +167,9 @@ export class ModelRouter {
         selected:
           false,
         reason:
-          "No available model satisfies the routing requirements.",
+          request.internalOnly
+            ? "No available internal model satisfies the routing requirements."
+            : "No available model satisfies the routing requirements.",
         candidates: [],
       };
     }
@@ -333,10 +349,12 @@ export class ModelRouter {
       ModelRoutingRequest,
   ): string {
     const internalReason =
-      request.preferInternal &&
-      candidate.internal
-        ? "preferred internal intelligence"
-        : "capable available model";
+      request.internalOnly
+        ? "required internal intelligence"
+        : request.preferInternal &&
+          candidate.internal
+          ? "preferred internal intelligence"
+          : "capable available model";
 
     return `${internalReason}; estimated cost ${candidate.estimatedCost}; reliability ${candidate.reliability}; capability strength ${candidate.capabilityStrength}`;
   }
