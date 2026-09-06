@@ -24,8 +24,17 @@ body {
 button, input { font: inherit; }
 button { min-height: 48px; }
 .shell { width: min(760px, 100%); margin: 0 auto; padding: max(24px, env(safe-area-inset-top)) 18px max(30px, env(safe-area-inset-bottom)); }
-.crest { text-align: center; padding: 18px 8px 8px; }
-.crown { font-size: 3.2rem; color: var(--gold-deep); line-height: 1; text-shadow: 0 2px 0 #fff; }
+.crest { text-align: center; padding: 10px 8px 8px; }
+.official-logo {
+  display: block;
+  width: min(100%, 410px);
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: contain;
+  margin: 0 auto 12px;
+  border-radius: 20px;
+  box-shadow: 0 18px 46px rgba(36, 26, 9, .16);
+}
 .eyebrow { margin: 10px auto 6px; max-width: 620px; font-size: .72rem; font-weight: 800; letter-spacing: .18em; color: #665d4d; }
 h1 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(2.25rem, 10vw, 4.4rem); letter-spacing: .04em; }
 .lead { margin: 8px 0 0; color: #5c554a; }
@@ -70,6 +79,10 @@ button {
 .status[data-kind="error"] { color: #7c1d1d; background: #fff0f0; }
 .status[data-kind="success"] { color: #225f34; background: #eef9f0; }
 ul { margin-bottom: 0; padding-left: 1.25rem; }
+
+@media (max-width: 480px) {
+  .official-logo { width: min(100%, 330px); border-radius: 16px; }
+}
 
 @media (min-width: 720px) {
   .shell { padding-left: 28px; padding-right: 28px; }

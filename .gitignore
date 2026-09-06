@@ -17,6 +17,9 @@ build/
 src-tauri/gen/
 src-tauri/target/
 
+# Deterministically materialized official brand derivative
+native-shell/kings-ai-official-logo.png
+
 # Python cache
 __pycache__/
 *.pyc

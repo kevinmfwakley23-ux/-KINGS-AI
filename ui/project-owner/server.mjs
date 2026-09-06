@@ -2,7 +2,7 @@ import http from "node:http";
 import os from "node:os";
 import { spawn } from "node:child_process";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { URL } from "node:url";
@@ -45,6 +45,11 @@ const ownerPdfExtractorPath = resolve(
   process.cwd(),
   "runtimes/knowledge-ingestion/extract_owner_pdf.py",
 );
+const officialLogoPath = resolve(
+  process.cwd(),
+  "native-shell/kings-ai-official-logo.png",
+);
+const officialLogoBytes = readFileSync(officialLogoPath);
 const engineeringOutputLimit = 1024 * 1024;
 const ownerJsonBodyLimit = 1024 * 1024;
 const ownerPdfBodyLimit = 20 * 1024 * 1024;
@@ -424,6 +429,17 @@ function json(res, status, body, extraHeaders = {}) {
   res.end(payload);
 }
 
+function png(res, bytes) {
+  res.writeHead(200, {
+    "content-type": "image/png",
+    "content-length": bytes.length,
+    "cache-control": "private, max-age=86400",
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "no-referrer",
+  });
+  res.end(bytes);
+}
+
 function html(res, body) {
   res.writeHead(200, {
     "content-type": "text/html; charset=utf-8",
@@ -431,7 +447,7 @@ function html(res, body) {
     "cache-control": "no-store",
     "x-content-type-options": "nosniff",
     "x-frame-options": "DENY",
-    "content-security-policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'",
+    "content-security-policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
     "referrer-policy": "no-referrer",
   });
   res.end(body);
@@ -463,11 +479,11 @@ function unauthorized(res) {
 
 const page = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>K.I.N.G.S. AI Owner Console</title>
+<title>K.I.N.G.S. AI Owner Console</title><link rel="icon" type="image/png" href="/assets/kings-ai-official-logo.png">
 <style>
-:root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color-scheme:light;--ink:#151515;--muted:#686159;--gold:#9b7121;--gold2:#d8be78;--edge:#d8d0c3;--paper:rgba(255,255,255,.92);--ok:#26763b;--bad:#a52c25;--shadow:0 18px 50px rgba(18,18,18,.1)}*{box-sizing:border-box}body{margin:0;min-height:100vh;color:var(--ink);background:#f7f5ef;background-image:linear-gradient(120deg,transparent 0 27%,rgba(20,20,20,.045) 27.2%,transparent 27.5% 65%,rgba(168,124,38,.11) 65.2%,transparent 65.5%)}.wrap{max-width:1080px;margin:auto;padding:22px 14px 50px}header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.eyebrow{font-size:.72rem;font-weight:850;letter-spacing:.13em;text-transform:uppercase;color:var(--gold)}h1,h2,h3{font-family:Georgia,serif}h1{font-size:clamp(2rem,7vw,3.45rem);margin:.12rem 0}.muted{color:var(--muted)}.card{margin-top:15px;padding:18px;background:var(--paper);border:1px solid var(--edge);border-top:2px solid var(--gold2);border-radius:14px;box-shadow:var(--shadow)}textarea,input{width:100%;font:inherit;border:1px solid #c8c0b4;border-radius:9px;padding:11px;background:#fff}textarea{min-height:150px;resize:vertical;line-height:1.5}label{display:block;font-weight:800;font-size:.82rem;margin:10px 0 5px}button{font:inherit;font-weight:800;border-radius:9px;padding:10px 13px;border:1px solid #181818;background:#181818;color:white;cursor:pointer}button.secondary{background:white;color:#181818;border-color:#bcb2a4}button.gold{background:linear-gradient(#b58a32,#8e651b);border-color:#8e651b}button:disabled{opacity:.48;cursor:not-allowed}.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.grow{flex:1 1 260px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}.status{border:1px solid var(--edge);border-radius:10px;padding:11px;background:#fff}.mission{border:1px solid var(--edge);border-left:3px solid var(--gold);border-radius:10px;padding:12px;background:#fff;margin-top:9px}.pill{display:inline-block;border:1px solid #d0c5b4;border-radius:999px;padding:3px 7px;font-size:.72rem;font-weight:800;margin:4px 4px 0 0}.success{color:var(--ok)}.error{color:var(--bad)}.dropzone{border:1.5px dashed #aa9470;border-radius:11px;padding:16px;text-align:center;background:#fff;margin-top:13px}.dropzone.drag{background:#fbf4df;border-color:var(--gold)}.context-item{display:flex;gap:8px;border:1px solid var(--edge);border-radius:8px;padding:9px;margin-top:7px;background:#fff}.context-item input{width:auto}.context-meta{font-size:.76rem;color:var(--muted);word-break:break-all}pre{white-space:pre-wrap;word-break:break-word;max-height:280px;overflow:auto;background:#f0ede6;border-radius:8px;padding:10px}code{background:#f0ede6;padding:2px 4px;border-radius:4px}@media(max-width:600px){.wrap{padding:12px 9px 35px}.card{padding:14px}.row button{flex:1 1 145px}}
+:root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color-scheme:light;--ink:#151515;--muted:#686159;--gold:#9b7121;--gold2:#d8be78;--edge:#d8d0c3;--paper:rgba(255,255,255,.92);--ok:#26763b;--bad:#a52c25;--shadow:0 18px 50px rgba(18,18,18,.1)}*{box-sizing:border-box}body{margin:0;min-height:100vh;color:var(--ink);background:#f7f5ef;background-image:linear-gradient(120deg,transparent 0 27%,rgba(20,20,20,.045) 27.2%,transparent 27.5% 65%,rgba(168,124,38,.11) 65.2%,transparent 65.5%)}.wrap{max-width:1080px;margin:auto;padding:22px 14px 50px}header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.brand-head{display:flex;align-items:center;gap:14px;min-width:0}.brand-logo{width:104px;height:104px;object-fit:contain;border-radius:16px;box-shadow:0 10px 30px rgba(28,20,7,.13);flex:0 0 auto}.eyebrow{font-size:.72rem;font-weight:850;letter-spacing:.13em;text-transform:uppercase;color:var(--gold)}h1,h2,h3{font-family:Georgia,serif}h1{font-size:clamp(2rem,7vw,3.45rem);margin:.12rem 0}.muted{color:var(--muted)}.card{margin-top:15px;padding:18px;background:var(--paper);border:1px solid var(--edge);border-top:2px solid var(--gold2);border-radius:14px;box-shadow:var(--shadow)}textarea,input{width:100%;font:inherit;border:1px solid #c8c0b4;border-radius:9px;padding:11px;background:#fff}textarea{min-height:150px;resize:vertical;line-height:1.5}label{display:block;font-weight:800;font-size:.82rem;margin:10px 0 5px}button{font:inherit;font-weight:800;border-radius:9px;padding:10px 13px;border:1px solid #181818;background:#181818;color:white;cursor:pointer}button.secondary{background:white;color:#181818;border-color:#bcb2a4}button.gold{background:linear-gradient(#b58a32,#8e651b);border-color:#8e651b}button:disabled{opacity:.48;cursor:not-allowed}.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.grow{flex:1 1 260px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}.status{border:1px solid var(--edge);border-radius:10px;padding:11px;background:#fff}.mission{border:1px solid var(--edge);border-left:3px solid var(--gold);border-radius:10px;padding:12px;background:#fff;margin-top:9px}.pill{display:inline-block;border:1px solid #d0c5b4;border-radius:999px;padding:3px 7px;font-size:.72rem;font-weight:800;margin:4px 4px 0 0}.success{color:var(--ok)}.error{color:var(--bad)}.dropzone{border:1.5px dashed #aa9470;border-radius:11px;padding:16px;text-align:center;background:#fff;margin-top:13px}.dropzone.drag{background:#fbf4df;border-color:var(--gold)}.context-item{display:flex;gap:8px;border:1px solid var(--edge);border-radius:8px;padding:9px;margin-top:7px;background:#fff}.context-item input{width:auto}.context-meta{font-size:.76rem;color:var(--muted);word-break:break-all}pre{white-space:pre-wrap;word-break:break-word;max-height:280px;overflow:auto;background:#f0ede6;border-radius:8px;padding:10px}code{background:#f0ede6;padding:2px 4px;border-radius:4px}@media(max-width:600px){.wrap{padding:12px 9px 35px}.card{padding:14px}.row button{flex:1 1 145px}.brand-logo{width:84px;height:84px}.brand-head{align-items:flex-start}}
 </style></head><body><main class="wrap">
-<header><div><div class="eyebrow">KNOWLEDGE • INVESTIGATION • NARRATIVE • GENERATION • SYSTEM</div><h1>K.I.N.G.S. AI</h1><div class="muted">Owner command console · governed autonomous engineering</div></div><button class="secondary" onclick="refreshAll()">Refresh</button></header>
+<header><div class="brand-head"><img class="brand-logo" src="/assets/kings-ai-official-logo.png" alt="K.I.N.G.S. AI official crowned lion crest" width="104" height="104"><div><div class="eyebrow">KNOWLEDGE • INVESTIGATION • NARRATIVE • GENERATION • SYSTEM</div><h1>K.I.N.G.S. AI</h1><div class="muted">Owner command console · governed autonomous engineering</div></div></div><button class="secondary" onclick="refreshAll()">Refresh</button></header>
 <section class="card"><div class="eyebrow">Owner Vision</div><h2>Talk to K.I.N.G.S.</h2><p class="muted">Describe what to build or repair. <strong>Build From This Vision</strong> creates an approved locked mission and starts the real governed execution loop against the server-configured repository.</p><label for="vision">What should K.I.N.G.S. build?</label><textarea id="vision" placeholder="Describe the feature, repair, application, or system…"></textarea><div id="voice-state" class="muted">Voice dictation depends on browser support. Text always works.</div><label for="product-name">Mission / product name (optional)</label><input id="product-name" maxlength="160"><div id="context-drop" class="dropzone"><strong>Project context PDFs</strong><div class="muted">Drop PDFs here or choose files. Extraction and source preservation happen in K.I.N.G.S., not the browser.</div><input id="pdf-input" type="file" accept="application/pdf,.pdf" multiple hidden><button type="button" class="secondary" onclick="document.getElementById('pdf-input').click()">Choose PDFs</button><div id="context-upload-status" class="muted"></div></div><div id="context-list" class="muted">Loading context…</div><div class="row" style="margin-top:12px"><button id="voice-button" class="secondary" onclick="toggleVoice()">🎙 Talk</button><button id="build-button" class="gold" onclick="buildVision()">Build From This Vision</button></div><div id="mission-create-status" class="muted" style="margin-top:10px"></div></section>
 <section class="card"><div class="row"><div class="grow"><h2 style="margin:.1rem 0">Mission Control</h2><div class="muted">Task transitions, model attribution, governed writes and verification results persist on disk.</div></div><button class="secondary" onclick="refreshMissions()">Refresh Missions</button></div><div id="mission-job" class="muted" style="margin-top:8px"></div><div id="missions" class="muted">Loading…</div></section>
 <section class="card"><h2>AI Routing</h2><p class="muted">Server policy controls model routing. OmniRoute and 9Router are first-class routes; local Ollama appears only when explicitly configured as fallback.</p><div id="routing" class="muted"></div><div id="connectors" class="grid" style="margin-top:10px"></div></section>
@@ -507,6 +523,10 @@ const server = http.createServer(async (req, res) => {
   const authorization = authorizeOwnerRequest(req, url);
   if (!authorization.allowed) return unauthorized(res);
   if (authorization.bootstrap) return establishOwnerSession(res);
+
+  if (req.method === "GET" && url.pathname === "/assets/kings-ai-official-logo.png") {
+    return png(res, officialLogoBytes);
+  }
 
   if (req.method === "GET" && url.pathname === "/api/status") {
     return json(res, 200, {
