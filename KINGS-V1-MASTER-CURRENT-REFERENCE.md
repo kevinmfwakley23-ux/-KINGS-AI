@@ -1,7 +1,7 @@
 # K.I.N.G.S. V1 MASTER CURRENT REFERENCE
 
 **Status:** Canonical current build reference
-**Updated:** 2026-08-13
+**Updated:** 2026-09-11
 **Base repository:** `main`
 
 ## Purpose
@@ -151,6 +151,20 @@ These additions directly address the locked requirement for extensible programmi
 - Authoritative learned memory remains retrievable for later tasks with its original provenance intact.
 - Unverified learned claims are denied promotion.
 
+### Tree 07 — Memory-to-action evaluation
+
+**Research-backed memory action proof — branch `research/memory-to-action-evaluation`**
+- Extends the existing `GovernedMemoryExecutionPipeline`; it does not create a parallel memory or execution subsystem.
+- Separately measures memory retrieval, constraint recognition, tool selection, and nested parameter grounding.
+- Requires every expected downstream effect to identify its source memory.
+- Distinguishes selected memory from memory that demonstrably influenced the observed tool proposal.
+- Emits the existing `CompletionEvidence` contract through `EvidenceStore` with deterministic verification provenance.
+- Persists versioned evaluation runs atomically, reloads them after restart, isolates retained records from caller mutation, and rejects inconsistent or tampered records.
+- Restores the native completion evidence idempotently from the durable journal after restart and rejects evidence-ID collisions.
+- Includes negative proof that retrieval alone cannot hide missed constraints, wrong tool choice, or wrong arguments.
+
+The locked research queue and retain/revert contracts are recorded in `docs/KINGS-AI-RESEARCH-IMPROVEMENT-QUEUE.md`.
+
 ### Tree 08 — Durable runtime continuity
 
 **Durable mission interruption and resume proof — current committed checkpoint `001166c` plus continuity proof**
@@ -173,7 +187,7 @@ The following are still incomplete unless independently demonstrated through int
 - professional coding quality at repository scale with internal intelligence
 - complete multi-language/toolchain intelligence
 - full worker loop driven by an actual model across a complete mission
-- memory → mission → execution integration
+- memory-to-action effectiveness across real interrupted multi-session missions
 - no-external-AI acceptance mission
 - synthetic workforce acceptance mission
 - KINGS Collectibles proving-ground mission
@@ -196,17 +210,20 @@ The following are still incomplete unless independently demonstrated through int
 
 ## Current next-build direction
 
-The real local intelligence path, durable mission interruption/resume path, and learned-knowledge retention/reuse path are now proven through integration tests and real bounded proofs.
+The real local intelligence path, durable mission interruption/resume path, learned-knowledge retention/reuse path, and repository-native memory-to-action evaluation path are now proven through integration tests and bounded proofs.
 
 The next highest-value gaps must be selected from the master audit against the current repository, with priority on:
 
-1. memory → mission → execution integration
-2. no-external-AI acceptance mission
-3. broader language/toolchain coverage
-4. real multi-mission proving-ground execution
-5. professional repository-scale coding quality with internal intelligence
+1. failure-class-specific recovery with fault injection
+2. tool-chain composition authorization
+3. memory write/read cost and evidence-utilization profiling
+4. no-external-AI acceptance mission
+5. broader language/toolchain coverage
+6. real multi-mission proving-ground execution
+7. professional repository-scale coding quality with internal intelligence
 
 Do not invent a new subsystem until the existing repository has been audited for the correct integration owner.
+Do not begin the next research section until the current branch has received independent Chromebook review and the owner closes the section.
 
 ## Final V1 proof
 
