@@ -1,7 +1,7 @@
 # K.I.N.G.S. V1 MASTER CURRENT REFERENCE
 
 **Status:** Canonical current build reference
-**Updated:** 2026-08-13
+**Updated:** 2026-10-24
 **Base repository:** `main`
 
 ## Purpose
@@ -130,6 +130,15 @@ These additions directly address the locked requirement for extensible programmi
 - Existing recovery authority selects retry/repair decisions.
 - Existing repair planning and repair editing can fix a real failed artifact.
 - Retest and verification complete the loop.
+
+**Owner mission autonomous validation repair — current checkpoint**
+- The production `OwnerProductBuildWorker` now routes a failed repository-native build/test report through the existing `LocalEngineeringRecoveryBridge` instead of immediately failing the entire owner mission.
+- The rejected proposal is fully rolled back before a corrected complete proposal is requested against the original repository state.
+- The repair request receives bounded real command, exit-code, stdout/stderr, recovery, and rejected-proposal evidence; repository content in that evidence remains explicitly untrusted.
+- Every repaired proposal still passes the existing strict JSON parser, mission/task identity checks, repository-relative path authority, controlled editor, and real build/test gate.
+- A successful repaired attempt preserves the failed validation, rollback, recovery decision, provider/model route, governed writes, and green retest references in the durable workforce result.
+- Recovery is bounded to three total coding attempts. A persistent failure stops, marks the task/mission failed, and leaves the repository restored rather than looping or promoting unverified work.
+- The integration proof exercises a real failing generated JavaScript file, rollback, second model proposal, repository-native green retest, durable mission completion, and the three-attempt exhaustion path.
 
 **Real local model availability — verified working capability**
 - Ollama `0.32.6` is installed and running on the Chromebook.

@@ -31,6 +31,17 @@ Do not expose the owner console through plain public HTTP. A firewall is useful
 defense in depth but is not a substitute for K.I.N.G.S.' application-layer owner
 authentication and HTTPS transport.
 
+## Autonomous coding recovery
+
+Owner-created coding missions now perform a bounded validation-repair cycle.
+When a governed proposal fails the repository's real build/test commands,
+K.I.N.G.S. restores the original files, passes the captured failure through the
+existing recovery authority, requests a complete corrected proposal, and runs
+the repository validation again. Each repaired proposal remains subject to the
+same task identity, path authorization, controlled-write, and test boundaries.
+The worker stops after three total coding attempts and preserves rollback and
+failure evidence instead of looping or marking unverified work complete.
+
 ## AI connectors
 
 `core/workforce/openai-compatible-gateway.ts` provides a provider-neutral
