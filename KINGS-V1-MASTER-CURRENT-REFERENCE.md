@@ -155,6 +155,14 @@ These additions directly address the locked requirement for extensible programmi
 - An internal seven-domain pass does not prove competitive quality. `top-tier-proven` additionally requires independently scored evidence for every domain at or above the 90th percentile against at least five peer models.
 - The authenticated Powerhouse domain discovery response publishes these thresholds so clients can distinguish active routing, production qualification, and independently demonstrated top-tier performance.
 
+**Rights-cleared benchmark execution — current checkpoint**
+- `PowerhouseBenchmarkRunner` converts a versioned seven-domain corpus manifest plus actual model responses into qualification-compatible domain benchmark results.
+- Corpus manifests require owner-approved license/source/permission references, an identified rights attester, and a SHA-256-bound permission evidence artifact for every training and evaluation item.
+- Exact normalized prompt duplication and any source group crossing training, validation, or held-out splits fail closed. Each domain requires training material plus at least 20 held-out tasks.
+- Missing answers remain in the denominator and critical omissions become critical failures. Deterministic criteria and evidence-attested rubric review are supported; the evaluated model cannot approve its own rubric score.
+- Manifest, complete run, output, and per-domain hashes preserve reproducible evidence without embedding raw model output in the resulting artifact.
+- The `evaluate:powerhouse` CLI consumes private JSON manifests/responses and atomically writes a report that can feed `PowerhouseQualificationAuthority`. The repository does not ship invented production results or claim that a candidate has passed before real data is executed.
+
 **Real local model availability — verified working capability**
 - Ollama `0.32.6` is installed and running on the Chromebook.
 - `qwen2.5-coder:0.5b` was pulled successfully.

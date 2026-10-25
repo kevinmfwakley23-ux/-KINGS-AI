@@ -52,6 +52,17 @@ seven domains at or above the 90th percentile against at least five peer models.
 The authority preserves every blocker and evidence reference; an internal pass
 cannot silently become a competitive claim.
 
+The qualification gate now has an executable evidence producer.
+`PowerhouseBenchmarkRunner` validates rights attestations and their SHA-256
+evidence, rejects normalized prompt duplication and source-group leakage across
+training/validation/held-out splits, requires at least 20 held-out tasks per
+domain, and counts omitted answers as failures. Deterministic tests and
+evidence-attested rubric review produce task, domain, manifest, and run hashes.
+The `evaluate:powerhouse` CLI writes the resulting qualification-ready artifact
+atomically. No production corpus or passing model result is fabricated in the
+repository; owner-approved rights-cleared data and real model responses remain
+a deployment prerequisite.
+
 ## Powerhouse service-domain routing
 
 The authenticated Responses API supports seven explicit service contracts:
