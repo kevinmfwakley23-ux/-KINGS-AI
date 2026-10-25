@@ -17,6 +17,9 @@ import {
   resolvePowerhouseServiceDomain,
   type PowerhouseServiceDomainProfile,
 } from "../../core/workforce/powerhouse-service-domain";
+import {
+  getPowerhouseQualificationPolicy,
+} from "../../core/workforce/powerhouse-domain-qualification";
 import { ProviderAdapterRegistry } from "../../core/workforce/provider-adapters";
 import { WebAccessAdapter } from "../../core/workforce/web-access";
 
@@ -298,6 +301,7 @@ export function createAppRouterRuntime(
         return sendJson(response, 200, {
           ok: true,
           policy_version: POWERHOUSE_DOMAIN_POLICY_VERSION,
+          qualification_policy: getPowerhouseQualificationPolicy(),
           domains: listPowerhouseServiceDomains().map((profile) => ({
             id: profile.id,
             label: profile.label,

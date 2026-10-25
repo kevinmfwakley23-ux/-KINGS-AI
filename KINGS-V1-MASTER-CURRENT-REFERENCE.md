@@ -148,6 +148,13 @@ These additions directly address the locked requirement for extensible programmi
 - Unknown domains fail closed, tool authority remains disabled at the Responses boundary, and API results preserve the applied domain/policy/capability evidence.
 - Domain discovery explicitly states that routing policy is not proof of expertise; competitive quality remains gated on separate measured domain evaluation.
 
+**Seven-domain evidence qualification — current checkpoint**
+- `PowerhouseQualificationAuthority` evaluates a registered model against every Powerhouse domain and returns an explicit `unqualified`, `production-qualified`, or `top-tier-proven` claim.
+- Production qualification requires at least 20 rights-cleared, held-out, training-disjoint tasks in every domain, an 85% pass rate, zero critical failures, benchmark evidence, and every domain prerequisite capability verified at strength 70 or higher with evidence.
+- Missing domains, insufficient task counts, training leakage, absent evidence, unavailable/unregistered models, weak prerequisite capabilities, and any critical failure block production promotion with attributable reasons.
+- An internal seven-domain pass does not prove competitive quality. `top-tier-proven` additionally requires independently scored evidence for every domain at or above the 90th percentile against at least five peer models.
+- The authenticated Powerhouse domain discovery response publishes these thresholds so clients can distinguish active routing, production qualification, and independently demonstrated top-tier performance.
+
 **Real local model availability — verified working capability**
 - Ollama `0.32.6` is installed and running on the Chromebook.
 - `qwen2.5-coder:0.5b` was pulled successfully.

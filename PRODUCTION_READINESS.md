@@ -42,6 +42,16 @@ same task identity, path authorization, controlled-write, and test boundaries.
 The worker stops after three total coding attempts and preserves rollback and
 failure evidence instead of looping or marking unverified work complete.
 
+Powerhouse model promotion is governed by
+`PowerhouseQualificationAuthority`. A candidate remains unqualified until all
+seven domains pass rights-cleared, held-out, training-disjoint evaluations with
+at least 20 tasks, an 85% pass rate, zero critical failures, and evidence-backed
+verified prerequisite capabilities. Production qualification is distinct from
+top-tier proof. The latter additionally requires independent evidence for all
+seven domains at or above the 90th percentile against at least five peer models.
+The authority preserves every blocker and evidence reference; an internal pass
+cannot silently become a competitive claim.
+
 ## Powerhouse service-domain routing
 
 The authenticated Responses API supports seven explicit service contracts:

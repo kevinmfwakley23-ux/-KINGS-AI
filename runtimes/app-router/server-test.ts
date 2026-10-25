@@ -98,6 +98,22 @@ async function main(): Promise<void> {
     assert.equal(domainsResponse.status, 200, "Authenticated clients must be able to discover Powerhouse service domains.");
     const domainsPayload = await domainsResponse.json() as {
       policy_version: string;
+      qualification_policy: {
+        version: string;
+        production: {
+          minimumTasksPerDomain: number;
+          minimumPassRate: number;
+          maximumCriticalFailures: number;
+          heldOutRequired: boolean;
+          trainingDataDisjointRequired: boolean;
+          rightsClearedRequired: boolean;
+        };
+        topTier: {
+          minimumPeerModels: number;
+          minimumPercentileRank: number;
+          independentScoringRequired: boolean;
+        };
+      };
       domains: Array<{ id: string; required_capabilities: string[]; qualification_note: string }>;
     };
     assert.equal(domainsPayload.domains.length, 7, "Powerhouse API must advertise all seven locked service domains.");
@@ -106,6 +122,15 @@ async function main(): Promise<void> {
       domainsPayload.domains.every((domain) => domain.qualification_note.includes("expert status requires")),
       "Domain discovery must not present routing policy as proof of expertise.",
     );
+    assert.equal(domainsPayload.qualification_policy.production.minimumTasksPerDomain, 20);
+    assert.equal(domainsPayload.qualification_policy.production.minimumPassRate, 0.85);
+    assert.equal(domainsPayload.qualification_policy.production.maximumCriticalFailures, 0);
+    assert.equal(domainsPayload.qualification_policy.production.heldOutRequired, true);
+    assert.equal(domainsPayload.qualification_policy.production.trainingDataDisjointRequired, true);
+    assert.equal(domainsPayload.qualification_policy.production.rightsClearedRequired, true);
+    assert.equal(domainsPayload.qualification_policy.topTier.minimumPeerModels, 5);
+    assert.equal(domainsPayload.qualification_policy.topTier.minimumPercentileRank, 90);
+    assert.equal(domainsPayload.qualification_policy.topTier.independentScoringRequired, true);
 
     const response = await fetch(`${base}/v1/responses`, {
       method: "POST",

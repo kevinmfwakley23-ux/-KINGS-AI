@@ -74,7 +74,13 @@ domain-specific evaluation.
 
 Returns the seven registered service domains, policy version, required model
 capabilities, and maximum temperature. This authenticated discovery endpoint
-explicitly distinguishes active routing policy from verified expert status.
+explicitly distinguishes active routing policy from verified expert status. It
+also returns the separate qualification policy: every domain needs at least 20
+rights-cleared, held-out, training-disjoint tasks, an 85% pass rate, zero
+critical failures, and verified prerequisite capabilities with evidence.
+Production qualification alone does not authorize a top-tier claim. That claim
+requires independent comparative evidence for every domain at or above the 90th
+percentile against at least five peer models.
 
 ## Routing behavior
 
