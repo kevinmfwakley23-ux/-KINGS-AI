@@ -49,12 +49,41 @@ The response includes the selected provider/model, normalized token usage, tool-
 
 Provides the Responses-compatible contract used by Author's Forge and other K.I.N.G.S. applications. Callers should send a validated application identity in `x-kings-app-id`; `authors.forge` remains the backwards-compatible default for older Forge callers. The application identity is carried into routing, mission/task context, telemetry, and the returned `app_id`.
 
+Callers may select one of the seven governed Powerhouse service contracts with
+`service_domain`: `chat`, `coding`, `collectibles`, `sports-cards`,
+`book-editing`, `publishing`, or `storytelling`. A selected contract adds a
+server-owned instruction, requires the appropriate registered model
+capabilities, clamps temperature to the domain ceiling, and returns the applied
+domain, policy version, and required capabilities as evidence.
+
+```json
+{
+  "model": "auto",
+  "service_domain": "sports-cards",
+  "input": "Analyze the supplied card details and completed sales without inventing a grade.",
+  "temperature": 0.8,
+  "max_output_tokens": 1200
+}
+```
+
+The domain contract governs routing and response standards; it is not proof that
+a selected model is an expert. Model quality still requires measured,
+domain-specific evaluation.
+
+### `GET /v1/powerhouse/domains`
+
+Returns the seven registered service domains, policy version, required model
+capabilities, and maximum temperature. This authenticated discovery endpoint
+explicitly distinguishes active routing policy from verified expert status.
+
 ## Routing behavior
 
 - Provider order is controlled by `KINGS_APP_ROUTER_PROVIDER_ORDER`.
 - Default order is `omniroute,9router,ollama-internal`.
 - A caller may request an explicit provider or model when required.
 - Automatic routing filters out models that do not declare the requested capabilities/modalities.
+- Powerhouse service-domain requests add server-controlled capability requirements; callers cannot weaken them by supplying a generic capability list.
+- Domain temperature ceilings prevent fact-sensitive services from silently accepting highly speculative generation settings.
 - If an automatic candidate fails, K.I.N.G.S. can try the next eligible configured provider.
 - If an explicit provider is requested, K.I.N.G.S. does not silently substitute a different provider.
 - OmniRoute and 9Router remain provider adapters behind K.I.N.G.S.; their own virtual-model routing, fallback, caching, and quota logic remains intact.

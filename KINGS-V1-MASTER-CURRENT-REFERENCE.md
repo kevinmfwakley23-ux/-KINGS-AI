@@ -140,6 +140,14 @@ These additions directly address the locked requirement for extensible programmi
 - Recovery is bounded to three total coding attempts. A persistent failure stops, marks the task/mission failed, and leaves the repository restored rather than looping or promoting unverified work.
 - The integration proof exercises a real failing generated JavaScript file, rollback, second model proposal, repository-native green retest, durable mission completion, and the three-attempt exhaustion path.
 
+**Seven-domain Powerhouse service routing — current checkpoint**
+- The authenticated Responses API recognizes explicit `chat`, `coding`, `collectibles`, `sports-cards`, `book-editing`, `publishing`, and `storytelling` service domains.
+- Each domain supplies a versioned server-owned contract, capability requirements, and a maximum generation temperature; callers cannot weaken those requirements with a generic request.
+- Coding requires reasoning, coding, debugging, verification, and recovery; fact-sensitive collectibles, sports-card, and publishing requests require research and verification; long-form editing and storytelling require long-context memory capability.
+- Collectibles/card contracts prohibit invented official grades, certifications, population counts, sales, and guarantees. Editing/story contracts preserve author intent, voice, and locked canon. Publishing distinguishes guidance from actual account or submission actions.
+- Unknown domains fail closed, tool authority remains disabled at the Responses boundary, and API results preserve the applied domain/policy/capability evidence.
+- Domain discovery explicitly states that routing policy is not proof of expertise; competitive quality remains gated on separate measured domain evaluation.
+
 **Real local model availability — verified working capability**
 - Ollama `0.32.6` is installed and running on the Chromebook.
 - `qwen2.5-coder:0.5b` was pulled successfully.

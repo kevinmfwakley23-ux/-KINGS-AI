@@ -42,6 +42,16 @@ same task identity, path authorization, controlled-write, and test boundaries.
 The worker stops after three total coding attempts and preserves rollback and
 failure evidence instead of looping or marking unverified work complete.
 
+## Powerhouse service-domain routing
+
+The authenticated Responses API supports seven explicit service contracts:
+general chat, software engineering, collectibles, sports/trading cards, book
+editing, publishing, and storytelling. Each contract injects server-owned
+behavioral and honesty requirements, selects a capability set, and clamps
+temperature before provider selection. Unknown domains fail closed. The API
+returns the applied domain policy as evidence and never treats policy selection
+alone as proof that a model has achieved expert quality.
+
 ## AI connectors
 
 `core/workforce/openai-compatible-gateway.ts` provides a provider-neutral
