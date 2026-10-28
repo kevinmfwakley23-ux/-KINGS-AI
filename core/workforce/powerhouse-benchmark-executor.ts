@@ -216,6 +216,40 @@ function validateCheckpoint(
   }
 }
 
+export function validatePowerhouseBenchmarkExecutionCheckpoint(
+  checkpoint: PowerhouseBenchmarkExecutionCheckpoint,
+  manifest: PowerhouseBenchmarkManifest,
+): void {
+  const manifestSha256 = validatePowerhouseBenchmarkManifest(manifest);
+  const taskIds = new Set(
+    manifest.items.filter((item) => item.split === "held-out").map((item) => item.id),
+  );
+  validateCheckpoint(checkpoint, {
+    schemaVersion: "1",
+    runId: requiredId(checkpoint.runId, "checkpoint run id"),
+    benchmarkId: manifest.benchmarkId,
+    benchmarkVersion: manifest.benchmarkVersion,
+    manifestSha256,
+    providerId: requiredId(checkpoint.providerId, "checkpoint provider id"),
+    modelId: requiredId(checkpoint.modelId, "checkpoint model id"),
+  }, taskIds);
+}
+
+export function powerhouseResponsesFromCheckpoint(
+  checkpoint: PowerhouseBenchmarkExecutionCheckpoint,
+): PowerhouseBenchmarkResponse[] {
+  return checkpoint.records.flatMap((record) => {
+    if (record.status !== "succeeded") return [];
+    return [{
+      taskId: record.taskId,
+      modelId: record.modelId,
+      output: record.output,
+      completedAt: record.completedAt,
+      evidenceReferences: [`benchmark-route:sha256:${record.evidenceSha256}`],
+    }];
+  });
+}
+
 export class PowerhouseBenchmarkExecutor {
   private readonly now: () => Date;
   private readonly delay: (milliseconds: number) => Promise<void>;
@@ -291,16 +325,7 @@ export class PowerhouseBenchmarkExecutor {
     }
 
     if (pending.length === 0 && !loaded) await request.checkpointStore.save(checkpoint);
-    const responses: PowerhouseBenchmarkResponse[] = checkpoint.records.flatMap((record) => {
-      if (record.status !== "succeeded") return [];
-      return [{
-        taskId: record.taskId,
-        modelId: record.modelId,
-        output: record.output,
-        completedAt: record.completedAt,
-        evidenceReferences: [`benchmark-route:sha256:${record.evidenceSha256}`],
-      }];
-    });
+    const responses = powerhouseResponsesFromCheckpoint(checkpoint);
     return {
       checkpoint,
       responses,

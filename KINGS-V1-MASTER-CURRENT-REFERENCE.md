@@ -171,6 +171,14 @@ These additions directly address the locked requirement for extensible programmi
 - `evaluate:powerhouse:live` preflights all seven-domain capabilities, requires the existing owner token before any provider request, executes configured OmniRoute/9Router/Ollama adapters, and produces a qualification-ready evidence artifact without exposing private prompts or raw outputs in that artifact.
 - Subjective rubric tasks remain failed until a distinct authorized reviewer attaches evidence; the evaluated model cannot self-approve. No current model is claimed qualified merely because this execution path now exists.
 
+**Owner-authorized rubric review — current checkpoint**
+- `authorizePowerhouseRubricReviews` binds an approved human score to the exact run, manifest hash, provider, model, task, rubric, evidence SHA-256, and model-output SHA-256 using an owner-token HMAC.
+- `applyAuthorizedPowerhouseRubricReviews` verifies artifact integrity, checkpoint integrity, output identity, and authorization in constant time before attaching review evidence to model responses.
+- Wrong owner tokens, modified review artifacts, changed outputs, duplicate reviews, model self-review, failed model tasks, and attempts to review deterministic tasks fail closed.
+- Owner authorization proves approval but does not override rubric thresholds; below-threshold or missing reviews remain benchmark failures.
+- `review:powerhouse` performs the complete private file workflow under the execution checkpoint lock, writes owner-only signed-review/evidence artifacts, and makes zero additional provider requests.
+- Review evidence and held-out tasks cannot become corrective training examples. Only new rights-cleared, source-disjoint material may train a revised candidate, which must receive a new immutable evaluation run.
+
 **Real local model availability — verified working capability**
 - Ollama `0.32.6` is installed and running on the Chromebook.
 - `qwen2.5-coder:0.5b` was pulled successfully.

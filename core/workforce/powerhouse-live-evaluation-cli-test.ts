@@ -8,6 +8,7 @@ import type { PowerhouseBenchmarkManifest } from "./powerhouse-benchmark-runner"
 import { listPowerhouseServiceDomains } from "./powerhouse-service-domain";
 import { runLivePowerhouseEvaluation } from "../../runtimes/powerhouse-evaluation/live-cli";
 import { FilePowerhouseBenchmarkCheckpointStore } from "../../runtimes/powerhouse-evaluation/file-checkpoint-store";
+import { runPowerhouseRubricReview } from "../../runtimes/powerhouse-evaluation/review-cli";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`ASSERTION FAILED: ${message}`);
@@ -35,6 +36,7 @@ function manifest(): PowerhouseBenchmarkManifest {
     });
     for (let index = 1; index <= 20; index += 1) {
       const taskId = `${profile.id}-live-${index}`;
+      const rubricTask = profile.id === "storytelling" && index === 1;
       items.push({
         id: taskId,
         domain: profile.id,
@@ -51,10 +53,16 @@ function manifest(): PowerhouseBenchmarkManifest {
           trainingAllowed: false,
           evaluationAllowed: true,
         },
-        scoring: {
-          kind: "deterministic",
-          requiredSubstrings: [`pass-${taskId}`],
-        },
+        scoring: rubricTask
+          ? {
+              kind: "attested-rubric",
+              rubricId: "storytelling-live-quality-v1",
+              minimumScore: 85,
+            }
+          : {
+              kind: "deterministic",
+              requiredSubstrings: [`pass-${taskId}`],
+            },
       });
     }
   }
@@ -107,6 +115,9 @@ async function main(): Promise<void> {
     const manifestPath = join(directory, "manifest.json");
     const checkpointPath = join(directory, "checkpoint.json");
     const outputPath = join(directory, "evidence.json");
+    const draftReviewsPath = join(directory, "draft-reviews.json");
+    const signedReviewsPath = join(directory, "signed-reviews.json");
+    const reviewedOutputPath = join(directory, "reviewed-evidence.json");
     await writeFile(manifestPath, JSON.stringify(manifest()), { encoding: "utf8", mode: 0o600 });
     const options = {
       manifestPath,
@@ -141,12 +152,12 @@ async function main(): Promise<void> {
     const artifact = await runLivePowerhouseEvaluation(options, env);
     assert(requests === 140, "Live CLI must execute every held-out task exactly once.");
     assert(
-      artifact.benchmarkRun.domainBenchmarks.every((result) => result.passedTasks === 20),
-      "Live provider responses must feed all seven domain evaluations.",
+      artifact.benchmarkRun.domainBenchmarks.find((result) => result.domain === "storytelling")?.passedTasks === 19,
+      "Subjective live output must remain failed before authorized review.",
     );
     assert(
-      artifact.benchmarkRun.domainBenchmarks.every((result) => result.criticalFailures === 0),
-      "Passing live provider run must not invent critical failures.",
+      artifact.benchmarkRun.domainBenchmarks.find((result) => result.domain === "storytelling")?.criticalFailures === 1,
+      "Missing critical rubric review must remain explicit.",
     );
     const persisted = await readFile(outputPath, "utf8");
     const checkpoint = await readFile(checkpointPath, "utf8");
@@ -157,6 +168,38 @@ async function main(): Promise<void> {
     if (process.platform !== "win32") {
       assert(((await stat(checkpointPath)).mode & 0o777) === 0o600, "Checkpoint must be owner-readable only.");
       assert(((await stat(outputPath)).mode & 0o777) === 0o600, "Evidence artifact must be owner-readable only.");
+    }
+
+    await writeFile(draftReviewsPath, JSON.stringify([{
+      taskId: "storytelling-live-1",
+      score: 92,
+      evaluatorId: "owner-approved-story-reviewer-001",
+      evidenceReference: "review-record:live-storytelling:001",
+      evidenceSha256: "7".repeat(64),
+      reviewedAt: "2026-10-28T18:15:00.000Z",
+    }]), { encoding: "utf8", mode: 0o600 });
+    const reviewedArtifact = await runPowerhouseRubricReview({
+      manifestPath,
+      checkpointPath,
+      draftReviewsPath,
+      signedReviewsPath,
+      outputPath: reviewedOutputPath,
+      signedAt: "2026-10-28T18:20:00.000Z",
+      evaluatedAt: "2026-10-28T18:30:00.000Z",
+    }, env);
+    assert(requests === 140, "Rubric review must not rerun the model provider.");
+    assert(
+      reviewedArtifact.benchmarkRun.domainBenchmarks.every((result) => result.passedTasks === 20),
+      "Authorized review must complete the seven-domain benchmark.",
+    );
+    const signedReviews = await readFile(signedReviewsPath, "utf8");
+    assert(!signedReviews.includes(env.KINGS_CODING_MACHINE_TOKEN), "Signed reviews must not contain the owner token.");
+    assert(!signedReviews.includes("Private live prompt"), "Signed reviews must not contain private prompts.");
+    assert(!signedReviews.includes("pass-storytelling"), "Signed reviews must not contain raw model output.");
+    assert(signedReviews.includes("authorizationHmacSha256"), "Signed reviews must preserve owner HMAC evidence.");
+    if (process.platform !== "win32") {
+      assert(((await stat(signedReviewsPath)).mode & 0o777) === 0o600, "Signed reviews must be owner-readable only.");
+      assert(((await stat(reviewedOutputPath)).mode & 0o777) === 0o600, "Reviewed evidence must be owner-readable only.");
     }
 
     const beforeResume = requests;

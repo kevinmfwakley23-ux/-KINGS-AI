@@ -75,6 +75,17 @@ existing owner token is configured and the target declares all seven-domain
 capabilities. Actual private corpus execution and independent rubric review
 remain required before production or top-tier promotion.
 
+Subjective evaluation now has an owner-authorized review path.
+`review:powerhouse` locks the execution checkpoint, binds each rubric review to
+the exact model-output hash and immutable run identity, and authorizes it with
+an HMAC derived from the existing owner token. Wrong tokens, altered outputs,
+changed scores/evidence, duplicate reviews, model self-review, and attempts to
+override deterministic tasks fail closed. Missing and below-threshold reviews
+remain failures. Review produces owner-only signed-review and refreshed
+evidence artifacts without another model request. Held-out prompts and review
+answers remain prohibited from corrective training; improvements require new,
+rights-cleared, split-disjoint examples and a new model/run identity.
+
 ## Powerhouse service-domain routing
 
 The authenticated Responses API supports seven explicit service contracts:

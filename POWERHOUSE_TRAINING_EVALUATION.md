@@ -88,6 +88,42 @@ Rubric-scored creative or editorial tasks remain failed until a distinct,
 authorized reviewer supplies the required attestation. Live model execution
 does not allow the evaluated model to approve its own subjective work.
 
+## Owner-authorized rubric review
+
+An approved reviewer records only the rubric task id, score, reviewer id,
+review-evidence reference and SHA-256, and review time in a private draft file.
+The owner then authorizes and applies those reviews without rerunning the model:
+
+```bash
+npm run review:powerhouse -- \
+  --manifest ./.kings/powerhouse-evaluation/manifest.json \
+  --checkpoint ./.kings/powerhouse-evaluation/run-001-checkpoint.json \
+  --draft-reviews ./.kings/powerhouse-evaluation/run-001-review-drafts.json \
+  --signed-reviews ./.kings/powerhouse-evaluation/run-001-signed-reviews.json \
+  --output ./.kings/powerhouse-evaluation/run-001-reviewed-evidence.json \
+  --signed-at 2026-10-28T20:30:00.000Z \
+  --evaluated-at 2026-10-28T20:35:00.000Z
+```
+
+The existing `KINGS_CODING_MACHINE_TOKEN` signs each review with HMAC-SHA-256.
+Authorization covers the immutable run identity, benchmark and manifest hashes,
+provider, model, task, rubric, score, evaluator, evidence hash, review time, and
+the exact model-output SHA-256. The token itself is never persisted. A changed
+score, reviewer, evidence record, model output, checkpoint, or owner token
+invalidates authorization.
+
+Only successful `attested-rubric` tasks can be reviewed. The evaluated model
+cannot be its own evaluator, deterministic answers cannot be overridden by a
+human review, and owner authorization cannot convert a below-threshold score
+into a pass. Missing reviews remain failures. Signed review and reviewed
+evidence files are written atomically with owner-only permissions, while the
+checkpoint process lock prevents review from racing active model execution.
+
+Review results must not be copied into the held-out model's training data.
+Failures may guide domain-level improvement, but corrective examples must be
+new rights-cleared material with source groups and prompts disjoint from every
+held-out item. A new model build must be tested under a new immutable run id.
+
 ## Corpus item contract
 
 Each item declares:
