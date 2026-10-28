@@ -29,7 +29,7 @@ export interface PowerhouseEvaluationArtifact {
   benchmarkRun: ReturnType<PowerhouseBenchmarkRunner["run"]>;
 }
 
-async function readJsonFile(path: string, label: string): Promise<unknown> {
+export async function readPowerhouseJsonFile(path: string, label: string): Promise<unknown> {
   const metadata = await stat(path);
   if (!metadata.isFile()) throw new Error(`${label} must be a regular file`);
   if (metadata.size > MAX_INPUT_BYTES) throw new Error(`${label} exceeds ${MAX_INPUT_BYTES} bytes`);
@@ -38,6 +38,49 @@ async function readJsonFile(path: string, label: string): Promise<unknown> {
     return JSON.parse(content) as unknown;
   } catch (error) {
     throw new Error(`${label} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+export function createPowerhouseEvaluationArtifact(
+  modelId: string,
+  evaluatedAt: string,
+  manifest: PowerhouseBenchmarkManifest,
+  responses: PowerhouseBenchmarkResponse[],
+): PowerhouseEvaluationArtifact {
+  const benchmarkRun = new PowerhouseBenchmarkRunner().run({
+    modelId,
+    evaluatedAt,
+    manifest,
+    responses,
+  });
+  return {
+    schemaVersion: "1",
+    generatedAt: evaluatedAt,
+    qualificationReport: {
+      modelId,
+      submittedAt: evaluatedAt,
+      domainBenchmarks: benchmarkRun.domainBenchmarks,
+    },
+    benchmarkRun,
+  };
+}
+
+export async function writePowerhouseEvaluationArtifact(
+  outputPathValue: string,
+  artifact: PowerhouseEvaluationArtifact,
+): Promise<void> {
+  const outputPath = resolve(outputPathValue);
+  const temporaryPath = `${outputPath}.tmp-${process.pid}-${randomUUID()}`;
+  try {
+    await writeFile(temporaryPath, `${JSON.stringify(artifact, null, 2)}\n`, {
+      encoding: "utf8",
+      flag: "wx",
+      mode: 0o600,
+    });
+    await rename(temporaryPath, outputPath);
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => undefined);
+    throw error;
   }
 }
 
@@ -51,34 +94,16 @@ export async function runPowerhouseEvaluationFiles(
     throw new Error("Output path must not overwrite an input file");
   }
 
-  const manifest = await readJsonFile(manifestPath, "Benchmark manifest") as PowerhouseBenchmarkManifest;
-  const responsesValue = await readJsonFile(responsesPath, "Benchmark responses");
+  const manifest = await readPowerhouseJsonFile(manifestPath, "Benchmark manifest") as PowerhouseBenchmarkManifest;
+  const responsesValue = await readPowerhouseJsonFile(responsesPath, "Benchmark responses");
   if (!Array.isArray(responsesValue)) throw new Error("Benchmark responses must be a JSON array");
-  const benchmarkRun = new PowerhouseBenchmarkRunner().run({
-    modelId: options.modelId,
-    evaluatedAt: options.evaluatedAt,
+  const artifact = createPowerhouseEvaluationArtifact(
+    options.modelId,
+    options.evaluatedAt,
     manifest,
-    responses: responsesValue as PowerhouseBenchmarkResponse[],
-  });
-  const artifact: PowerhouseEvaluationArtifact = {
-    schemaVersion: "1",
-    generatedAt: options.evaluatedAt,
-    qualificationReport: {
-      modelId: options.modelId,
-      submittedAt: options.evaluatedAt,
-      domainBenchmarks: benchmarkRun.domainBenchmarks,
-    },
-    benchmarkRun,
-  };
-
-  const temporaryPath = `${outputPath}.tmp-${process.pid}-${randomUUID()}`;
-  try {
-    await writeFile(temporaryPath, `${JSON.stringify(artifact, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
-    await rename(temporaryPath, outputPath);
-  } catch (error) {
-    await unlink(temporaryPath).catch(() => undefined);
-    throw error;
-  }
+    responsesValue as PowerhouseBenchmarkResponse[],
+  );
+  await writePowerhouseEvaluationArtifact(outputPath, artifact);
   return artifact;
 }
 

@@ -163,6 +163,14 @@ These additions directly address the locked requirement for extensible programmi
 - Manifest, complete run, output, and per-domain hashes preserve reproducible evidence without embedding raw model output in the resulting artifact.
 - The `evaluate:powerhouse` CLI consumes private JSON manifests/responses and atomically writes a report that can feed `PowerhouseQualificationAuthority`. The repository does not ship invented production results or claim that a candidate has passed before real data is executed.
 
+**Provider-connected benchmark execution — current checkpoint**
+- `PowerhouseBenchmarkExecutor` routes every private held-out prompt through the existing `AppAiRouter` and the matching server-owned service-domain policy; it does not introduce a parallel model stack.
+- Each run locks an exact provider and model, disables model fallback and tool proposals, uses bounded retry only for retryable failures, and records terminal provider failures as unanswered benchmark tasks.
+- Atomic owner-only checkpoints store hashed route evidence, usage, response/failure state, and immutable run identity. Restart resumes missing tasks only; completed success and failure records are not selectively rerun.
+- Checkpoint evidence is re-hashed on load, altered records fail closed, and a process lock prevents concurrent writers from corrupting one run.
+- `evaluate:powerhouse:live` preflights all seven-domain capabilities, requires the existing owner token before any provider request, executes configured OmniRoute/9Router/Ollama adapters, and produces a qualification-ready evidence artifact without exposing private prompts or raw outputs in that artifact.
+- Subjective rubric tasks remain failed until a distinct authorized reviewer attaches evidence; the evaluated model cannot self-approve. No current model is claimed qualified merely because this execution path now exists.
+
 **Real local model availability — verified working capability**
 - Ollama `0.32.6` is installed and running on the Chromebook.
 - `qwen2.5-coder:0.5b` was pulled successfully.

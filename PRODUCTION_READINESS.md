@@ -63,6 +63,18 @@ atomically. No production corpus or passing model result is fabricated in the
 repository; owner-approved rights-cleared data and real model responses remain
 a deployment prerequisite.
 
+Provider-connected benchmark execution is now available through
+`evaluate:powerhouse:live`. It reuses the production `AppAiRouter`, locks one
+configured provider and exact model for the entire run, applies every
+server-owned domain policy, disables tool proposals, bounds retryable failures,
+and records terminal failures as missing benchmark answers. Atomic owner-only
+checkpoints resume only unfinished tasks and reject altered evidence; completed
+failures cannot be selectively rerun. A process lock prevents concurrent runs
+from corrupting the same checkpoint. Live execution fails closed unless the
+existing owner token is configured and the target declares all seven-domain
+capabilities. Actual private corpus execution and independent rubric review
+remain required before production or top-tier promotion.
+
 ## Powerhouse service-domain routing
 
 The authenticated Responses API supports seven explicit service contracts:

@@ -36,17 +36,57 @@ Build the repository, then run:
 
 ```bash
 npm run evaluate:powerhouse -- \
-  --manifest ./private-evaluation/manifest.json \
-  --responses ./private-evaluation/responses.json \
+  --manifest ./.kings/powerhouse-evaluation/manifest.json \
+  --responses ./.kings/powerhouse-evaluation/responses.json \
   --model kings-candidate-001 \
-  --evaluated-at 2026-10-24T20:00:00.000Z \
-  --output ./private-evaluation/evidence.json
+  --evaluated-at 2026-10-28T20:00:00.000Z \
+  --output ./.kings/powerhouse-evaluation/evidence.json
 ```
 
 The CLI limits each input file to 32 MiB, refuses to overwrite either input,
 writes the artifact atomically, and returns a compact summary on standard
 output. Keep private held-out tasks and model responses out of the public
 repository.
+
+## Provider-connected execution
+
+After configuring an exact provider/model in the normal K.I.N.G.S. environment,
+the live executor can run every held-out task and produce the same evidence
+artifact without a manually assembled response file:
+
+```bash
+npm run evaluate:powerhouse:live -- \
+  --manifest ./.kings/powerhouse-evaluation/manifest.json \
+  --checkpoint ./.kings/powerhouse-evaluation/run-001-checkpoint.json \
+  --output ./.kings/powerhouse-evaluation/run-001-evidence.json \
+  --run-id run-001 \
+  --provider omniroute \
+  --model exact-model-id \
+  --evaluated-at 2026-10-28T20:00:00.000Z \
+  --concurrency 1 \
+  --max-attempts 2 \
+  --retry-delay-ms 1000 \
+  --max-output-tokens 2048 \
+  --temperature 0
+```
+
+Live execution requires the existing `KINGS_CODING_MACHINE_TOKEN` to be
+configured with at least 24 characters. The token is never written to the
+checkpoint, evidence artifact, logs, or command arguments. The provider and
+model are locked for the entire run; fallback to another model is forbidden.
+The CLI verifies that the selected model declares every capability needed by
+the seven domains before spending a provider request.
+
+Execution checkpoints are atomic, owner-readable only, and protected by a
+single-process lock. Each task stores provider attempts, usage, terminal
+failure or raw response, and a tamper-evident SHA-256 identity. Restarting the
+same run resumes only missing tasks. Completed successes and failures are not
+rerun, preventing selective retry from inflating a benchmark score. The final
+evidence artifact excludes raw private prompts and outputs.
+
+Rubric-scored creative or editorial tasks remain failed until a distinct,
+authorized reviewer supplies the required attestation. Live model execution
+does not allow the evaluated model to approve its own subjective work.
 
 ## Corpus item contract
 
@@ -71,4 +111,5 @@ fake passing production corpus, fabricate rights evidence, or claim that a
 candidate has been trained or qualified. Real owner-approved, rights-cleared
 training data and private held-out tasks must be assembled, executed against a
 specific model build, and reviewed before the qualification authority can
-promote that model.
+promote that model. The live executor makes that real run possible; it does not
+create the private corpus or declare the current candidate qualified.

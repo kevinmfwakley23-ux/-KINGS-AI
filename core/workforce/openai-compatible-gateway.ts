@@ -163,7 +163,7 @@ export class OpenAICompatibleGatewayAdapter implements ProviderAdapter {
         capabilities: model.capabilities ?? [
           "reasoning", "planning", "coding", "debugging", "research",
           "web-learning", "source-inspection", "tool-use", "structured-output",
-          "long-context", "verification", "recovery",
+          "long-context", "memory", "verification", "recovery",
         ],
         inputModalities: ["text"],
         outputModalities: ["text"],

@@ -13,6 +13,7 @@
     "accept:local-debug-repair": "npm run build && node build/core/workforce/v1-acceptance-010-local-debug-repair-mission-test.js",
     "test:knowledge": "python3 runtimes/knowledge-retrieval/retriever-test.py",
     "evaluate:powerhouse": "npm run build && node build/runtimes/powerhouse-evaluation/cli.js",
+    "evaluate:powerhouse:live": "npm run build && node build/runtimes/powerhouse-evaluation/live-cli.js",
     "start": "npm run build && node ui/project-owner/server.mjs",
     "start:router": "npm run build && node build/runtimes/app-router/server.js",
     "platform:check": "node development/platform-check.mjs",
