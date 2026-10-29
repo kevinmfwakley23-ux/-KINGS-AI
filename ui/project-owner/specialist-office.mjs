@@ -66,6 +66,13 @@ export const specialistModes = Object.freeze(
   }))
 );
 
+/** Return the same owner-independent domain policy used for live conversations. */
+export function specialistSystemPolicy(mode) {
+  const domain = Object.hasOwn(MODE_DEFINITIONS, mode) ? MODE_DEFINITIONS[mode] : null;
+  if (!domain) throw invalid("INVALID_MODE", "Unknown specialist training domain");
+  return GLOBAL_POLICY + " " + domain.policy;
+}
+
 export class PowerhouseSpecialistOffice {
   constructor(router) {
     if (!router || typeof router.route !== "function") {
@@ -111,7 +118,7 @@ export class PowerhouseSpecialistOffice {
     // or invented cross-session persistence is implied.
     const answer = await this.router.route({
       appId: "kings.powerhouse",
-      messages: [{ role: "system", content: GLOBAL_POLICY + " " + mode.policy }, ...messages],
+      messages: [{ role: "system", content: specialistSystemPolicy(input.mode) }, ...messages],
       requiredCapabilities: mode.capabilities,
       maxOutputTokens: input.mode === "engineering" || input.mode === "storytelling" ? 3600 : 2400,
       temperature: input.mode === "storytelling" ? 0.65 : 0.25,
