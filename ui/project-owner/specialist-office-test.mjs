@@ -115,3 +115,25 @@ test("limits oversized conversations and preserves response attribution", async 
   assert.equal(a.evidence.usage.outputTokens,71);
   assert.equal(a.evidence.attemptedProviders[0].providerId,"omniroute");
 });
+
+
+test("prevents unbounded model concurrency without losing in-flight cleanup", async () => {
+  let release;
+  const pending=new Promise(done=>{release=done});
+  let entered=0;
+  const office=new PowerhouseSpecialistOffice({route:async()=>{entered++;await pending;return success}});
+  const p1=office.respond(request()),p2=office.respond(request());
+  await assert.rejects(office.respond(request()),{code:"SPECIALIST_BUSY",statusCode:429});
+  assert.equal(entered,2);
+  release();
+  await Promise.all([p1,p2]);
+  assert.equal(office.inFlight,0);
+});
+
+test("enforces an owner-console-wide requests-per-minute bound", async () => {
+  const fake=fakeRouter(async()=>success);
+  const office=new PowerhouseSpecialistOffice(fake.router);
+  for(let i=0;i<30;i++)await office.respond(request());
+  await assert.rejects(office.respond(request()),{code:"SPECIALIST_RATE_LIMIT",statusCode:429});
+  assert.equal(fake.calls.length,30);
+});
