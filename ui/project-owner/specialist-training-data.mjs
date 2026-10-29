@@ -89,6 +89,10 @@ export function buildSpecialistTrainingExport(examples,{validationFraction=0.2}=
       countsByOffice:totals,
       trainIds:train.map(item=>item.id),
       validationIds:validation.map(item=>item.id),
+      reviewProvenance:items.map(item=>({
+        id:item.id,office:item.mode,source:item.source,reviewedAt:item.reviewedAt,
+        promptSha256:item.fingerprint
+      })),
       trainSha256:createHash("sha256").update(jsonl(train)).digest("hex"),
       validationSha256:createHash("sha256").update(jsonl(validation)).digest("hex"),
       ownerReviewRequired:true,
