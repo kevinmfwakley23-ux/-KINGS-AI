@@ -123,6 +123,17 @@ async function assertLoopbackRemainsLocalAndUsable() {
     const body = await response.json();
     assert.equal(body.ok, true);
 
+    const commandPage = await fetch(`${base}/command-center`);
+    assert.equal(commandPage.status, 200, "owner command center should load on loopback");
+    assert.match(await commandPage.text(), /K\.I\.N\.G\.S\. AI POWERHOUSE/);
+    const commandState = await fetch(`${base}/api/command-center`);
+    assert.equal(commandState.status, 200);
+    const commandBody = await commandState.json();
+    assert.equal(commandBody.source, "live-owner-runtime");
+    assert.equal(commandBody.totals.missions, 0, "no synthetic missions should be seeded");
+    assert.equal(commandBody.totals.runningTasks, 0, "no phantom agents should be marked running");
+    assert.equal(commandBody.offices.find((o) => o.id === "publishing").integration, "not-yet-connected");
+
     const engineering = await fetch(`${base}/api/engineering`, { cache: "no-store" });
     assert.equal(engineering.status, 200, "loopback owner must be able to inspect the fixed engineering control surface");
     const engineeringBody = await engineering.json();
@@ -319,6 +330,13 @@ async function assertRemoteAuthenticationLifecycle() {
     });
     assert.equal(anonymousMissionCreate.status, 401, "anonymous callers must never create owner missions");
 
+    const anonymousCommandPage = await fetch(`${base}/command-center`);
+    assert.equal(anonymousCommandPage.status, 401, "remote command center HTML must remain owner-only");
+    const anonymousCommandState = await fetch(`${base}/api/command-center`);
+    assert.equal(anonymousCommandState.status, 401, "runtime summaries must not bypass owner authentication");
+    const anonymousGitHub = await fetch(`${base}/api/command-center/github`);
+    assert.equal(anonymousGitHub.status, 401, "GitHub data must not bypass owner authentication");
+
     const anonymousEngineering = await fetch(`${base}/api/engineering`, { cache: "no-store" });
     assert.equal(anonymousEngineering.status, 401, "remote engineering state must be private to authenticated owner sessions");
 
@@ -353,6 +371,12 @@ async function assertRemoteAuthenticationLifecycle() {
       headers: { authorization: `Bearer ${token}` },
     });
     assert.equal(bearer.status, 200, "non-browser clients must be able to use the owner bearer token");
+
+    const authenticatedCommand = await fetch(`${base}/api/command-center`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(authenticatedCommand.status, 200, "authorized owner must access real command center");
+    assert.equal((await authenticatedCommand.json()).source, "live-owner-runtime");
 
     const authenticatedMissions = await fetch(`${base}/api/missions`, {
       cache: "no-store",
