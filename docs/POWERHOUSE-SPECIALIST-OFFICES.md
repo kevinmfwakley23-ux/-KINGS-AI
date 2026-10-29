@@ -13,6 +13,7 @@ This feature belongs INSIDE the existing `kevinmfwakley23-ux/-KINGS-AI` POWERHOU
 - `/collectibles`: the separate real photographic assessment workflow from the stacked Collectibles Intelligence implementation.
 - No specialist chat response runs shell commands, mutates files, authenticates collectibles, publishes books, or changes the repository. Real engineering writes still require the existing owner-governed mission execution workflow.
 - No provider is hardcoded as successful. If router/provider is absent or fails, API returns a real failure instead of a synthetic answer.
+- Server-side backpressure limits specialist inference to two concurrent calls and 30 calls per rolling minute per owner-console process; excess requests return HTTP 429 without making provider calls. These are console-wide limits, not a substitute for per-user permissions or token/cost budgets.
 - Chat history stays in the browser tab. Persistent cross-session conversation memory has NOT been added; the existing durable Project Brain and memory architecture must be used when that feature is implemented.
 
 ### Local launch (after branch checkout and successful build)
