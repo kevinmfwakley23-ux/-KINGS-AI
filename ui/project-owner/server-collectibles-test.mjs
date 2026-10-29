@@ -117,6 +117,20 @@ async function main() {
     });
     assert.equal(unconfirmed.status, 400);
     assert.equal(requests, 0, "Missing owner confirmation must not invoke any model");
+    const blockedUnauthenticatedSubmit = await fetch(base + "/api/collectibles/assess", {
+      method: "POST", headers: { "content-type": "application/json",
+        "x-kings-owner-action": "assess-collectible" }, body: JSON.stringify(payload),
+    });
+    assert.equal(blockedUnauthenticatedSubmit.status, 401, "No unauthorized assessment request may reach the provider");
+    assert.equal(requests, 0);
+    const spoofedImage = await fetch(base + "/api/collectibles/assess", {
+      method: "POST", headers: { ...headers, "content-type": "application/json",
+        "x-kings-owner-action": "assess-collectible" },
+      body: JSON.stringify({ ...payload, photos: [{ filename: "fake.jpg",
+        mimeType: "image/jpeg", base64: picture }] }),
+    });
+    assert.equal(spoofedImage.status, 415, "Image magic bytes must match declared MIME type");
+    assert.equal(requests, 0, "Spoofed images may not reach the vision provider");
     const confirmed = await fetch(base + "/api/collectibles/assess", {
       method: "POST", headers: { ...headers, "content-type": "application/json",
         "x-kings-owner-action": "assess-collectible" },
