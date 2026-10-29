@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>K.I.N.G.S. AI POWERHOUSE • Specialist Offices</title>
+<link rel="icon" type="image/png" href="/assets/kings-ai-official-logo.png">
+<style>
+:root{color-scheme:dark;font-family:Inter,system-ui,sans-serif;font-size:15px;background:#09111f;color:#e9edf6;--gold:#e5bb69;--line:#344862;--muted:#a2b5cc;--panel:#14243a}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 80% 0%,#203757,#09111f 65%)}
+main{max-width:1300px;margin:0 auto;padding:18px 14px 35px}
+header{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.brand{display:flex;align-items:center;gap:12px}.brand img{width:58px;height:58px;object-fit:contain;border-radius:12px}
+.eyebrow{font-size:.7rem;letter-spacing:.14em;color:var(--gold);font-weight:800}h1{font-family:Georgia,serif;font-size:clamp(1.4rem,3vw,2rem);margin:3px 0}
+a{color:#f0cd88}.muted{color:var(--muted)}.small{font-size:.83rem}
+.workspace{display:grid;grid-template-columns:285px minmax(0,1fr);gap:15px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:16px;min-width:0}
+nav{display:grid;gap:8px;align-content:start}
+button{font:inherit;font-weight:700;cursor:pointer;border-radius:9px;padding:10px 12px;background:#293e59;color:#e6edf8;border:1px solid #4b617e}
+button:hover:not(:disabled){filter:brightness(1.15)}button:disabled{opacity:.53;cursor:not-allowed}
+button.primary{background:linear-gradient(110deg,#f2d184,#b8883c);border-color:#bc8c47;color:#231907}
+.mode{text-align:left;display:grid;gap:3px;background:#1a2d46;border-color:#304862}
+.mode[aria-pressed=true]{background:#3a3427;border-color:#d7ae5e}
+.mode strong{font-size:.89rem}.mode span{font-size:.74rem;color:#a4bad3;font-weight:400}
+.chat{display:flex;flex-direction:column;min-height:70vh}
+.chat-head{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+h2{font:700 1.3rem Georgia,serif;margin:0 0 3px}.activity{display:grid;gap:12px;flex:1;align-content:start;margin:18px 0;max-height:65vh;overflow:auto;min-height:270px}
+.bubble{border:1px solid #334c67;background:#0d1c30;border-radius:13px;padding:13px 15px;line-height:1.5;max-width:94%;overflow-wrap:anywhere}
+.bubble.user{justify-self:end;background:#2b342c;border-color:#706340}
+.bubble .tag{font-size:.65rem;color:var(--gold);font-weight:800;letter-spacing:.1em;margin-bottom:7px}
+.bubble pre{white-space:pre-wrap;word-break:break-word;font:inherit;margin:0}
+.bubble .meta{font-size:.73rem;color:#a1b3c7;margin-top:9px}
+form{border-top:1px solid #354960;padding-top:12px}textarea{resize:vertical;min-height:92px;max-height:35vh;width:100%;font:inherit;line-height:1.5;background:#071324;color:#edf2fb;border:1px solid #506783;border-radius:10px;padding:12px}
+.controls{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px}
+.error{color:#ffb6aa}.ok{color:#94e2b3}.status{font-size:.78rem;color:#aabbd0}
+#context{font-size:.81rem;color:#acbed5;margin-top:6px}
+.empty{color:#c5d1e3;border:1px dashed #546781;border-radius:12px;padding:19px;max-width:600px}
+.badge{border:1px solid #917849;color:#f0cf88;padding:5px 9px;border-radius:24px;font-size:.73rem}
+@media(max-width:760px){.workspace{grid-template-columns:1fr}.chat{min-height:70vh}.activity{max-height:55vh}nav{grid-template-columns:repeat(2,minmax(0,1fr))}.mode{padding:9px}.brand img{width:47px;height:47px}}
+@media(max-width:420px){main{padding:10px 8px 25px}nav{grid-template-columns:1fr 1fr}.mode span{display:none}.panel{padding:12px}}
+</style></head>
+<body><main>
+<header><div class="brand"><img src="/assets/kings-ai-official-logo.png" alt="K.I.N.G.S. crest"><div><div class="eyebrow">KNOWLEDGE • INVESTIGATION • NARRATIVE • GENERATION • SYSTEM</div><h1>POWERHOUSE Specialist Offices</h1><div class="small muted">Live routed responses • Owner-authorized • No simulated answers</div></div></div>
+<div><span class="badge">K.I.N.G.S. AI</span> <a href="/">Mission Control</a> · <a href="/collectibles">Photo Grading</a></div></header>
+<section class="workspace">
+<aside class="panel"><div class="eyebrow" style="margin-bottom:12px">CHOOSE AN OFFICE</div><nav id="modes" aria-label="Specialist offices"></nav>
+<p class="small muted">Every response comes from the configured K.I.N.G.S. model routing system. Office switching starts a fresh conversation; messages are not saved on the server by this interface.</p>
+<p class="small muted">Coding suggestions cannot write repository files from this chat. Use the governed owner Mission Control workflow to authorize real changes.</p></aside>
+<section class="panel chat" aria-label="Specialist conversation">
+<div class="chat-head"><div><div class="eyebrow">ACTIVE SPECIALIST</div><h2 id="title">AI Chat</h2><div id="description" class="small muted">Loading offices…</div></div><button id="clear" type="button">New Conversation</button></div>
+<div class="activity" id="activity" role="log" aria-live="polite" aria-label="Conversation"></div>
+<form id="chat-form"><label for="message" class="eyebrow">MESSAGE</label><textarea id="message" placeholder="Write your request, paste manuscript excerpts, or describe what you want to build…" maxlength="12000" required></textarea>
+<div class="controls"><div class="status" id="status" role="status" aria-live="polite">Connects to your configured model; no provider is assumed available.</div>
+<button id="send" type="submit" class="primary">Send to K.I.N.G.S.</button></div></form>
+</section></section></main>
+<script>
+const el=id=>document.getElementById(id);
+const history=[], officeLog=[];
+let mode="chat",busy=false;
+function element(tag,className,text){const e=document.createElement(tag);if(className)e.className=className;if(text!==undefined)e.textContent=text;return e}
+function status(message,isError=false){const e=el("status");e.textContent=message;e.className=isError?"status error":"status"}
+function append(role,content,meta){
+  const area=el("activity");const bubble=element("div","bubble "+(role==="user"?"user":""));
+  bubble.append(element("div","tag",role==="user"?"YOU":"K.I.N.G.S. POWERHOUSE"));
+  bubble.append(element("pre","",content));
+  if(meta)bubble.append(element("div","meta",meta));
+  area.append(bubble);area.scrollTop=area.scrollHeight;
+}
+function reset(){history.length=0;el("activity").replaceChildren();el("activity").append(element("div","empty",
+  "Ask a question to start. This office sends your request to a REAL configured model; unavailable providers return an error instead of a fake answer."));status("Conversation cleared (session only).")}
+function select(id){
+  const item=officeLog.find(o=>o.id===id);if(!item||busy)return;
+  mode=id;el("title").textContent=item.label;el("description").textContent=item.description;
+  for(const button of el("modes").querySelectorAll("button"))button.setAttribute("aria-pressed",String(button.dataset.mode===id));
+  el("message").value="";reset();el("message").focus();
+}
+async function api(path,options={}){const result=await fetch(path,{cache:"no-store",...options});let data;
+  try{data=await result.json()}catch{throw Error("Invalid API response (HTTP "+result.status+")")}
+  if(!result.ok)throw Error(data.message||"Request failed: HTTP "+result.status);return data}
+async function load(){try{const data=await api("/api/specialists");officeLog.push(...data.modes);
+  for(const office of officeLog){const b=element("button","mode");b.type="button";b.dataset.mode=office.id;
+    b.append(element("strong","",office.label),element("span","",office.description));b.addEventListener("click",()=>select(office.id));el("modes").append(b)}
+  select("chat");
+}catch(error){status(error.message,true)}}
+el("clear").addEventListener("click",()=>{if(!busy)reset()});
+el("chat-form").addEventListener("submit",async event=>{event.preventDefault();if(busy)return;
+  const message=el("message").value.trim();if(!message)return;
+  const previous=[...history];history.push({role:"user",content:message});
+  if(history.length>24)history.splice(0,history.length-24);
+  if(el("activity").querySelector(".empty"))el("activity").replaceChildren();
+  append("user",message);el("message").value="";busy=true;el("send").disabled=true;
+  status("Contacting the K.I.N.G.S. model router…");
+  try{const output=await api("/api/specialists/chat",{method:"POST",
+    headers:{"content-type":"application/json","x-kings-owner-action":"chat-specialist"},
+    body:JSON.stringify({mode,messages:history})});
+    history.push({role:"assistant",content:output.result.response});
+    const e=output.result.evidence;
+    append("assistant",output.result.response,"Provider: "+e.providerId+" • Model: "+e.modelId+" • "+e.completedAt);
+    status("Routed response received. Actions taken: none.");
+  }catch(error){
+    history.splice(0,history.length,...previous);append("assistant","Request failed: "+error.message,"No result was accepted");
+    status(error.message,true);
+  }finally{busy=false;el("send").disabled=false;el("message").focus()}
+});
+el("message").addEventListener("keydown",event=>{if(event.key==="Enter"&&(event.ctrlKey||event.metaKey)){event.preventDefault();el("chat-form").requestSubmit()}});
+load();
+</script></body></html>
