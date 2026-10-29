@@ -79,6 +79,11 @@ export class PowerhouseSpecialistOffice {
       throw new TypeError("A governed K.I.N.G.S. model router is required");
     }
     this.router = router;
+    this.inFlight = 0;
+    this.requestTimes = [];
+    // Owner-console-wide backpressure. Per-user budgets remain a later gate.
+    this.maxConcurrent = 2;
+    this.maxPerMinute = 30;
   }
 
   async respond(input) {
@@ -116,14 +121,29 @@ export class PowerhouseSpecialistOffice {
     }
     // Role/state remains in client-visible conversation; no hidden model memory
     // or invented cross-session persistence is implied.
-    const answer = await this.router.route({
+    const now = Date.now();
+    this.requestTimes = this.requestTimes.filter(time => now - time < 60000);
+    if (this.inFlight >= this.maxConcurrent) {
+      throw invalid("SPECIALIST_BUSY", "K.I.N.G.S. has reached its concurrent specialist request limit", 429);
+    }
+    if (this.requestTimes.length >= this.maxPerMinute) {
+      throw invalid("SPECIALIST_RATE_LIMIT", "K.I.N.G.S. specialist request rate limit reached", 429);
+    }
+    this.inFlight++;
+    this.requestTimes.push(now);
+    let answer;
+    try {
+      answer = await this.router.route({
       appId: "kings.powerhouse",
       messages: [{ role: "system", content: specialistSystemPolicy(input.mode) }, ...messages],
       requiredCapabilities: mode.capabilities,
       maxOutputTokens: input.mode === "engineering" || input.mode === "storytelling" ? 3600 : 2400,
       temperature: input.mode === "storytelling" ? 0.65 : 0.25,
       allowToolProposals: false
-    });
+      });
+    } finally {
+      this.inFlight--;
+    }
 
     if (!answer.success) {
       const failure = invalid("SPECIALIST_PROVIDER_UNAVAILABLE",
