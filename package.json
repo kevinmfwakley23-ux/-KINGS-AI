@@ -7,7 +7,7 @@
     "clean": "node development/clean-build.mjs",
     "brand:materialize": "node development/materialize-official-brand.mjs",
     "build": "npm run brand:materialize && tsc -p tsconfig.json",
-    "test": "npm run build && node development/run-tests.mjs && node ui/project-owner/server-auth-test.mjs && node ui/project-owner/server-execution-test.mjs && node ui/project-owner/server-brand-test.mjs && node --test ui/project-owner/collectibles-office-test.mjs && node ui/project-owner/server-collectibles-test.mjs && node --test ui/project-owner/specialist-office-test.mjs ui/project-owner/specialist-evaluation-test.mjs && node ui/project-owner/server-specialist-test.mjs && node development/android-native-package-test.mjs && npm run test:knowledge",
+    "test": "npm run build && node development/run-tests.mjs && node ui/project-owner/server-auth-test.mjs && node ui/project-owner/server-execution-test.mjs && node ui/project-owner/server-brand-test.mjs && node --test ui/project-owner/collectibles-office-test.mjs && node ui/project-owner/server-collectibles-test.mjs && node --test ui/project-owner/specialist-office-test.mjs ui/project-owner/specialist-evaluation-test.mjs ui/project-owner/specialist-training-data-test.mjs && node ui/project-owner/server-specialist-test.mjs && node development/android-native-package-test.mjs && npm run test:knowledge",
     "test:live": "npm run build && node development/run-tests.mjs --live",
     "accept:local-only": "npm run build && node build/core/workforce/v1-acceptance-009-local-only-mission-test.js",
     "accept:local-debug-repair": "npm run build && node build/core/workforce/v1-acceptance-010-local-debug-repair-mission-test.js",
@@ -16,7 +16,8 @@
     "start:router": "npm run build && node build/runtimes/app-router/server.js",
     "platform:check": "node development/platform-check.mjs",
     "verify": "npm run platform:check && npm test",
-    "evaluate:specialists": "node ui/project-owner/run-specialist-evaluation.mjs"
+    "evaluate:specialists": "node ui/project-owner/run-specialist-evaluation.mjs",
+    "prepare:specialist-training": "node ui/project-owner/prepare-specialist-training.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
