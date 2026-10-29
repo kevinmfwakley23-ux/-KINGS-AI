@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CollectiblesAssessmentOffice } from "./collectibles-office.mjs";
 
-const tinyPng = Buffer.from([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82]).toString("base64");
+const tinyPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2TkZkAAAAASUVORK5CYII=";
 const picture = { filename: "front.png", mimeType: "image/png", base64: tinyPng };
 const response = {
   identification: { name: "Example card", details: "Visible fictional test item", confidence: "medium" },
