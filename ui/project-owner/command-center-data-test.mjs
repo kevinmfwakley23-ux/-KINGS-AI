@@ -61,4 +61,16 @@ const failed = await fetchCommandCenterGitHub({ fetcher: async () => ({ ok: fals
 assert.equal(failed.ok, false);
 assert.match(failed.error, /HTTP 403/);
 assert.deepEqual(failed.workflows, []);
+// Parse the actual shipped command-center browser script without executing DOM operations.
+const { readFileSync } = await import("node:fs");
+const { Script } = await import("node:vm");
+const { resolve } = await import("node:path");
+const html = readFileSync(resolve("ui/project-owner/command-center.html"), "utf8");
+const script = html.match(/<script>([\\s\\S]*?)<\\/script>/);
+assert.ok(script, "command center should contain its interactive controller");
+new Script(script[1], { filename: "command-center-browser.js" });
+for (const path of ["/api/command-center", "/api/missions", "/api/engineering/"]) {
+  assert.ok(html.includes(path), "command center must use real owner runtime endpoint " + path);
+}
+
 console.log("K.I.N.G.S. command center live projections and read-only GitHub transport: SUCCESS");
