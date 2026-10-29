@@ -165,7 +165,7 @@ export class OpenAICompatibleGatewayAdapter implements ProviderAdapter {
           "web-learning", "source-inspection", "tool-use", "structured-output",
           "long-context", "verification", "recovery",
         ],
-        inputModalities: ["text"],
+        inputModalities: model.capabilities?.includes("vision") ? ["text", "image"] : ["text"],
         outputModalities: ["text"],
         contextWindowTokens: model.contextWindowTokens ?? 128_000,
         supportsToolCalling: model.supportsToolCalling ?? true,
@@ -226,7 +226,13 @@ export class OpenAICompatibleGatewayAdapter implements ProviderAdapter {
         signal: controller.signal,
         body: JSON.stringify({
           model: model.modelId,
-          messages: request.messages,
+          messages: request.messages.map((message) => ({
+            role: message.role,
+            content: message.imageDataUrls?.length ? [
+              { type: "text", text: message.content },
+              ...message.imageDataUrls.map((url) => ({ type: "image_url", image_url: { url } })),
+            ] : message.content,
+          })),
           stream: false,
           ...(request.maxOutputTokens !== undefined
             ? { max_tokens: request.maxOutputTokens } : {}),
@@ -343,6 +349,13 @@ function csv(value: string | undefined, fallback: readonly string[]): string[] {
   return models.length ? models : [...fallback];
 }
 
+function configuredVisionModels(defaultIds: string[], visionIds: string[]): OpenAICompatibleModelConfig[] {
+  const vision = new Set(visionIds);
+  return [...new Set([...defaultIds, ...visionIds])].map((id) => vision.has(id)
+    ? { id, capabilities: ["reasoning", "vision", "structured-output"] }
+    : { id });
+}
+
 export function createOmniRouteAdapter(
   env: NodeJS.ProcessEnv = process.env,
 ): OpenAICompatibleGatewayAdapter {
@@ -351,7 +364,7 @@ export function createOmniRouteAdapter(
     name: "OmniRoute",
     baseUrl: env.KINGS_OMNIROUTE_BASE_URL ?? renderPrivateBaseUrl(env.KINGS_OMNIROUTE_HOSTPORT) ?? "http://127.0.0.1:20128/v1",
     apiKey: env.KINGS_OMNIROUTE_API_KEY,
-    models: csv(env.KINGS_OMNIROUTE_MODELS, ["auto/coding", "auto/cheap"]).map((id) => ({ id })),
+    models: configuredVisionModels(csv(env.KINGS_OMNIROUTE_MODELS, ["auto/coding", "auto/cheap"]), csv(env.KINGS_OMNIROUTE_VISION_MODELS, [])),
     extraHeaders: env.KINGS_OMNIROUTE_NO_CACHE === "true"
       ? { "X-OmniRoute-No-Cache": "true" } : undefined,
   });
@@ -365,7 +378,7 @@ export function createNineRouterAdapter(
     name: "9Router",
     baseUrl: env.KINGS_9ROUTER_BASE_URL ?? renderPrivateBaseUrl(env.KINGS_9ROUTER_HOSTPORT) ?? "http://127.0.0.1:20128/v1",
     apiKey: env.KINGS_9ROUTER_API_KEY,
-    models: csv(env.KINGS_9ROUTER_MODELS, ["auto"]).map((id) => ({ id })),
+    models: configuredVisionModels(csv(env.KINGS_9ROUTER_MODELS, ["auto"]), csv(env.KINGS_9ROUTER_VISION_MODELS, [])),
   });
 }
 
@@ -376,12 +389,14 @@ export function createConfiguredGatewayAdapters(
   const omniConfigured = Boolean(
     env.KINGS_OMNIROUTE_BASE_URL?.trim() ||
     env.KINGS_OMNIROUTE_HOSTPORT?.trim() ||
-    env.KINGS_OMNIROUTE_MODELS?.trim(),
+    env.KINGS_OMNIROUTE_MODELS?.trim() ||
+    env.KINGS_OMNIROUTE_VISION_MODELS?.trim(),
   );
   const nineConfigured = Boolean(
     env.KINGS_9ROUTER_BASE_URL?.trim() ||
     env.KINGS_9ROUTER_HOSTPORT?.trim() ||
-    env.KINGS_9ROUTER_MODELS?.trim(),
+    env.KINGS_9ROUTER_MODELS?.trim() ||
+    env.KINGS_9ROUTER_VISION_MODELS?.trim(),
   );
 
   if (omniConfigured) adapters.push(createOmniRouteAdapter(env));
