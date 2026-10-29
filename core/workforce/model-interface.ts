@@ -44,6 +44,8 @@ export type ModelRequestMessageRole =
 export interface ModelRequestMessage {
   role: ModelRequestMessageRole;
   content: string;
+  /** Optional photographs supplied to a vision-capable routed model. */
+  imageDataUrls?: readonly string[];
 }
 
 export interface ModelToolCallProposal {

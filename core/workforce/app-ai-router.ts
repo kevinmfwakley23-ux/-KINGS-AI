@@ -118,6 +118,7 @@ function validateRequest(input: AppAiRouteRequest): void {
   if (!Array.isArray(input.messages) || input.messages.length < 1 || input.messages.length > 100) {
     throw new AppAiRouterError("INVALID_MESSAGES", "messages must contain between 1 and 100 entries.");
   }
+  let imageCount = 0;
   for (const message of input.messages) {
     if (!message || typeof message !== "object") {
       throw new AppAiRouterError("INVALID_MESSAGE", "Every message must be an object.");
@@ -128,8 +129,21 @@ function validateRequest(input: AppAiRouteRequest): void {
     if (typeof message.content !== "string" || message.content.length < 1 || message.content.length > 100_000) {
       throw new AppAiRouterError("INVALID_MESSAGE_CONTENT", "Message content must contain 1 to 100000 characters.");
     }
+    if (message.imageDataUrls !== undefined) {
+      if (message.role !== "user" || !Array.isArray(message.imageDataUrls) || message.imageDataUrls.length < 1) {
+        throw new AppAiRouterError("INVALID_IMAGES", "Only user messages may contain image data URLs.");
+      }
+      imageCount += message.imageDataUrls.length;
+      for (const uri of message.imageDataUrls) {
+        if (typeof uri !== "string" || uri.length > 5_600_000 || !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(uri)) {
+          throw new AppAiRouterError("INVALID_IMAGE_DATA", "Images must be bounded base64 JPEG, PNG, or WebP data URLs.");
+        }
+      }
+    }
   }
+  if (imageCount > 4) throw new AppAiRouterError("TOO_MANY_IMAGES", "At most four images are supported per request.");
   const capabilities = input.requiredCapabilities ?? ["reasoning"];
+  if (imageCount && !capabilities.includes("vision")) throw new AppAiRouterError("VISION_REQUIRED", "Image requests require the vision capability.");
   if (!Array.isArray(capabilities) || capabilities.length < 1 || capabilities.length > 16) {
     throw new AppAiRouterError("INVALID_CAPABILITIES", "At least one and at most 16 capabilities are required.");
   }
@@ -177,7 +191,7 @@ export class AppAiRouter {
       missionId: `app:${input.appId}`,
       messages: input.messages.map((message) => ({ ...message })),
       requiredCapabilities,
-      inputModalities: ["text"],
+      inputModalities: input.messages.some((message) => message.imageDataUrls?.length) ? ["text", "image"] : ["text"],
       outputModality: "text",
       maxOutputTokens: input.maxOutputTokens,
       temperature: input.temperature,

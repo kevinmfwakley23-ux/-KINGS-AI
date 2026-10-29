@@ -15,6 +15,8 @@ export interface OwnerMissionExecutionService {
   providerIds: string[];
   providerOrder: string[];
   executor: OwnerMissionExecutionRuntime;
+  /** Shared governed provider router for owner-authorized domain offices. */
+  router: AppAiRouter;
 }
 
 /**
@@ -55,5 +57,6 @@ export function createOwnerMissionExecutionService(
     providerIds: providers.listAvailable().map((provider) => provider.id),
     providerOrder,
     executor,
+    router,
   };
 }
