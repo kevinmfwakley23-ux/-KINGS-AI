@@ -1,4 +1,5 @@
 import http from "node:http";
+import { githubCommandCenterSnapshot } from "./github-telemetry.mjs";
 import os from "node:os";
 import { spawn } from "node:child_process";
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -526,6 +527,19 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET" && url.pathname === "/assets/kings-ai-official-logo.png") {
     return png(res, officialLogoBytes);
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/command-center/github") {
+    try {
+      const snapshot = await githubCommandCenterSnapshot();
+      return json(res, 200, { ok: true, ...snapshot });
+    } catch (error) {
+      return json(res, 503, {
+        ok: false,
+        error: "github_telemetry_unavailable",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   if (req.method === "GET" && url.pathname === "/api/status") {
