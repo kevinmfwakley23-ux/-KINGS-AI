@@ -352,7 +352,7 @@ function csv(value: string | undefined, fallback: readonly string[]): string[] {
 function configuredVisionModels(defaultIds: string[], visionIds: string[]): OpenAICompatibleModelConfig[] {
   const vision = new Set(visionIds);
   return [...new Set([...defaultIds, ...visionIds])].map((id) => vision.has(id)
-    ? { id, capabilities: ["reasoning", "vision", "structured-output"] }
+    ? { id, capabilities: ["reasoning", "vision", "structured-output"] as const }
     : { id });
 }
 
