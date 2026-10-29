@@ -163,6 +163,28 @@ async function main(): Promise<void> {
   }
   assert(rejected, "invalid app identity was not rejected");
 
+
+  let blockedImage = false;
+  try {
+    await router.route({
+      appId: "kings.collectibles",
+      messages: [{ role: "user", content: "Grade this card",
+        imageDataUrls: ["data:image/png;base64,aGVsbG8="] }],
+      requiredCapabilities: ["reasoning"],
+    });
+  } catch (error) {
+    blockedImage = error instanceof AppAiRouterError && error.code === "VISION_REQUIRED";
+  }
+  assert(blockedImage, "Photo requests must explicitly require vision-capable models");
+  const noVisionModel = await router.route({
+    appId: "kings.collectibles",
+    messages: [{ role: "user", content: "Inspect the photograph",
+      imageDataUrls: ["data:image/png;base64,aGVsbG8="] }],
+    requiredCapabilities: ["vision"],
+  });
+  assert(!noVisionModel.success && noVisionModel.code === "NO_ROUTABLE_MODEL",
+    "Text-only models must not be used to fabricate photographic assessments");
+
   console.log("App AI router test: PASSED");
 }
 
