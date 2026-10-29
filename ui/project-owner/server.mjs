@@ -92,7 +92,7 @@ const ownerMissionExecutionService = createOwnerMissionExecutionService(
 
 const collectiblesOffice = new CollectiblesAssessmentOffice({
   router: ownerMissionExecutionService.router,
-  storePath: resolve(process.env.KINGS_COLLECTIBLES_REPORT_STORE ?? resolve(process.cwd(), ".kings", "collectibles-reports.json")),
+  storePath: resolve(String(process.env.KINGS_COLLECTIBLES_REPORT_STORE ?? "").trim() || resolve(process.cwd(), ".kings", "collectibles-reports.json")),
 });
 await collectiblesOffice.initialize();
 
