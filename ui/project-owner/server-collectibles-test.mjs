@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL("../../", import.meta.url)));
-const picture = Buffer.from([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82]).toString("base64");
+const picture = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2TkZkAAAAASUVORK5CYII=";
 const token = "test-owner-token-" + randomUUID();
 const mockAssessment = {
   identification: { name: "Test TCG item", details: "Front photo only", confidence: "low" },
