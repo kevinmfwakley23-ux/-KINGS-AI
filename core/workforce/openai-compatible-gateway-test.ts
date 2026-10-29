@@ -92,6 +92,37 @@ async function main(): Promise<void> {
   } catch { rejected = true; }
   assert(rejected, "Render private hostport must reject URL-shaped input");
 
+
+  const vision = createOmniRouteAdapter({
+    KINGS_OMNIROUTE_BASE_URL: "http://localhost:20128/v1",
+    KINGS_OMNIROUTE_MODELS: "auto/coding",
+    KINGS_OMNIROUTE_VISION_MODELS: "auto/vision",
+  });
+  const visionModel = vision.listModels().find(m => m.modelId === "auto/vision");
+  assert(visionModel?.inputModalities.includes("image"), "Explicitly configured vision model must advertise image modality");
+  assert(!vision.listModels().find(m => m.modelId === "auto/coding")?.inputModalities.includes("image"),
+    "Text-only models must not falsely advertise vision capability");
+  const originalVisionFetch = globalThis.fetch;
+  let sentPhoto = false;
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body)) as { messages?: Array<{content:unknown}> };
+    const userMessage = body.messages?.[1]?.content;
+    assert(Array.isArray(userMessage), "Vision request must contain multimodal content");
+    sentPhoto = userMessage.some((part: { type: string; image_url?: { url: string } }) =>
+      part.type === "image_url" && part.image_url?.url.startsWith("data:image/png;base64,"));
+    return new Response(JSON.stringify({ choices: [{ message: { content: "{}" } }] }), { status: 200 });
+  };
+  try {
+    const answer = await vision.execute("auto/vision", {
+      id: "vision-request", taskId: "vision-task", missionId: "vision-mission",
+      requiredCapabilities: ["reasoning", "vision"], inputModalities: ["text", "image"], outputModality: "text",
+      messages: [{ role: "system", content: "Inspect photographs" },
+        { role: "user", content: "Inspect this item", imageDataUrls: ["data:image/png;base64,aGVsbG8="] }],
+      allowToolProposals: false,
+    });
+    assert(answer.success && sentPhoto, "Vision image must reach the configured routed model");
+  } finally { globalThis.fetch = originalVisionFetch; }
+
   console.log("OpenAI-compatible OmniRoute/9Router gateway connector: SUCCESS");
 
 }
