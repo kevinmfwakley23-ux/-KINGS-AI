@@ -191,7 +191,7 @@ export class AppAiRouter {
       missionId: `app:${input.appId}`,
       messages: input.messages.map((message) => ({ ...message })),
       requiredCapabilities,
-      inputModalities: imageCount ? ["text", "image"] : ["text"],
+      inputModalities: input.messages.some((message) => message.imageDataUrls?.length) ? ["text", "image"] : ["text"],
       outputModality: "text",
       maxOutputTokens: input.maxOutputTokens,
       temperature: input.temperature,
