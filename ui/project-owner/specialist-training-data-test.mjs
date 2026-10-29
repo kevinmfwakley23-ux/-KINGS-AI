@@ -23,6 +23,9 @@ test("exports verified supervised chat-completion JSONL with stable, disjoint sp
   assert.equal(output.manifest.trainCount+output.manifest.validationCount,6);
   assert.ok(output.manifest.validationCount>=1);
   assert.equal(output.manifest.trainSha256.length,64);
+  assert.equal(output.manifest.reviewProvenance.length,6);
+  assert.equal(output.manifest.reviewProvenance[0].promptSha256.length,64);
+  assert.equal(output.manifest.reviewProvenance[0].reviewedAt,"2026-10-28T00:00:00.000Z");
   const train=output.trainJsonl.trim().split("\n").map(x=>JSON.parse(x));
   const validation=output.validationJsonl.trim().split("\n").map(x=>JSON.parse(x));
   for(const row of [...train,...validation]){
