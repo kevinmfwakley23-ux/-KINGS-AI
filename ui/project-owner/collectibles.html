@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>K.I.N.G.S. Collectibles Intelligence • Owner Office</title>
+<link rel="icon" href="/assets/kings-ai-official-logo.png" type="image/png">
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#e6edf8;background:#091120;font-size:15px}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top right,#24314b,transparent 65%),#091120;min-height:100vh}
+main{max-width:1250px;padding:22px 18px 60px;margin:auto}a{color:#edc77b}header{display:flex;gap:16px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:22px}
+.identity{display:flex;gap:13px;align-items:center}.identity img{width:60px;height:60px;object-fit:contain;border-radius:12px}
+h1{margin:3px 0 0;font:700 clamp(1.5rem,3vw,2.2rem) Georgia,serif;color:#fff}h2{font-size:1.25rem;margin:0 0 10px}h3{font-size:1rem;margin:0 0 8px}
+.eyebrow{font-size:.72rem;letter-spacing:.15em;font-weight:800;color:#efc26b}.muted{color:#a2b1c7}.small{font-size:.85rem}
+.pill{border:1px solid #846d48;color:#f5d496;padding:5px 9px;border-radius:30px;font-size:.76rem;font-weight:800}
+.layout{display:grid;grid-template-columns:minmax(330px,440px) minmax(0,1fr);gap:17px;align-items:start}
+.panel{border:1px solid #34455c;border-top:2px solid #bd9148;border-radius:16px;padding:19px;background:#142037;box-shadow:0 18px 45px #02071355}
+label{font-size:.82rem;font-weight:800;display:block;margin:15px 0 7px}input,select,textarea{font:inherit;color:#e7edf7;background:#091528;border:1px solid #52617a;border-radius:9px;width:100%;padding:12px;outline-offset:2px}
+textarea{min-height:94px;resize:vertical}input[type=file]{padding:13px;border-style:dashed}
+button{background:linear-gradient(120deg,#f0c46e,#bc8b3b);border:0;border-radius:9px;color:#201607;padding:12px 16px;font-size:.92rem;font-weight:800;cursor:pointer}
+button:hover:not(:disabled){filter:brightness(1.08)}button:disabled{opacity:.6;cursor:not-allowed}
+button.secondary{background:#25344c;color:#e6edf8;border:1px solid #52627b}
+.row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}.flow{display:grid;gap:12px}
+.photos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:12px}.photo{border:1px solid #4e5f78;border-radius:10px;padding:7px;background:#0b1627}
+.photo img{width:100%;height:155px;object-fit:contain;border-radius:6px;background:#040b14}.photo span{font-size:.75rem;color:#b7c7de;overflow-wrap:anywhere}
+.hero{background:linear-gradient(120deg,#2f2b22,#1a2b41);border-radius:13px;padding:17px;margin:10px 0 18px;border:1px solid #806637}
+.grade{font:700 2.2rem Georgia,serif;color:#f1c774}.finding{border-left:3px solid #c49c55;background:#0d192c;padding:10px 13px;border-radius:6px;margin:9px 0}
+dl{display:grid;grid-template-columns:130px 1fr;gap:8px;font-size:.9rem}dt{color:#a1b1c7}dd{margin:0;overflow-wrap:anywhere}
+li{margin:7px 0;line-height:1.4}.history-item{border-bottom:1px solid #314158;padding:11px 0}
+.banner{background:#273044;border:1px solid #6d593a;border-radius:11px;padding:12px 15px;margin:14px 0;color:#e5d3af}
+.error{color:#ffb8af}.success{color:#a0edc1}.details{line-height:1.5;overflow-wrap:anywhere}.spacer{height:17px}
+@media(max-width:760px){main{padding:12px 10px 40px}.layout{grid-template-columns:1fr}.panel{padding:15px}.identity img{width:48px;height:48px}}
+@media print{body{background:#fff;color:#111}.panel{color:#111;background:#fff;border:1px solid #aaa;box-shadow:none}header .pill,header a,.inputs,.history{display:none}.layout{display:block}.panel{margin:10px 0}.muted,dt{color:#444}.grade{color:#222}}
+</style></head><body><main>
+<header><div class="identity"><img src="/assets/kings-ai-official-logo.png" alt="K.I.N.G.S. crest"><div><div class="eyebrow">K.I.N.G.S. AI POWERHOUSE • SPECIALIST OFFICE</div><h1>Collectibles Intelligence</h1><div class="muted small">Photographic condition assessment &amp; evidence ledger</div></div></div><div class="row"><span class="pill">OWNER AUTHORIZED</span><a href="/">← Mission Control</a></div></header>
+<div class="banner"><strong>Real analysis, not a simulator.</strong> Submit photographs to your configured vision-capable K.I.N.G.S. provider. If none is available, assessment fails rather than inventing a grade. Results are tentative, not official certification, authentication, or market appraisals. Photos are sent to the configured AI provider; only their filenames, byte counts, and cryptographic hashes are saved locally.</div>
+<div class="layout">
+<section class="panel inputs" aria-label="New collectible assessment"><div class="eyebrow">01 / INTAKE</div><h2>Inspect an item</h2>
+<form id="form">
+<label for="category">Collectible category</label>
+<select id="category" required>
+<option value="tcg">Pokémon / TCG cards</option><option value="sports_card">Sports &amp; non-sports cards</option><option value="comic">Comic books</option><option value="antique">Antiques</option><option value="collectible">Other collectibles &amp; memorabilia</option>
+</select>
+<label for="itemName">Item name or tentative identification</label><input id="itemName" maxlength="180" placeholder="e.g., 1999 Pokémon Charizard #4" required>
+<label for="notes">Known details or questions (optional)</label><textarea id="notes" maxlength="1500" placeholder="Set number, date, maker's marks, known damage, or details to investigate"></textarea>
+<label for="photos">Photographs (1–4, max 4 MB each)</label>
+<input type="file" id="photos" accept="image/jpeg,image/png,image/webp" multiple required>
+<p class="small muted" id="photo-help">Photograph front and back, close-ups of corners and edges, or comic spine/interior details. Include maker marks or damage on antiques.</p>
+<div class="photos" id="previews"></div>
+<div class="spacer"></div>
+<button id="assess" type="submit">Analyze photographs &amp; save report</button>
+<p class="small muted" id="state" role="status" aria-live="polite">No assessment requested.</p>
+</form></section>
+<div class="flow">
+<section class="panel" aria-label="Assessment report"><div class="row"><div><div class="eyebrow">02 / VERIFIED SOURCE TRAIL</div><h2>Assessment report</h2></div><button class="secondary" type="button" id="print" disabled>Print report</button></div>
+<div id="report" class="muted details">Upload photographs and select Analyze. This office requires real visual evidence and a configured vision model; it does not generate random grades.</div></section>
+<section class="panel history" aria-label="Saved report history"><div class="row"><div><div class="eyebrow">03 / HISTORY</div><h2>Saved assessments</h2></div><button id="refresh" class="secondary" type="button">Refresh</button></div><div class="small muted" id="history">Loading saved reports…</div></section>
+</div></div></main>
+<script>
+const el=id=>document.getElementById(id);
+const form=el("form"), state=el("state"), report=el("report"), print=el("print");
+let current=null;let previews=[];
+function node(tag,attrs={},value){const n=document.createElement(tag);for(const [k,v] of Object.entries(attrs)){if(k==="class")n.className=v;else n.setAttribute(k,v)}if(value!==undefined)n.textContent=String(value);return n}
+function block(parent,tag,value,cls){const n=node(tag,cls?{class:cls}:{},value);parent.appendChild(n);return n}
+function list(parent,items){const ul=node("ul");for(const item of items||[])block(ul,"li",item);parent.appendChild(ul)}
+function display(r){
+  current=r;print.disabled=false;report.replaceChildren();
+  const head=node("div",{class:"hero"});block(head,"div",r.category.replaceAll("_"," ").toUpperCase(),"eyebrow");
+  block(head,"h2",r.identification.name);
+  const g=r.condition.gradeEstimate;
+  block(head,"div",g?("Illustrative grade range: "+g.low+"–"+g.high+"/10"):"Condition review — no defensible numeric grade",g?"grade":"muted");
+  block(head,"p","Identification confidence: "+r.identification.confidence+" • Photo assessment only","small");
+  report.appendChild(head);
+  block(report,"h3","Visible findings");block(report,"p",r.condition.summary);
+  for(const f of r.condition.observations){const item=node("div",{class:"finding"});
+    block(item,"strong",f.area+" • "+f.severity+" • photo "+(f.photoIndex+1));block(item,"div",f.observation);report.appendChild(item)}
+  if(!r.condition.observations.length)block(report,"p","No independently supported specific defects were recorded; inspect the images and obtain in-hand review.");
+  block(report,"h3","Identification notes");block(report,"p",r.identification.details);
+  block(report,"h3","Authenticity & restoration");block(report,"p","UNVERIFIED — photography cannot establish professional authenticity, originality, or restoration status.");
+  list(report,r.authenticity.flags);
+  block(report,"h3","Limitations");list(report,r.limitations);
+  block(report,"h3","Recommended next steps");list(report,r.recommendedNextSteps);
+  block(report,"h3","Evidence provenance");
+  const dl=node("dl");for(const [k,v] of Object.entries({
+    "Report ID":r.id,"Created":r.createdAt,"Model route":r.evidence.modelProvider+" / "+r.evidence.modelId,
+    "Photographs":r.photos.length,"Photo SHA-256":r.photos.map(p=>p.sha256.slice(0,18)+"…").join(", "),
+    "Market value":"Not assessed"})){block(dl,"dt",k);block(dl,"dd",v)}report.appendChild(dl);
+  block(report,"p",r.disclaimer,"small muted");
+}
+function resetPreviews(){for(const url of previews)URL.revokeObjectURL(url);previews=[];el("previews").replaceChildren()}
+el("photos").addEventListener("change",()=>{
+  resetPreviews();const files=[...el("photos").files];const area=el("previews");
+  if(files.length>4){state.textContent="Choose at most four photos.";state.className="error";return}
+  for(const file of files){const url=URL.createObjectURL(file);previews.push(url);
+    const card=node("div",{class:"photo"});const image=node("img",{alt:"Selected image preview"});image.src=url;
+    card.appendChild(image);block(card,"span",file.name+" ("+Math.round(file.size/1024)+" KB)");area.appendChild(card)}
+});
+function base64(file){return new Promise((resolve,reject)=>{const reader=new FileReader();
+  reader.onerror=()=>reject(new Error("Cannot read "+file.name));
+  reader.onload=()=>resolve(String(reader.result).split(",")[1]);reader.readAsDataURL(file)})}
+async function json(url,options={}){const res=await fetch(url,{cache:"no-store",...options});let body;try{body=await res.json()}catch{throw new Error("Invalid API response (HTTP "+res.status+").")}
+  if(!res.ok)throw new Error(body.message||"HTTP "+res.status);return body}
+async function refresh(){try{const data=await json("/api/collectibles/reports");const h=el("history");h.replaceChildren();
+  if(!data.reports.length){h.textContent="No saved assessments yet.";return}
+  for(const r of data.reports.slice(0,20)){const item=node("div",{class:"history-item"});
+    const b=node("button",{type:"button",class:"secondary"},"View • "+r.itemName);
+    b.addEventListener("click",()=>{display(r);window.scrollTo({top:0,behavior:"smooth"})});
+    item.appendChild(b);block(item,"div",r.category+" • "+new Date(r.createdAt).toLocaleString(),"muted small");h.appendChild(item)}
+}catch(e){el("history").textContent=e.message}}
+form.addEventListener("submit",async event=>{event.preventDefault();const files=[...el("photos").files];state.className="muted";
+  if(files.length<1||files.length>4||files.some(f=>f.size>4*1024*1024||f.size<12||
+    !["image/png","image/jpeg","image/webp"].includes(f.type))){
+    state.className="error";state.textContent="Choose 1–4 JPEG/PNG/WebP images, each between 12 bytes and 4 MB.";return}
+  const button=el("assess");button.disabled=true;state.textContent="Submitting images to the configured K.I.N.G.S. vision route…";
+  try{const photos=await Promise.all(files.map(async f=>({filename:f.name,mimeType:f.type,base64:await base64(f)})));
+    const response=await json("/api/collectibles/assess",{method:"POST",headers:{"content-type":"application/json","x-kings-owner-action":"assess-collectible"},
+    body:JSON.stringify({category:el("category").value,itemName:el("itemName").value,notes:el("notes").value,photos})});
+    display(response.report);state.className="success";state.textContent="Report saved with photographic evidence hashes and model attribution.";await refresh();
+  }catch(e){state.className="error";state.textContent=e.message}finally{button.disabled=false}
+});
+el("refresh").addEventListener("click",refresh);
+print.addEventListener("click",()=>window.print());
+refresh();
+</script></body></html>
