@@ -118,6 +118,49 @@ async function assertLoopbackRemainsLocalAndUsable() {
   try {
     await waitForHealth(port, run.child, run.output);
     const base = `http://127.0.0.1:${port}`;
+    const unapprovedResearch = await fetch(`${base}/api/owner-research`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ question: "What do these sources establish?", urls: ["https://127.0.0.1/private"] }),
+    });
+    assert.equal(unapprovedResearch.status, 400, "web retrieval must require an explicit owner action");
+    assert.equal((await unapprovedResearch.json()).error, "owner_research_confirmation_required");
+
+    const blockedPrivateResearch = await fetch(`${base}/api/owner-research`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-kings-owner-action": "retrieve-public-sources",
+      },
+      body: JSON.stringify({ question: "Must not fetch local admin services", urls: ["https://127.0.0.1/private"] }),
+    });
+    assert.equal(blockedPrivateResearch.status, 403, "owner research must block private addresses, even if explicitly requested");
+    assert.equal((await blockedPrivateResearch.json()).error, "owner_research_failed");
+
+    const blockedHttpResearch = await fetch(`${base}/api/owner-research`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-kings-owner-action": "retrieve-public-sources",
+      },
+      body: JSON.stringify({ question: "Reject cleartext internet", urls: ["http://example.com"] }),
+    });
+    assert.equal(blockedHttpResearch.status, 403, "owner research must require HTTPS");
+
+    const unsupportedResearchFields = await fetch(`${base}/api/owner-research`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-kings-owner-action": "retrieve-public-sources",
+      },
+      body: JSON.stringify({
+        question: "Cannot supply arbitrary tool permissions",
+        urls: ["https://example.com"],
+        providerId: "outside-ai",
+      }),
+    });
+    assert.equal(unsupportedResearchFields.status, 400, "owner research cannot accept browser-injected providers");
+
     const response = await fetch(`${base}/api/status`, { cache: "no-store" });
     assert.equal(response.status, 200, "loopback owner console must remain usable without remote credentials");
     const body = await response.json();
@@ -305,6 +348,16 @@ async function assertRemoteAuthenticationLifecycle() {
       body: createTextPdf("ANONYMOUS PDF"),
     });
     assert.equal(anonymousPdf.status, 401, "anonymous callers must never stage PDF project context");
+
+    const anonymousResearch = await fetch(`${base}/api/owner-research`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-kings-owner-action": "retrieve-public-sources",
+      },
+      body: JSON.stringify({ question: "Unauthorized research", urls: ["https://example.com"] }),
+    });
+    assert.equal(anonymousResearch.status, 401, "remote internet research must reject callers without owner access");
 
     const anonymousMissions = await fetch(`${base}/api/missions`, { cache: "no-store" });
     assert.equal(anonymousMissions.status, 401, "remote mission state must be private to the authenticated owner");
