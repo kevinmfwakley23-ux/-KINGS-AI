@@ -1,6 +1,7 @@
 import { createConfiguredGatewayAdapters } from "./openai-compatible-gateway";
 import { createConfiguredOllamaAdapter } from "./ollama-provider-adapter";
 import { ProviderAdapterRegistry } from "./provider-adapters";
+import { createConfiguredSelfHostedAdapter, KINGS_SELF_HOSTED_PROVIDER_ID } from "./self-hosted-inference-provider";
 
 /**
  * Sovereign is the production default: no external AI inference providers.
@@ -27,14 +28,16 @@ export function resolveKingsProviderOrder(
   mode: KingsIntelligenceMode,
 ): string[] {
   const raw = env.KINGS_APP_ROUTER_PROVIDER_ORDER ??
-    (mode === "sovereign" ? "ollama-internal" : "omniroute,9router,ollama-internal");
+    (mode === "sovereign"
+      ? `${KINGS_SELF_HOSTED_PROVIDER_ID},ollama-internal`
+      : `${KINGS_SELF_HOSTED_PROVIDER_ID},omniroute,9router,ollama-internal`);
   const values = raw.split(",").map((part) => part.trim()).filter(Boolean);
   const result = [...new Set(values)];
   if (result.length === 0) {
     throw new Error("KINGS_APP_ROUTER_PROVIDER_ORDER must contain a provider");
   }
-  if (mode === "sovereign" && result.some((id) => id !== "ollama-internal")) {
-    throw new Error("Sovereign mode permits only ollama-internal in the configured provider order");
+  if (mode === "sovereign" && result.some((id) => id !== "ollama-internal" && id !== KINGS_SELF_HOSTED_PROVIDER_ID)) {
+    throw new Error("Sovereign mode permits only kings-self-hosted and ollama-internal in the configured provider order");
   }
   return result;
 }
@@ -46,8 +49,9 @@ export function resolveKingsProviderOrder(
  */
 export function assertSovereignInferenceEndpoint(
   env: NodeJS.ProcessEnv,
+  endpoint?: string,
 ): void {
-  const raw = env.KINGS_OLLAMA_BASE_URL?.trim();
+  const raw = endpoint ?? env.KINGS_OLLAMA_BASE_URL?.trim();
   if (!raw) return;
   const url = new URL(raw);
   if (!["http:", "https:"].includes(url.protocol) ||
@@ -69,9 +73,12 @@ export function assertSovereignInferenceEndpoint(
   );
   const privateIpv6 = hostname === "::1" ||
     /^f[cd][0-9a-f:]+$/i.test(hostname);
-  if (hostname !== "localhost" && !privateIpv4 && !privateIpv6 &&
-      !allowed.includes(hostname)) {
+  const isPrivate = hostname === "localhost" || privateIpv4 || privateIpv6;
+  if (!isPrivate && !allowed.includes(hostname)) {
     throw new Error("Sovereign inference endpoint must be private or explicitly owner-allowlisted");
+  }
+  if (!isPrivate && url.protocol !== "https:") {
+    throw new Error("Public owner-allowlisted sovereign inference endpoints must use HTTPS");
   }
 }
 
@@ -85,6 +92,11 @@ export function registerConfiguredKingsInference(
     for (const gateway of createConfiguredGatewayAdapters(env)) providers.register(gateway);
   } else {
     assertSovereignInferenceEndpoint(env);
+  }
+  const selfHosted = createConfiguredSelfHostedAdapter(env);
+  if (selfHosted) {
+    if (mode === "sovereign") assertSovereignInferenceEndpoint(env, env.KINGS_SELF_HOSTED_BASE_URL);
+    providers.register(selfHosted);
   }
   const local = createConfiguredOllamaAdapter(env);
   if (local) providers.register(local);
