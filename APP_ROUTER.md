@@ -85,9 +85,9 @@ percentile against at least five peer models.
 ## Routing behavior
 
 - Provider order is controlled by `KINGS_APP_ROUTER_PROVIDER_ORDER`.
-- Default mode is `KINGS_INTELLIGENCE_MODE=sovereign`, with provider order `ollama-internal`. No external model gateways are registered, even if their credentials are configured.
-- `KINGS_INTELLIGENCE_MODE=hybrid` is an explicit opt-in that restores `omniroute,9router,ollama-internal` as the default routing order. Hybrid mode does not meet the owner's independent-model-only production requirement.
-- Sovereign deployments require an owner-operated local or self-hosted model configured through `KINGS_OLLAMA_BASE_URL` and `KINGS_OLLAMA_MODEL`. Missing models return a routing failure; never pretend a model is available.
+- Default mode is `KINGS_INTELLIGENCE_MODE=sovereign`, with provider order `kings-self-hosted,ollama-internal`. The first option is an owner-hosted OpenAI-compatible llama.cpp/vLLM inference server; Ollama is a local fallback. No external model gateways are registered, even if their credentials are configured.
+- `KINGS_INTELLIGENCE_MODE=hybrid` is an explicit opt-in that allows `kings-self-hosted,omniroute,9router,ollama-internal` in that order. Hybrid mode does not meet the owner's independent-model-only production requirement.
+- Sovereign deployments require an owner-operated model: configure `KINGS_SELF_HOSTED_BASE_URL` (exact `/v1` endpoint) and `KINGS_SELF_HOSTED_MODEL`, or use `KINGS_OLLAMA_BASE_URL` and `KINGS_OLLAMA_MODEL`. Missing models return a routing failure; never pretend a model is available.
 - `KINGS_OLLAMA_CONTEXT_TOKENS` is an actual optional `num_ctx` runtime option (1024–131072), not a promise that every model or device can handle that context. Training/deployment instructions: [Sovereign inference and training](docs/SOVEREIGN_INFERENCE_AND_TRAINING.md).
 - Owner-approved web research stays within the existing HTTPS-only, private-network-blocking research gateway. Retrieved web text is evidence, not automatically training data.
 - A caller may request an explicit provider or model when required.
