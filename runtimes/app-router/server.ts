@@ -7,8 +7,7 @@ import {
   type AppBrainMemorySelectionRequest,
   type AppBrainResearchRequest,
 } from "../../core/workforce/app-brain-gateway";
-import { createConfiguredGatewayAdapters } from "../../core/workforce/openai-compatible-gateway";
-import { createConfiguredOllamaAdapter } from "../../core/workforce/ollama-provider-adapter";
+import { assertKingsInferenceSovereignty, registerConfiguredKingsInference, resolveKingsIntelligenceMode, resolveKingsProviderOrder, type KingsIntelligenceMode } from "../../core/workforce/inference-sovereignty";
 import {
   POWERHOUSE_DOMAIN_POLICY_VERSION,
   PowerhouseServiceDomainError,
@@ -37,6 +36,7 @@ export interface RouterRuntimeConfig {
   port: number;
   accessToken?: string;
   providerOrder: string[];
+  intelligenceMode?: KingsIntelligenceMode;
   researchMaxSources: number;
   researchMaxResponseBytes: number;
   researchTimeoutMs: number;
@@ -86,16 +86,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RouterRuntimeC
   if (!["127.0.0.1", "::1", "localhost"].includes(host) && !accessToken) {
     throw new Error("KINGS_APP_ROUTER_TOKEN is required when the app router binds beyond loopback");
   }
-  const providerOrder = (env.KINGS_APP_ROUTER_PROVIDER_ORDER ?? "omniroute,9router,ollama-internal")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  if (providerOrder.length === 0) throw new Error("KINGS_APP_ROUTER_PROVIDER_ORDER must contain at least one provider");
+  const intelligenceMode = resolveKingsIntelligenceMode(env);
+  const providerOrder = resolveKingsProviderOrder(env, intelligenceMode);
   return {
     host,
     port: parsePort(env.KINGS_APP_ROUTER_PORT),
     accessToken,
     providerOrder,
+    intelligenceMode,
     researchMaxSources: parsePositiveInteger(
       env.KINGS_APP_RESEARCH_MAX_SOURCES,
       "KINGS_APP_RESEARCH_MAX_SOURCES",
@@ -256,11 +254,9 @@ export function createAppRouterRuntime(
   providers = new ProviderAdapterRegistry(),
   webAccess?: WebAccessAdapter,
 ): http.Server {
-  if (providers.list().length === 0) {
-    for (const provider of createConfiguredGatewayAdapters()) providers.register(provider);
-    const ollama = createConfiguredOllamaAdapter();
-    if (ollama) providers.register(ollama);
-  }
+  const intelligenceMode = config.intelligenceMode ?? "sovereign";
+  if (providers.list().length === 0) registerConfiguredKingsInference(providers, process.env, intelligenceMode);
+  assertKingsInferenceSovereignty(providers, intelligenceMode);
   const router = new AppAiRouter(providers, config.providerOrder);
   const researchWebAccess = webAccess ?? new WebAccessAdapter({
     allowedHosts: config.researchAllowedHosts,
@@ -282,6 +278,7 @@ export function createAppRouterRuntime(
           ok: true,
           service: "kings-ai-app-router",
           providers: providers.listAvailable().map((provider) => provider.id),
+          intelligenceMode,
         });
       }
 
