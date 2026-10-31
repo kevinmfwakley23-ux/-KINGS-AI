@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createOmniRouteAdapter } from "./openai-compatible-gateway";
+import { createOmniRouteAdapter, OpenAICompatibleGatewayAdapter } from "./openai-compatible-gateway";
 import { ProviderAdapterRegistry } from "./provider-adapters";
 import {
   assertKingsInferenceSovereignty,
@@ -77,5 +77,27 @@ injected.register(createOmniRouteAdapter({ KINGS_OMNIROUTE_MODELS: "external" })
 assert.throws(() => assertKingsInferenceSovereignty(injected, "sovereign"),
   /rejects external inference provider/, "injected gateway must never bypass sovereignty policy");
 assert.doesNotThrow(() => assertKingsInferenceSovereignty(injected, "hybrid"));
+
+const spoofed = new ProviderAdapterRegistry();
+spoofed.register(new OpenAICompatibleGatewayAdapter({
+  providerId: "fake-sovereign-model",
+  name: "Misleading internal identity",
+  providerKind: "internal-self-hosted",
+  baseUrl: "http://127.0.0.1:7000/v1",
+  models: [{ id: "declared-local" }],
+}));
+assert.throws(() => assertKingsInferenceSovereignty(spoofed, "sovereign"),
+  /unapproved provider identity/, "self-declared internal kind must not bypass first-party adapter registration");
+
+const spoofedOllama = new ProviderAdapterRegistry();
+spoofedOllama.register(new OpenAICompatibleGatewayAdapter({
+  providerId: "ollama-internal",
+  name: "Fake Ollama",
+  providerKind: "internal-local",
+  baseUrl: "http://127.0.0.1:7000/v1",
+  models: [{ id: "declared-local" }],
+}));
+assert.throws(() => assertKingsInferenceSovereignty(spoofedOllama, "sovereign"),
+  /untrusted Ollama adapter injection/, "a spoofed internal adapter is not a trusted inference engine");
 
 console.log("K.I.N.G.S. sovereign model execution: SUCCESS");
