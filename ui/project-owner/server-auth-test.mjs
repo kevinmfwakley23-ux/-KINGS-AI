@@ -455,6 +455,57 @@ async function assertLoopbackProxyRequiresOwnerAuthentication() {
     });
     assert.equal(forgedProxyHeaders.status, 401, "proxy headers must not grant owner access");
 
+    const rejectedType = await fetch(base + "/session/bootstrap", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ access: token }),
+      redirect: "manual",
+    });
+    assert.equal(rejectedType.status, 415, "owner-session POST only accepts form-encoded data");
+
+    const invalidPost = await fetch(base + "/session/bootstrap", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ access: "wrong-owner-token" }),
+      redirect: "manual",
+    });
+    assert.equal(invalidPost.status, 401, "incorrect POST credential must fail closed");
+
+    const duplicatePost = await fetch(base + "/session/bootstrap", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "access=wrong&access=" + encodeURIComponent(token),
+      redirect: "manual",
+    });
+    assert.equal(duplicatePost.status, 401, "duplicate POST owner credentials must be rejected");
+
+    const oversizedPost = await fetch(base + "/session/bootstrap", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "access=" + "x".repeat(5000),
+      redirect: "manual",
+    });
+    assert.equal(oversizedPost.status, 413, "POST bootstrap must enforce a bounded request body");
+
+    const securePost = await fetch(base + "/session/bootstrap", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ access: token }),
+      redirect: "manual",
+    });
+    assert.equal(securePost.status, 303, "valid owner POST must produce a redirect to a clean URL");
+    assert.equal(securePost.headers.get("location"), "/");
+    const securePostCookie = securePost.headers.get("set-cookie") ?? "";
+    assert.match(securePostCookie, /__Host-kings_owner_access=/);
+    assert.match(securePostCookie, /HttpOnly/i);
+    assert.match(securePostCookie, /Secure/i);
+    assert.match(securePostCookie, /SameSite=Strict/i);
+    assert.doesNotMatch(securePost.headers.get("location") ?? "", /access=/, "owner token must not be in redirect URL");
+    const postedSession = await fetch(base + "/api/status", {
+      headers: { cookie: securePostCookie.split(";", 1)[0] },
+    });
+    assert.equal(postedSession.status, 200, "POST bootstrap session must authorize owner operations");
+
     const wrong = await fetch(base + "/?access=wrong-token", { redirect: "manual" });
     assert.equal(wrong.status, 401, "incorrect bootstrap must be rejected even on loopback");
 
