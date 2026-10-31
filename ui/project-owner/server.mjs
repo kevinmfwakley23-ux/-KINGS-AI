@@ -126,6 +126,16 @@ const connectors = [
     apiKey: process.env.KINGS_9ROUTER_API_KEY,
   },
   {
+    id: "kings-self-hosted",
+    label: "K.I.N.G.S. owner-hosted model",
+    url: process.env.KINGS_SELF_HOSTED_BASE_URL ?? "http://127.0.0.1:8000/v1",
+    healthPath: "/models",
+    configured: Boolean(
+      process.env.KINGS_SELF_HOSTED_BASE_URL && process.env.KINGS_SELF_HOSTED_MODEL
+    ),
+    apiKey: process.env.KINGS_SELF_HOSTED_API_KEY,
+  },
+  {
     id: "ollama-internal",
     label: "Ollama fallback",
     url: process.env.KINGS_OLLAMA_BASE_URL ??
@@ -134,7 +144,8 @@ const connectors = [
     healthPath: "/api/tags",
     configured: ollamaConfigured,
   },
-].filter((connector) => intelligenceMode === "hybrid" || connector.id === "ollama-internal");
+].filter((connector) => intelligenceMode === "hybrid" ||
+  connector.id === "ollama-internal" || connector.id === "kings-self-hosted");
 
 function joinUrl(base, path) {
   return `${base.replace(/\/+$/, "")}${path}`;
