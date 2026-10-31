@@ -162,7 +162,9 @@ async function run(): Promise<void> {
       /record was altered/u,
     );
     assert.ok((await stat(modelArtifactPath)).size > 0);
-    assert.equal((await stat(outputPath)).mode & 0o077, 0, "signed model-build evidence must be owner-only");
+    if (process.platform !== "win32") {
+      assert.equal((await stat(outputPath)).mode & 0o077, 0, "signed model-build evidence must be owner-only");
+    }
     assert.doesNotMatch(await readFile(outputPath, "utf8"), new RegExp(ownerToken, "u"));
   } finally {
     await rm(directory, { recursive: true, force: true });
