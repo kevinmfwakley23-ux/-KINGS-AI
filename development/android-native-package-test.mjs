@@ -28,6 +28,9 @@ for (const csp of [config.app?.security?.csp, android.app?.security?.csp]) {
 
 assert.match(cargo, /tauri-build\s*=\s*\{\s*version\s*=\s*"=2\.6\.3"/);
 assert.match(cargo, /tauri\s*=\s*\{\s*version\s*=\s*"=2\.11\.5"/);
+assert.match(cargo, /tauri-runtime\s*=\s*\{\s*version\s*=\s*"=2\.11\.3"/, "Tauri runtime must stay in the compatible 2.11 family");
+assert.match(cargo, /tauri-runtime-wry\s*=\s*\{\s*version\s*=\s*"=2\.11\.4"/, "Tauri Wry runtime must stay in the compatible 2.11 family");
+assert.match(cargo, /tauri-utils\s*=\s*\{\s*version\s*=\s*"=2\.9\.3"/, "Tauri utilities must stay in the compatible 2.11 dependency family");
 assert.match(cargo, /crate-type\s*=\s*\["staticlib",\s*"cdylib",\s*"rlib"\]/, "mobile-compatible library crate types must remain enabled");
 
 assertOfficialKingsLogo(officialLogo);

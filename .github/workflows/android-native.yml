@@ -95,7 +95,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             src-tauri/target
-          key: kings-android-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.toml', 'src-tauri/tauri.conf.json', 'src-tauri/tauri.android.conf.json', 'native-shell/kings-ai-official-logo.png') }}
+          key: kings-android-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.toml', 'src-tauri/Cargo.lock', 'src-tauri/tauri.conf.json', 'src-tauri/tauri.android.conf.json', 'native-shell/kings-ai-official-logo.png') }}
 
       - name: Install pinned Tauri CLI
         shell: bash
