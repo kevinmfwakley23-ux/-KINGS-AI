@@ -22,6 +22,7 @@ import {
 } from "../../core/workforce/powerhouse-domain-qualification";
 import { ProviderAdapterRegistry } from "../../core/workforce/provider-adapters";
 import { WebAccessAdapter } from "../../core/workforce/web-access";
+import { MonthlyUsageAuthority, UsageAccessError } from "../../core/workforce/monthly-usage-authority";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const DEFAULT_PORT = 8790;
@@ -41,6 +42,8 @@ export interface RouterRuntimeConfig {
   researchMaxResponseBytes: number;
   researchTimeoutMs: number;
   researchAllowedHosts?: string[];
+  usageAccountsFile?: string;
+  usageLedgerFile?: string;
 }
 
 type ResponsesRole = "system" | "user" | "assistant" | "tool";
@@ -86,6 +89,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RouterRuntimeC
   if (!["127.0.0.1", "::1", "localhost"].includes(host) && !accessToken) {
     throw new Error("KINGS_APP_ROUTER_TOKEN is required when the app router binds beyond loopback");
   }
+  const usageAccountsFile = env.KINGS_APP_USAGE_ACCOUNTS_FILE?.trim() || undefined;
+  const usageLedgerFile = env.KINGS_APP_USAGE_LEDGER_FILE?.trim() || undefined;
+  if (Boolean(usageAccountsFile) !== Boolean(usageLedgerFile)) {
+    throw new Error("KINGS_APP_USAGE_ACCOUNTS_FILE and KINGS_APP_USAGE_LEDGER_FILE must be set together");
+  }
+  if (usageAccountsFile && (!accessToken || accessToken.length < 24)) {
+    throw new Error("Paid account metering requires a private owner KINGS_APP_ROUTER_TOKEN with at least 24 characters");
+  }
   const providerOrder = (env.KINGS_APP_ROUTER_PROVIDER_ORDER ?? "omniroute,9router,ollama-internal")
     .split(",")
     .map((value) => value.trim())
@@ -95,6 +106,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RouterRuntimeC
     host,
     port: parsePort(env.KINGS_APP_ROUTER_PORT),
     accessToken,
+    ...(usageAccountsFile ? { usageAccountsFile, usageLedgerFile } : {}),
     providerOrder,
     researchMaxSources: parsePositiveInteger(
       env.KINGS_APP_RESEARCH_MAX_SOURCES,
@@ -272,8 +284,17 @@ export function createAppRouterRuntime(
     blockPrivateNetworks: true,
   });
   const brain = new AppBrainGateway(researchWebAccess, config.researchMaxSources);
+  if (Boolean(config.usageAccountsFile) !== Boolean(config.usageLedgerFile)) {
+    throw new Error("K.I.N.G.S. Usage: both private account manifest and ledger paths are required");
+  }
+  if (config.usageAccountsFile && (!config.accessToken || config.accessToken.length < 24)) {
+    throw new Error("K.I.N.G.S. Usage: a private owner router token of at least 24 characters is required");
+  }
+  const usageAuthority = config.usageAccountsFile && config.usageLedgerFile
+    ? new MonthlyUsageAuthority(config.usageAccountsFile, config.usageLedgerFile)
+    : undefined;
 
-  return http.createServer(async (request, response) => {
+  const server = http.createServer(async (request, response) => {
     const startedAt = Date.now();
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
     try {
@@ -285,8 +306,37 @@ export function createAppRouterRuntime(
         });
       }
 
-      if (!authorized(request, config.accessToken)) {
+      const isOwner = authorized(request, config.accessToken);
+      const bearer = typeof request.headers.authorization === "string" &&
+        request.headers.authorization.startsWith("Bearer ")
+        ? request.headers.authorization.slice("Bearer ".length) : "";
+      const subscriber = isOwner || bearer.length < 24 ? undefined : usageAuthority?.accountForToken(bearer);
+      if (!isOwner && !subscriber) {
         return sendJson(response, 401, { ok: false, error: "unauthorized" });
+      }
+      if (subscriber && ![
+        "/v1/models", "/v1/powerhouse/domains", "/v1/usage",
+        "/responses", "/v1/responses", "/v1/route",
+      ].includes(url.pathname)) {
+        return sendJson(response, 403, { ok: false, error: "owner_only_operation" });
+      }
+      const routeWithUsage = async (input: AppAiRouteRequest) => {
+        if (!subscriber || !usageAuthority) return router.route(input);
+        // Apply a real provider-side output cap even if a subscriber omits it.
+        const bounded = { ...input,
+          maxOutputTokens: input.maxOutputTokens ?? Math.min(2048, subscriber.maxOutputTokens) };
+        const hold = usageAuthority.reserve(subscriber, bounded);
+        let result;
+        try { result = await router.route(bounded); }
+        catch (error) { hold.finish(); throw error; }
+        hold.finish(result.success ? Math.max(1, result.usage.totalTokens) : undefined);
+        return result;
+      };
+
+      if (request.method === "GET" && url.pathname === "/v1/usage") {
+        if (isOwner) return sendJson(response, 200, { ok: true, role: "owner", unlimitedSubscription: true });
+        return sendJson(response, 200, { ok: true, role: "subscriber",
+          usage: usageAuthority!.snapshot(subscriber!) });
       }
 
       if (request.method === "GET" && url.pathname === "/v1/models") {
@@ -344,7 +394,7 @@ export function createAppRouterRuntime(
       if (request.method === "POST" && (url.pathname === "/responses" || url.pathname === "/v1/responses")) {
         const appId = responsesAppId(request);
         const parsed = parseResponsesRequest(await readJson(request), appId);
-        const result = await router.route(parsed.routeRequest);
+        const result = await routeWithUsage(parsed.routeRequest);
         console.log(JSON.stringify({
           timestamp: new Date().toISOString(),
           event: "app_ai_responses",
@@ -392,7 +442,7 @@ export function createAppRouterRuntime(
       }
 
       if (request.method === "POST" && url.pathname === "/v1/route") {
-        const result = await router.route(requireObject(await readJson(request)) as unknown as AppAiRouteRequest);
+        const result = await routeWithUsage(requireObject(await readJson(request)) as unknown as AppAiRouteRequest);
         const statusCode = result.success ? 200 : result.code === "NO_ROUTABLE_MODEL" ? 503 : 502;
         console.log(JSON.stringify({
           timestamp: new Date().toISOString(),
@@ -410,7 +460,7 @@ export function createAppRouterRuntime(
 
       return sendJson(response, 404, { ok: false, error: "not_found" });
     } catch (error) {
-      if (error instanceof AppAiRouterError) {
+      if (error instanceof AppAiRouterError || error instanceof UsageAccessError) {
         return sendJson(response, error.statusCode, { ok: false, error: error.code, message: error.message });
       }
       console.error(JSON.stringify({
@@ -421,6 +471,8 @@ export function createAppRouterRuntime(
       return sendJson(response, 500, { ok: false, error: "internal_error" });
     }
   });
+  server.on("close", () => usageAuthority?.close());
+  return server;
 }
 
 if (require.main === module) {
