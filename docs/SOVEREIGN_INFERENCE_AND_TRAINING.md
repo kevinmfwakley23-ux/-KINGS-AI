@@ -4,8 +4,12 @@
 
 `KINGS_INTELLIGENCE_MODE=sovereign` is the default for the owner mission
 executor, the app-facing Responses API and the seven-domain live benchmark.
-Only owner-operated local Ollama inference is currently auto-registered.
-OmniRoute, 9Router, and other remote model services cannot silently execute
+Two owner-operated inference adapters are supported: `kings-self-hosted` uses an
+OpenAI-compatible local model server (for example llama.cpp or vLLM serving
+your own weights), and `ollama-internal` provides a local fallback. The
+default priority is `kings-self-hosted,ollama-internal`. Both stay under
+K.I.N.G.S. routing and agent governance. OmniRoute, 9Router, and other
+remote model services cannot silently execute
 in sovereign mode, even if gateway credentials exist. A process with no local
 model configured cannot generate an answer and must remain unqualified.
 
@@ -22,13 +26,20 @@ data provenance, and permission requirements still apply.
 
 ## Local deployment — no outside AI agents
 
-Supply a real local model and an owner-operated Ollama server:
+Supply a real local model using an owner-operated OpenAI-compatible
+inference server, Ollama, or both:
 
 ```bash
 export KINGS_INTELLIGENCE_MODE=sovereign
+# Preferred when serving K.I.N.G.S.-controlled weights on llama.cpp/vLLM:
+export KINGS_SELF_HOSTED_BASE_URL=http://127.0.0.1:8000/v1
+export KINGS_SELF_HOSTED_MODEL='<exact-locally-loaded-model>'
+# Capabilities must reflect verified actual capabilities, not promises:
+export KINGS_SELF_HOSTED_CAPABILITIES=reasoning
+# Optional fallback, if installed:
 export KINGS_OLLAMA_BASE_URL=http://127.0.0.1:11434
 export KINGS_OLLAMA_MODEL='<exact-installed-local-model>'
-export KINGS_APP_ROUTER_PROVIDER_ORDER=ollama-internal
+export KINGS_APP_ROUTER_PROVIDER_ORDER=kings-self-hosted,ollama-internal
 # Optional: verify sufficient RAM/VRAM before raising context.
 export KINGS_OLLAMA_CONTEXT_TOKENS=32768
 npm run verify
@@ -40,6 +51,12 @@ The owner console provides governed autonomous coding missions. Use
 Remote Android/Windows/macOS clients need a trusted HTTPS reverse proxy and
 authenticated owner sessions. **The Android APK is a native client, not a
 phone-hosted foundation model.** The runtime must be reachable.
+
+When using `KINGS_SELF_HOSTED_BASE_URL`, its path must be `/v1`, and its
+`KINGS_SELF_HOSTED_MODEL` must name the loaded model exactly—not an
+auto-routed virtual provider. The internal adapter preserves token usage and
+model identity in K.I.N.G.S. evidence. Absent/unverified capabilities are not
+fabricated. This is an operational inference route, not proof of model quality.
 
 If a self-hosted inference GPU is on another machine, use a private IP address
 or an exact, owner-controlled hostname in
