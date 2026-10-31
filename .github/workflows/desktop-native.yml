@@ -1,0 +1,107 @@
+name: K.I.N.G.S. Native Desktop Review Packages
+
+on:
+  pull_request:
+    paths:
+      - "src-tauri/**"
+      - "native-shell/**"
+      - ".github/workflows/desktop-native.yml"
+      - "development/android-native-package-test.mjs"
+  push:
+    branches:
+      - "feature/powerhouse-desktop-packages-20261030"
+    paths:
+      - "src-tauri/**"
+      - "native-shell/**"
+      - ".github/workflows/desktop-native.yml"
+      - "development/android-native-package-test.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kings-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      CI: "true"
+      TAURI_CLI_VERSION: "2.11.4"
+    steps:
+      - name: Checkout exact reviewed source
+        uses: actions/checkout@v4
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install K.I.N.G.S. dependencies
+        run: npm ci
+      - name: Verify TypeScript, shell and official crest
+        run: |
+          npm run build
+          node --check native-shell/app.js
+          node development/android-native-package-test.mjs
+      - name: Setup stable Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust native build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Install pinned Tauri CLI
+        run: cargo install tauri-cli --version "$TAURI_CLI_VERSION" --locked
+        shell: bash
+      - name: Generate native icons from official lion crest
+        run: cargo tauri icon native-shell/kings-ai-official-logo.png
+      - name: Build macOS disk image
+        if: runner.os == 'macOS'
+        run: cargo tauri build --ci --bundles dmg
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        run: cargo tauri build --ci --bundles nsis
+      - name: Verify and package desktop review installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p desktop-artifacts
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            package_dir="src-tauri/target/release/bundle/dmg"
+            extension="dmg"
+          else
+            package_dir="src-tauri/target/release/bundle/nsis"
+            extension="exe"
+          fi
+          test -d "$package_dir"
+          find "$package_dir" -type f -name "*.$extension" -print0 | while IFS= read -r -d '' package; do
+            file_name="$(basename "$package")"
+            test ! -e "desktop-artifacts/$file_name" || exit 1
+            cp "$package" "desktop-artifacts/$file_name"
+            (cd desktop-artifacts && sha256sum "$file_name") >> desktop-artifacts/SHA256SUMS
+          done
+          test -s desktop-artifacts/SHA256SUMS
+          (cd desktop-artifacts && sha256sum --check SHA256SUMS)
+          cat > desktop-artifacts/INSTALL.txt <<EOF
+          K.I.N.G.S. AI native desktop REVIEW package.
+          Source commit: $GITHUB_SHA
+          OS: $RUNNER_OS
+          Verify the checksum before installation.
+          Open the application and connect only to your trusted HTTPS owner runtime.
+          Enter your owner credential only in the secure login field.
+          These packages are not notarized or production code-signed.
+          Production distribution requires owner-held Apple/Windows signing credentials.
+          EOF
+      - name: Publish native desktop review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kings-ai-desktop-${{ runner.os }}-${{ github.sha }}
+          path: desktop-artifacts/
+          if-no-files-found: error
+          retention-days: 90
