@@ -132,9 +132,15 @@ jobs:
           : > android-artifacts/SHA256SUMS
           for apk in "${APKS[@]}"; do
             "$APKSIGNER" verify --verbose --print-certs "$apk"
-            cp "$apk" android-artifacts/
-            sha256sum "$apk" >> android-artifacts/SHA256SUMS
+            apk_name="$(basename "$apk")"
+            if [ -e "android-artifacts/$apk_name" ]; then
+              echo "Duplicate APK filename in Android artifact: $apk_name" >&2
+              exit 1
+            fi
+            cp "$apk" "android-artifacts/$apk_name"
+            (cd android-artifacts && sha256sum "$apk_name") >> android-artifacts/SHA256SUMS
           done
+          (cd android-artifacts && sha256sum --check SHA256SUMS)
           cat > android-artifacts/INSTALL.txt <<EOF
           K.I.N.G.S. AI Android debug installation
           Source commit: $GITHUB_SHA
