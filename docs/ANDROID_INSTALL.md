@@ -40,7 +40,12 @@ that key must live in an approved secret manager and must never be committed.
   tunnel.
 - Supply `KINGS_CODING_MACHINE_TOKEN` from a secret manager; do not put it in
   the repository or APK.
-- Configure at least one capable routed provider. Ollama remains an optional
-  local/offline fallback, not the mandatory primary brain.
+- Set `KINGS_INTELLIGENCE_MODE=sovereign` (the default). Use an owner-operated
+  inference server with `KINGS_OLLAMA_BASE_URL` and `KINGS_OLLAMA_MODEL`.
+  External AI gateways are not registered in this mode. Without a configured
+  local model, inference fails closed rather than showing fabricated answers.
+- The app is a native HTTPS client, not a phone-hosted trained foundation model.
+  The backend must remain online for model inference and coding tools. This
+  package does not independently prove specialist model quality or offline use.
 - Run `npm run verify` before deployment and verify `/health` plus authenticated
   owner status after deployment.
