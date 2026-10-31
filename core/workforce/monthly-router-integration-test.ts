@@ -65,7 +65,7 @@ async function main(): Promise<void> {
     await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
     const port = (server.address() as AddressInfo).port;
     const url = "http://127.0.0.1:" + port;
-    const send = (token: string, body = responseBody) => fetch(url + "/v1/responses", {
+    const send = (token: string, body: Record<string, unknown> = responseBody) => fetch(url + "/v1/responses", {
       method: "POST", headers: headers(token), body: JSON.stringify(body),
     });
 
