@@ -26,6 +26,7 @@ export class OllamaIntelligenceModel
       ModelIdentity["capabilities"],
     providerId =
       "internal-intelligence",
+    contextWindowTokens = 32768,
   ) {
     this.client =
       client;
@@ -53,8 +54,7 @@ export class OllamaIntelligenceModel
       outputModalities: [
         "text",
       ],
-      contextWindowTokens:
-        32768,
+      contextWindowTokens,
       supportsToolCalling:
         false,
       supportsStructuredOutput:
