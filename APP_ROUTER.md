@@ -4,7 +4,7 @@ K.I.N.G.S. AI is the shared AI-routing core for K.I.N.G.S. applications. Product
 
 ## Architectural rule
 
-K.I.N.G.S. apps must not grow separate provider-routing stacks. Cloud gateways and local/offline intelligence are registered behind the same governed K.I.N.G.S. provider boundary. Provider credentials belong in the K.I.N.G.S. AI runtime, not in browser code and not duplicated across product repositories.
+K.I.N.G.S. apps use the governed K.I.N.G.S. provider boundary. **Sovereign local inference is now the default** under the owner's independent-model directive. The K.I.N.G.S. router and workforce remain first-party and do not invoke outside AI agents. Public internet research is a distinct, explicitly requested tool operation and does not authorize external inference. Model and research credentials belong to the owner-controlled runtime, never browser code.
 
 The app-facing gateway is exposed by the app-router runtime:
 
@@ -85,7 +85,10 @@ percentile against at least five peer models.
 ## Routing behavior
 
 - Provider order is controlled by `KINGS_APP_ROUTER_PROVIDER_ORDER`.
-- Default order is `omniroute,9router,ollama-internal`.
+- Default mode is `KINGS_INTELLIGENCE_MODE=sovereign`, with provider order `ollama-internal`. No external model gateways are registered, even if their credentials are configured.
+- `KINGS_INTELLIGENCE_MODE=hybrid` is an explicit opt-in that restores `omniroute,9router,ollama-internal` as the default routing order. Hybrid mode does not meet the owner's independent-model-only production requirement.
+- Sovereign deployments require an owner-operated local or self-hosted model configured through `KINGS_OLLAMA_BASE_URL` and `KINGS_OLLAMA_MODEL`. Missing models return a routing failure; never pretend a model is available.
+- Owner-approved web research stays within the existing HTTPS-only, private-network-blocking research gateway. Retrieved web text is evidence, not automatically training data.
 - A caller may request an explicit provider or model when required.
 - Automatic routing filters out models that do not declare the requested capabilities/modalities.
 - Powerhouse service-domain requests add server-controlled capability requirements; callers cannot weaken them by supplying a generic capability list.
