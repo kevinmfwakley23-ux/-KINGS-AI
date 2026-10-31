@@ -28,14 +28,19 @@ host, or use `KINGS_CODING_MACHINE_BIND=0.0.0.0` when your controlled network
 requires it; both modes enforce authentication when the owner token is set.
 Only the trusted HTTPS proxy should be exposed publicly, not the raw HTTP port.
 
-Browser/mobile clients bootstrap once at
-`https://<owner-host>/?access=<KINGS_CODING_MACHINE_TOKEN>`. K.I.N.G.S. validates
-that token only on the root GET, responds with a redirect to `/`, and replaces
-the URL credential with a `Secure`, `HttpOnly`, `SameSite=Strict` host cookie
-containing a digest-derived session value rather than the reusable owner token.
+New Android clients bootstrap once using an HTTPS form POST to
+`/session/bootstrap` with the `access` form field. The reusable owner secret is
+in the request body, not the URL, and the server accepts at most 4 KiB of form
+data. The server checks the credential, returns a redirect to `/`, and issues
+a `Secure`, `HttpOnly`, `SameSite=Strict` host cookie containing a
+hash-derived session value rather than the reusable owner token. Invalid,
+duplicate, or oversized credentials fail closed. The old root GET
+`/?access=<token>` remains available temporarily for older clients; it is
+not recommended because request URLs can enter access logs and browser history.
 The owner API also accepts the original token as a Bearer credential for
 non-browser clients. `/health` remains a minimal unauthenticated infrastructure
-probe; owner UI and `/api/status` require authentication in remote mode.
+probe; owner UI and `/api/status` require authentication whenever the owner
+token is configured, including when the server binds to loopback.
 
 Do not expose the owner console through plain public HTTP. A firewall is useful
 defense in depth but is not a substitute for K.I.N.G.S.' application-layer owner
