@@ -88,6 +88,7 @@ percentile against at least five peer models.
 - Default mode is `KINGS_INTELLIGENCE_MODE=sovereign`, with provider order `ollama-internal`. No external model gateways are registered, even if their credentials are configured.
 - `KINGS_INTELLIGENCE_MODE=hybrid` is an explicit opt-in that restores `omniroute,9router,ollama-internal` as the default routing order. Hybrid mode does not meet the owner's independent-model-only production requirement.
 - Sovereign deployments require an owner-operated local or self-hosted model configured through `KINGS_OLLAMA_BASE_URL` and `KINGS_OLLAMA_MODEL`. Missing models return a routing failure; never pretend a model is available.
+- `KINGS_OLLAMA_CONTEXT_TOKENS` is an actual optional `num_ctx` runtime option (1024–131072), not a promise that every model or device can handle that context. Training/deployment instructions: [Sovereign inference and training](docs/SOVEREIGN_INFERENCE_AND_TRAINING.md).
 - Owner-approved web research stays within the existing HTTPS-only, private-network-blocking research gateway. Retrieved web text is evidence, not automatically training data.
 - A caller may request an explicit provider or model when required.
 - Automatic routing filters out models that do not declare the requested capabilities/modalities.
