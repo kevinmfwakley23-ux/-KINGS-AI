@@ -421,6 +421,82 @@ async function assertRemoteAuthenticationLifecycle() {
   }
 }
 
+async function assertLoopbackProxyRequiresOwnerAuthentication() {
+  // A public HTTPS reverse proxy commonly forwards traffic to a loopback-bound
+  // backend. Binding to 127.0.0.1 must not silently disable owner auth.
+  const port = await freePort();
+  const token = "kings-proxy-owner-token-0123456789abcdef";
+  const run = startOwner({ port, bind: "127.0.0.1", token });
+  try {
+    await waitForHealth(port, run.child, run.output);
+    const base = "http://127.0.0.1:" + port;
+
+    const health = await fetch(base + "/health", { cache: "no-store" });
+    assert.equal(health.status, 200, "proxied owner health should still support infrastructure probes");
+
+    const status = await fetch(base + "/api/status", { cache: "no-store" });
+    assert.equal(status.status, 401, "configured owner token must protect loopback API requests");
+
+    const ui = await fetch(base + "/", { redirect: "manual" });
+    assert.equal(ui.status, 401, "configured owner token must protect the loopback owner UI");
+
+    const missions = await fetch(base + "/api/missions", { cache: "no-store" });
+    assert.equal(missions.status, 401, "configured owner token must protect persisted missions");
+
+    const unauthorizedWrite = await fetch(base + "/api/missions", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-kings-owner-action": "create-mission" },
+      body: JSON.stringify({ ownerVision: "Unauthorized proxy caller must not create a mission." }),
+    });
+    assert.equal(unauthorizedWrite.status, 401, "a forwarded owner action must not bypass authentication");
+
+    const forgedProxyHeaders = await fetch(base + "/api/status", {
+      headers: { "x-forwarded-for": "127.0.0.1", "x-forwarded-proto": "https" },
+    });
+    assert.equal(forgedProxyHeaders.status, 401, "proxy headers must not grant owner access");
+
+    const wrong = await fetch(base + "/?access=wrong-token", { redirect: "manual" });
+    assert.equal(wrong.status, 401, "incorrect bootstrap must be rejected even on loopback");
+
+    const bootstrap = await fetch(base + "/?access=" + encodeURIComponent(token), { redirect: "manual" });
+    assert.equal(bootstrap.status, 303, "owner token must establish a redirecting browser session");
+    const cookie = bootstrap.headers.get("set-cookie") ?? "";
+    assert.match(cookie, /__Host-kings_owner_access=/);
+    assert.match(cookie, /HttpOnly/i);
+    assert.match(cookie, /Secure/i);
+    assert.match(cookie, /SameSite=Strict/i);
+    assert.doesNotMatch(cookie, /kings-proxy-owner-token/, "reusable owner secret must never be in the session cookie");
+
+    const ownerSession = await fetch(base + "/api/status", {
+      headers: { cookie: cookie.split(";", 1)[0] },
+    });
+    assert.equal(ownerSession.status, 200, "authenticated proxy browser session must work");
+    const ownerStatus = await ownerSession.json();
+    assert.equal(ownerStatus.remoteMode, false, "network bind remains loopback");
+    assert.equal(ownerStatus.ownerAuthRequired, true, "runtime must report the effective owner auth gate");
+
+    const bearer = await fetch(base + "/api/status", {
+      headers: { authorization: "Bearer " + token },
+    });
+    assert.equal(bearer.status, 200, "authorized API clients must still work behind the reverse proxy");
+  } finally {
+    await stop(run.child);
+    await cleanupOwnerState(run.state);
+  }
+}
+
+async function assertWeakLoopbackTokenFailsClosed() {
+  const port = await freePort();
+  const run = startOwner({ port, bind: "127.0.0.1", token: "weak-secret" });
+  try {
+    const [code] = await once(run.child, "exit");
+    assert.notEqual(code, 0, "a configured weak owner token must fail startup");
+    assert.match(run.output(), /refuses configured owner tokens shorter than 24 characters/);
+  } finally {
+    await cleanupOwnerState(run.state);
+  }
+}
+
 function createTextPdf(text) {
   const safeText = String(text).replace(/([\\()])/gu, "\\$1");
   const stream = [
@@ -463,5 +539,7 @@ function createTextPdf(text) {
 
 await assertRemoteStartupRequiresToken();
 await assertLoopbackRemainsLocalAndUsable();
+await assertLoopbackProxyRequiresOwnerAuthentication();
+await assertWeakLoopbackTokenFailsClosed();
 await assertRemoteAuthenticationLifecycle();
 console.log("K.I.N.G.S. owner-console auth + voice mission + governed PDF context boundary: SUCCESS");
