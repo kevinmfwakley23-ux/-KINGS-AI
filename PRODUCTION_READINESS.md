@@ -52,6 +52,13 @@ Sovereign mode applies to both the owner mission executor and the app-facing Res
 
 The existing HTTPS web research gateway can retrieve outside information only within the governed request and source rules; retrieving information does not authorize model-weight training, copyright infringement, or automatic permanent knowledge promotion. The owner can request research without delegating model inference to a remote AI agent.
 
+The offline LoRA trainer and deployment boundary are documented in
+[sovereign inference and training](docs/SOVEREIGN_INFERENCE_AND_TRAINING.md).
+A fine-tuning script is not a trained or independently qualified model. The
+runner requires a real licensed base model and rights-cleared private data.
+The optional `KINGS_OLLAMA_CONTEXT_TOKENS` passes directly to the local
+inference server and remains hardware/model-dependent.
+
 ## Autonomous coding recovery
 
 Owner-created coding missions now perform a bounded validation-repair cycle.
