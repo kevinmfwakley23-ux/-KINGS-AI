@@ -73,7 +73,8 @@ try {
     assert.throws(() => authority.snapshot(expired),
       (e) => e instanceof UsageAccessError && e.code === "SUBSCRIPTION_INACTIVE");
 
-    writePlan({ paidThrough: "2099-12-31T23:59:59Z" });
+    writePlan({ paidThrough: "2099-12-31T23:59:59Z", planId: "premium",
+      monthlyTokens: 5000, monthlyRequests: 10, maxOutputTokens: 400 });
     assert.equal(authority.snapshot(authority.accountForToken(token)!).usedTokens, 300);
     const recentMonth = new Date("2026-10-30T00:00:00Z");
     const nextMonth = new Date("2026-11-01T00:00:00Z");
