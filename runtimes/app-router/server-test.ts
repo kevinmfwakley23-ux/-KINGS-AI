@@ -11,7 +11,10 @@ const identity: ModelIdentity = {
   modelId: "creative-route",
   displayName: "Test Creative Route",
   providerKind: "internal-self-hosted",
-  capabilities: ["reasoning", "planning", "coding", "research"],
+  capabilities: [
+    "reasoning", "planning", "coding", "debugging", "research",
+    "verification", "recovery", "long-context", "memory",
+  ],
   inputModalities: ["text"],
   outputModalities: ["text"],
   contextWindowTokens: 128_000,
@@ -68,6 +71,7 @@ async function main(): Promise<void> {
     port: 8790,
     accessToken: "test-router-token",
     providerOrder: ["test-provider"],
+    intelligenceMode: "hybrid", // Test-injected provider is not a trusted production inference adapter.
     researchMaxSources: 8,
     researchMaxResponseBytes: 512 * 1024,
     researchTimeoutMs: 15_000,
@@ -88,6 +92,46 @@ async function main(): Promise<void> {
       body: JSON.stringify({ model: "creative-route", input: "hello" }),
     });
     assert.equal(unauthorized.status, 401, "Responses bridge must preserve router bearer-token protection");
+
+    const domainsResponse = await fetch(`${base}/v1/powerhouse/domains`, {
+      headers: { authorization: "Bearer test-router-token" },
+    });
+    assert.equal(domainsResponse.status, 200, "Authenticated clients must be able to discover Powerhouse service domains.");
+    const domainsPayload = await domainsResponse.json() as {
+      policy_version: string;
+      qualification_policy: {
+        version: string;
+        production: {
+          minimumTasksPerDomain: number;
+          minimumPassRate: number;
+          maximumCriticalFailures: number;
+          heldOutRequired: boolean;
+          trainingDataDisjointRequired: boolean;
+          rightsClearedRequired: boolean;
+        };
+        topTier: {
+          minimumPeerModels: number;
+          minimumPercentileRank: number;
+          independentScoringRequired: boolean;
+        };
+      };
+      domains: Array<{ id: string; required_capabilities: string[]; qualification_note: string }>;
+    };
+    assert.equal(domainsPayload.domains.length, 7, "Powerhouse API must advertise all seven locked service domains.");
+    assert.ok(domainsPayload.policy_version, "Powerhouse domain discovery must expose policy version evidence.");
+    assert.ok(
+      domainsPayload.domains.every((domain) => domain.qualification_note.includes("expert status requires")),
+      "Domain discovery must not present routing policy as proof of expertise.",
+    );
+    assert.equal(domainsPayload.qualification_policy.production.minimumTasksPerDomain, 20);
+    assert.equal(domainsPayload.qualification_policy.production.minimumPassRate, 0.85);
+    assert.equal(domainsPayload.qualification_policy.production.maximumCriticalFailures, 0);
+    assert.equal(domainsPayload.qualification_policy.production.heldOutRequired, true);
+    assert.equal(domainsPayload.qualification_policy.production.trainingDataDisjointRequired, true);
+    assert.equal(domainsPayload.qualification_policy.production.rightsClearedRequired, true);
+    assert.equal(domainsPayload.qualification_policy.topTier.minimumPeerModels, 5);
+    assert.equal(domainsPayload.qualification_policy.topTier.minimumPercentileRank, 90);
+    assert.equal(domainsPayload.qualification_policy.topTier.independentScoringRequired, true);
 
     const response = await fetch(`${base}/v1/responses`, {
       method: "POST",
@@ -140,15 +184,50 @@ async function main(): Promise<void> {
         "content-type": "application/json",
         "x-kings-app-id": "kings.collectors.kingdom",
       },
-      body: JSON.stringify({ model: "creative-route", input: "Price this collectible responsibly." }),
+      body: JSON.stringify({
+        model: "creative-route",
+        service_domain: "collectibles",
+        input: "Price this collectible responsibly.",
+        temperature: 1.5,
+      }),
     });
     assert.equal(kingdomResponse.status, 200);
-    const kingdomPayload = await kingdomResponse.json() as { app_id: string; output_text: string };
+    const kingdomPayload = await kingdomResponse.json() as {
+      app_id: string;
+      output_text: string;
+      service_domain: string;
+      domain_policy_version: string;
+      required_capabilities: string[];
+    };
     assert.equal(kingdomPayload.app_id, "kings.collectors.kingdom");
     assert.equal(kingdomPayload.output_text, "Forge bridge verified.");
+    assert.equal(kingdomPayload.service_domain, "collectibles");
+    assert.ok(kingdomPayload.domain_policy_version);
+    assert.deepEqual(kingdomPayload.required_capabilities, ["reasoning", "research", "verification"]);
     assert.ok(capturedRequest, "Collector's Kingdom request must reach model execution");
     assert.equal(capturedRequest.missionId, "app:kings.collectors.kingdom");
     assert.match(capturedRequest.taskId, /^app:kings\.collectors\.kingdom:/);
+    assert.deepEqual(capturedRequest.requiredCapabilities, ["reasoning", "research", "verification"]);
+    assert.equal(capturedRequest.temperature, 0.2, "Collectibles policy must clamp speculative temperature.");
+    assert.match(capturedRequest.messages[0]?.content ?? "", /K\.I\.N\.G\.S\. POWERHOUSE SERVICE DOMAIN: Collectibles Analysis/);
+    assert.match(capturedRequest.messages[0]?.content ?? "", /never present an image estimate as an official grade/);
+    assert.equal(capturedRequest.messages.at(-1)?.content, "Price this collectible responsibly.");
+
+    const invalidDomain = await fetch(`${base}/v1/responses`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-router-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "creative-route",
+        service_domain: "instant-top-tier-expert",
+        input: "Make an unsupported expert claim.",
+      }),
+    });
+    assert.equal(invalidDomain.status, 400, "Unknown Powerhouse service domains must fail closed.");
+    const invalidDomainPayload = await invalidDomain.json() as { error: string };
+    assert.equal(invalidDomainPayload.error, "INVALID_SERVICE_DOMAIN");
 
     const invalidApp = await fetch(`${base}/v1/responses`, {
       method: "POST",

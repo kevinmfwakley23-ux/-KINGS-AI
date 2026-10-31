@@ -1,7 +1,7 @@
 import http from "node:http";
 import os from "node:os";
 import { spawn } from "node:child_process";
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
@@ -11,6 +11,9 @@ const require = createRequire(import.meta.url);
 const { OwnerMissionRuntime } = require("../../build/core/workforce/owner-mission-runtime.js");
 const { OwnerPdfContextRuntime } = require("../../build/core/workforce/owner-pdf-context-runtime.js");
 const { createOwnerMissionExecutionService } = require("../../build/core/workforce/owner-mission-execution-service.js");
+const { resolveKingsIntelligenceMode } = require("../../build/core/workforce/inference-sovereignty.js");
+const { AppBrainGateway } = require("../../build/core/workforce/app-brain-gateway.js");
+const { WebAccessAdapter } = require("../../build/core/workforce/web-access.js");
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
 const host = String(process.env.KINGS_CODING_MACHINE_BIND ?? "127.0.0.1").trim();
@@ -19,6 +22,11 @@ const ownerToken = String(process.env.KINGS_CODING_MACHINE_TOKEN ?? "").trim();
 const ownerCookieName = "__Host-kings_owner_access";
 const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1"]);
 const remoteMode = !loopbackHosts.has(host);
+const intelligenceMode = resolveKingsIntelligenceMode(process.env);
+// Loopback is not an authentication boundary: HTTPS reverse proxies normally
+// forward public traffic to 127.0.0.1. An explicitly configured owner token
+// therefore enables authentication regardless of the listening interface.
+const ownerAuthRequired = remoteMode || ownerToken.length > 0;
 const ownerSessionToken = ownerToken
   ? createHash("sha256").update(`kings-owner-session:${ownerToken}`).digest("hex")
   : "";
@@ -68,6 +76,9 @@ if (remoteMode && ownerToken.length < 24) {
     "K.I.N.G.S. Owner Console refuses non-loopback binding without KINGS_CODING_MACHINE_TOKEN of at least 24 characters",
   );
 }
+if (ownerToken.length > 0 && ownerToken.length < 24) {
+  throw new Error("K.I.N.G.S. Owner Console refuses configured owner tokens shorter than 24 characters");
+}
 
 const ownerMissionRuntime = new OwnerMissionRuntime(ownerMissionStorePath);
 await ownerMissionRuntime.initialize();
@@ -86,6 +97,15 @@ const ownerMissionExecutionService = createOwnerMissionExecutionService(
     env: process.env,
   },
 );
+
+const ownerResearch = new AppBrainGateway(new WebAccessAdapter({
+  allowedMethods: ["GET"],
+  allowedSchemes: ["https"],
+  maxResponseBytes: 256 * 1024,
+  timeoutMs: 10_000,
+  maxRedirects: 0,
+  blockPrivateNetworks: true,
+}), 5);
 
 const ollamaConfigured = Boolean(
   process.env.KINGS_OLLAMA_BASE_URL &&
@@ -117,6 +137,16 @@ const connectors = [
     apiKey: process.env.KINGS_9ROUTER_API_KEY,
   },
   {
+    id: "kings-self-hosted",
+    label: "K.I.N.G.S. owner-hosted model",
+    url: process.env.KINGS_SELF_HOSTED_BASE_URL ?? "http://127.0.0.1:8000/v1",
+    healthPath: "/models",
+    configured: Boolean(
+      process.env.KINGS_SELF_HOSTED_BASE_URL && process.env.KINGS_SELF_HOSTED_MODEL
+    ),
+    apiKey: process.env.KINGS_SELF_HOSTED_API_KEY,
+  },
+  {
     id: "ollama-internal",
     label: "Ollama fallback",
     url: process.env.KINGS_OLLAMA_BASE_URL ??
@@ -125,7 +155,8 @@ const connectors = [
     healthPath: "/api/tags",
     configured: ollamaConfigured,
   },
-];
+].filter((connector) => intelligenceMode === "hybrid" ||
+  connector.id === "ollama-internal" || connector.id === "kings-self-hosted");
 
 function joinUrl(base, path) {
   return `${base.replace(/\/+$/, "")}${path}`;
@@ -152,7 +183,7 @@ function parseCookies(value) {
 }
 
 function authorizeOwnerRequest(req, url) {
-  if (!remoteMode) return { allowed: true, bootstrap: false };
+  if (!ownerAuthRequired) return { allowed: true, bootstrap: false };
   if (url.searchParams.has("access")) {
     const supplied = url.searchParams.get("access") ?? "";
     const bootstrap = req.method === "GET" && url.pathname === "/" && tokenMatches(supplied, ownerToken);
@@ -486,7 +517,8 @@ const page = `<!doctype html>
 <header><div class="brand-head"><img class="brand-logo" src="/assets/kings-ai-official-logo.png" alt="K.I.N.G.S. AI official crowned lion crest" width="104" height="104"><div><div class="eyebrow">KNOWLEDGE • INVESTIGATION • NARRATIVE • GENERATION • SYSTEM</div><h1>K.I.N.G.S. AI</h1><div class="muted">Owner command console · governed autonomous engineering</div></div></div><button class="secondary" onclick="refreshAll()">Refresh</button></header>
 <section class="card"><div class="eyebrow">Owner Vision</div><h2>Talk to K.I.N.G.S.</h2><p class="muted">Describe what to build or repair. <strong>Build From This Vision</strong> creates an approved locked mission and starts the real governed execution loop against the server-configured repository.</p><label for="vision">What should K.I.N.G.S. build?</label><textarea id="vision" placeholder="Describe the feature, repair, application, or system…"></textarea><div id="voice-state" class="muted">Voice dictation depends on browser support. Text always works.</div><label for="product-name">Mission / product name (optional)</label><input id="product-name" maxlength="160"><div id="context-drop" class="dropzone"><strong>Project context PDFs</strong><div class="muted">Drop PDFs here or choose files. Extraction and source preservation happen in K.I.N.G.S., not the browser.</div><input id="pdf-input" type="file" accept="application/pdf,.pdf" multiple hidden><button type="button" class="secondary" onclick="document.getElementById('pdf-input').click()">Choose PDFs</button><div id="context-upload-status" class="muted"></div></div><div id="context-list" class="muted">Loading context…</div><div class="row" style="margin-top:12px"><button id="voice-button" class="secondary" onclick="toggleVoice()">🎙 Talk</button><button id="build-button" class="gold" onclick="buildVision()">Build From This Vision</button></div><div id="mission-create-status" class="muted" style="margin-top:10px"></div></section>
 <section class="card"><div class="row"><div class="grow"><h2 style="margin:.1rem 0">Mission Control</h2><div class="muted">Task transitions, model attribution, governed writes and verification results persist on disk.</div></div><button class="secondary" onclick="refreshMissions()">Refresh Missions</button></div><div id="mission-job" class="muted" style="margin-top:8px"></div><div id="missions" class="muted">Loading…</div></section>
-<section class="card"><h2>AI Routing</h2><p class="muted">Server policy controls model routing. OmniRoute and 9Router are first-class routes; local Ollama appears only when explicitly configured as fallback.</p><div id="routing" class="muted"></div><div id="connectors" class="grid" style="margin-top:10px"></div></section>
+<section class="card"><h2>Owner-Approved Internet Research</h2><p class="muted">Retrieve real public HTTPS sources on demand. K.I.N.G.S. records the source provenance; no outside AI agent is called and retrieved text is not automatically training data.</p><label for="research-question">What are you researching?</label><textarea id="research-question" rows="2" placeholder="Research a collectible, software library, publishing rule, or topic."></textarea><label for="research-urls">Source URLs (one public HTTPS URL per line, maximum five)</label><textarea id="research-urls" rows="3" placeholder="https://example.com/research-source"></textarea><button id="research-button" onclick="researchSources()">Retrieve Approved Sources</button><pre id="research-output" class="muted" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto">No research request has been made.</pre></section>
+<section class="card"><h2>AI Routing</h2><p class="muted">Sovereign mode uses owner-operated K.I.N.G.S. models, with Ollama as a local fallback. Outside AI gateways remain disabled unless the owner explicitly selects hybrid mode.</p><div id="routing" class="muted"></div><div id="connectors" class="grid" style="margin-top:10px"></div></section>
 <section class="card"><h2>Governed Engineering</h2><p class="muted">Browser requests cannot supply a shell command, executable, arguments, provider secret, or alternate workspace.</p><p><strong>Workspace:</strong> <code id="engineering-workspace">Loading…</code></p><div class="row"><button class="secondary" onclick="startEngineering('readiness')">Inspect Readiness</button><button onclick="startEngineering('verify')">Run Governed Verify</button></div><div id="engineering-status" class="muted" style="margin-top:9px"></div><pre id="engineering-evidence" hidden></pre></section>
 <section class="card"><h2>Runtime</h2><div id="runtime" class="muted">Loading…</div></section>
 </main><script>
@@ -506,6 +538,7 @@ async function refreshMissions(){try{const b=await requestJson('/api/missions');
 async function refreshExecution(){try{const b=await requestJson('/api/mission-execution');const j=b.job;document.getElementById('routing').textContent='Order: '+b.providerOrder.join(' → ')+' | Available now: '+(b.availableProviders.join(', ')||'none configured');document.getElementById('mission-job').textContent=j?(j.status+' · '+j.missionId+(j.error?' · '+j.error:'')):'No mission execution job running.';if(j?.status==='running')scheduleRefresh()}catch(e){document.getElementById('mission-job').textContent=e.message}}
 let refreshTimer=null;function scheduleRefresh(){clearTimeout(refreshTimer);refreshTimer=setTimeout(async()=>{await refreshMissions();await refreshExecution()},1500)}
 async function refreshStatus(){try{const b=await requestJson('/api/status');document.getElementById('runtime').innerHTML='<strong>'+esc(b.platform)+' '+esc(b.arch)+'</strong> · Node '+esc(b.node)+' · '+esc(b.hostname)+'<br><span class="muted">PID '+b.pid+' · uptime '+Math.round(b.uptimeSeconds)+'s</span>'}catch(e){document.getElementById('runtime').textContent=e.message}}
+async function researchSources(){const output=document.getElementById('research-output');const question=document.getElementById('research-question').value.trim();const urls=document.getElementById('research-urls').value.split(String.fromCharCode(10)).map(u=>u.trim()).filter(Boolean);if(!question||urls.length<1||urls.length>5){output.textContent='Enter a research question and 1 to 5 public HTTPS URLs.';return}const button=document.getElementById('research-button');button.disabled=true;output.textContent='Retrieving owner-approved HTTPS sources…';try{const data=await requestJson('/api/owner-research',{method:'POST',headers:{'content-type':'application/json','x-kings-owner-action':'retrieve-public-sources'},body:JSON.stringify({question,urls})});const sources=data.sources||[];output.textContent=JSON.stringify({requestId:data.requestId,sourceCount:sources.length,sources:sources.map(source=>({url:source.url,finalUrl:source.finalUrl,fetchedAt:source.fetchedAt,status:source.status,contentType:source.contentType,content:String(source.content||'').slice(0,6000)}))},null,2)}catch(e){output.textContent='Research unavailable: '+e.message}finally{button.disabled=false}}
 async function refreshConnectors(){try{const b=await requestJson('/api/connectors');document.getElementById('connectors').innerHTML=b.connectors.map(c=>'<div class="status"><strong>'+esc(c.label)+'</strong><div class="'+(c.reachable?'success':'muted')+'">'+(c.configured?(c.reachable?'reachable':'configured / unavailable'):'not configured')+'</div></div>').join('')}catch(e){document.getElementById('connectors').textContent=e.message}}
 async function refreshEngineering(){try{const b=await requestJson('/api/engineering');document.getElementById('engineering-workspace').textContent=b.workspace;const el=document.getElementById('engineering-status');const pre=document.getElementById('engineering-evidence');if(!b.job){el.textContent='No governed validation job running.';pre.hidden=true}else{el.textContent=b.job.status+' · '+b.job.action+(b.job.error?' · '+b.job.error:'');if(b.job.result){pre.textContent=JSON.stringify(b.job.result,null,2);pre.hidden=false}else pre.hidden=true;if(b.job.status==='running')setTimeout(refreshEngineering,800)}}catch(e){document.getElementById('engineering-status').textContent=e.message}}
 async function startEngineering(action){try{await requestJson('/api/engineering/'+action,{method:'POST',headers:{'x-kings-owner-action':action}});await refreshEngineering()}catch(e){document.getElementById('engineering-status').textContent=e.message}}
@@ -518,6 +551,29 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET" && url.pathname === "/health") {
     return json(res, 200, { ok: true, service: "kings-owner-console" });
+  }
+
+  // Native Android and web clients submit the owner token in a bounded POST
+  // body, never in a browser navigation URL. The token is not logged, persisted,
+  // or echoed; the response replaces it with the existing HttpOnly session.
+  if (req.method === "POST" && url.pathname === "/session/bootstrap") {
+    if (!ownerAuthRequired) return unauthorized(res);
+    const contentType = String(req.headers["content-type"] ?? "").toLowerCase();
+    if (!/^application\/x-www-form-urlencoded(?:\s*;|$)/u.test(contentType)) {
+      return json(res, 415, { ok: false, error: "unsupported_owner_bootstrap_content_type" });
+    }
+    try {
+      const body = await readRawBody(req, 4096);
+      const params = new URLSearchParams(body.toString("utf8"));
+      const secrets = params.getAll("access");
+      if (secrets.length !== 1 || !tokenMatches(secrets[0], ownerToken)) return unauthorized(res);
+      return establishOwnerSession(res);
+    } catch (error) {
+      return json(res, Number(error?.statusCode) || 400, {
+        ok: false,
+        error: "invalid_owner_bootstrap",
+      });
+    }
   }
 
   const authorization = authorizeOwnerRequest(req, url);
@@ -538,6 +594,8 @@ const server = http.createServer(async (req, res) => {
       pid: process.pid,
       uptimeSeconds: process.uptime(),
       remoteMode,
+      ownerAuthRequired,
+      intelligenceMode,
       workspace: engineeringWorkspace,
     });
   }
@@ -547,6 +605,38 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       connectors: await Promise.all(connectors.map(probe)),
     });
+  }
+
+  // Public web research requires owner authentication, an explicit fixed
+  // action, and bounded source URLs. It never calls outside model agents and
+  // never promotes source text to permanent/training knowledge implicitly.
+  if (req.method === "POST" && url.pathname === "/api/owner-research") {
+    if (!actionHeaderMatches(req, "retrieve-public-sources")) {
+      return json(res, 400, {
+        ok: false,
+        error: "owner_research_confirmation_required",
+        message: "Set X-KINGS-Owner-Action to retrieve-public-sources to authorize this retrieval.",
+      });
+    }
+    try {
+      const body = await readJsonBody(req);
+      assertOnlyKeys(body, ["question", "urls", "maxSources"]);
+      const result = await ownerResearch.retrieveResearch({
+        appId: "kings.ai",
+        requestId: randomUUID(),
+        taskId: `owner-research-${randomUUID()}`,
+        question: body.question,
+        urls: body.urls,
+        ...(body.maxSources === undefined ? {} : { maxSources: body.maxSources }),
+      });
+      return json(res, 200, { ok: true, ...result });
+    } catch (error) {
+      return json(res, Number(error?.statusCode) || 400, {
+        ok: false,
+        error: "owner_research_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   if (req.method === "GET" && url.pathname === "/api/context") {
@@ -749,8 +839,8 @@ const server = http.createServer(async (req, res) => {
 server.requestTimeout = 60_000;
 server.headersTimeout = 10_000;
 server.listen(port, host, () => {
-  if (remoteMode) {
-    console.log(`K.I.N.G.S. Owner Console: authenticated remote mode on ${host}:${port}; terminate transport at trusted HTTPS and bootstrap with ?access=<KINGS_CODING_MACHINE_TOKEN>`);
+  if (ownerAuthRequired) {
+    console.log(`K.I.N.G.S. Owner Console: owner authentication required on ${host}:${port}; use trusted HTTPS for any remote clients`);
   } else {
     console.log(`K.I.N.G.S. Owner Console: http://${host}:${port}`);
   }
