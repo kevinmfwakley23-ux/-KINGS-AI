@@ -134,6 +134,8 @@ async function main(): Promise<void> {
       temperature: 0,
     };
     const env = {
+      // This existing gateway integration test deliberately exercises optional hybrid mode.
+      KINGS_INTELLIGENCE_MODE: "hybrid",
       KINGS_CODING_MACHINE_TOKEN: "owner-evaluation-token-0123456789abcdef",
       KINGS_OMNIROUTE_BASE_URL: `http://127.0.0.1:${address.port}/v1`,
       KINGS_OMNIROUTE_MODELS: "locked-model-v1",
@@ -149,6 +151,14 @@ async function main(): Promise<void> {
     }
     assert(ownerGateRejected, "Live evaluation must fail closed without the configured owner token.");
     assert(requests === 0, "Owner authorization must be checked before any provider request.");
+    let sovereignRejected = false;
+    try {
+      await runLivePowerhouseEvaluation(options, { ...env, KINGS_INTELLIGENCE_MODE: "sovereign" });
+    } catch (error) {
+      sovereignRejected = error instanceof Error && error.message.includes("unavailable");
+    }
+    assert(sovereignRejected, "Live benchmark must reject external inference in sovereign mode.");
+    assert(requests === 0, "Sovereign rejection must not send any outside model request.");
     const artifact = await runLivePowerhouseEvaluation(options, env);
     assert(requests === 140, "Live CLI must execute every held-out task exactly once.");
     assert(
