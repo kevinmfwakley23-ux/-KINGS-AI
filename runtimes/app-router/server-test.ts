@@ -71,6 +71,7 @@ async function main(): Promise<void> {
     port: 8790,
     accessToken: "test-router-token",
     providerOrder: ["test-provider"],
+    intelligenceMode: "hybrid", // Test-injected provider is not a trusted production inference adapter.
     researchMaxSources: 8,
     researchMaxResponseBytes: 512 * 1024,
     researchTimeoutMs: 15_000,
