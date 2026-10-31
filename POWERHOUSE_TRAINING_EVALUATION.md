@@ -124,6 +124,40 @@ Failures may guide domain-level improvement, but corrective examples must be
 new rights-cleared material with source groups and prompts disjoint from every
 held-out item. A new model build must be tested under a new immutable run id.
 
+## Owner-authorized corrective training
+
+`train:powerhouse` executes a real, explicitly configured trainer without a
+shell or network access. It refuses to start unless all seven domains contain at
+least 20 rights-cleared examples, every permission record is evidence-backed,
+and no training id, normalized prompt, or source group overlaps validation or
+held-out benchmark material. Unsupported fields are rejected so held-out task
+ids, outputs, and review evidence cannot be smuggled into the package.
+
+```bash
+npm run train:powerhouse -- \
+  --training-package ./.kings/powerhouse-training/package-001.json \
+  --benchmark-manifest ./.kings/powerhouse-evaluation/manifest.json \
+  --launch-manifest ./.kings/powerhouse-training/launch-001.json \
+  --output ./.kings/powerhouse-training/build-001.json
+```
+
+The owner-approved launch manifest binds the exact package and benchmark
+SHA-256, base-model identity/digest/license, trainer identity/version/digest,
+seed, hyperparameters, output model id, and build id. Its runner uses an
+absolute executable, a bounded timeout, an authorized working directory, and
+the required `{trainingPackage}`, `{benchmarkManifest}`, and `{modelArtifact}`
+argument placeholders. Both the executable command and trainer artifact bytes
+must match their separately approved SHA-256 digests before execution; shell
+interpreters are forbidden as trainer commands.
+
+K.I.N.G.S. records a `trained` status only after the sandboxed subprocess exits
+zero and produces a readable, nonempty model artifact. Timeout, nonzero exit,
+missing output, or empty output produces a failed record without a model hash.
+A successful record includes the artifact SHA-256 and a fresh benchmark run id
+derived from the build id and artifact bytes. The complete build record is
+HMAC-authorized with the existing owner token and written owner-only; the token
+is never passed to the trainer or persisted.
+
 ## Corpus item contract
 
 Each item declares:
@@ -142,10 +176,10 @@ and evidence reference.
 
 ## Honest current boundary
 
-This pipeline is real evaluation infrastructure. The repository does not ship a
-fake passing production corpus, fabricate rights evidence, or claim that a
-candidate has been trained or qualified. Real owner-approved, rights-cleared
-training data and private held-out tasks must be assembled, executed against a
-specific model build, and reviewed before the qualification authority can
-promote that model. The live executor makes that real run possible; it does not
-create the private corpus or declare the current candidate qualified.
+This pipeline is real training and evaluation infrastructure. The repository
+does not ship a fake passing production corpus, fabricate rights evidence, or
+claim that a candidate has been trained or qualified. Real owner-approved data,
+a compatible installed trainer and base model, compute, provider credentials,
+private held-out execution, independent rubric review, and peer comparison are
+deployment inputs—not facts code can invent. The CLIs make those real runs
+auditable; they do not declare an unexecuted candidate top-tier.

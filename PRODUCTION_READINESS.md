@@ -86,6 +86,18 @@ evidence artifacts without another model request. Held-out prompts and review
 answers remain prohibited from corrective training; improvements require new,
 rights-cleared, split-disjoint examples and a new model/run identity.
 
+Corrective training now has an executable owner-controlled boundary.
+`train:powerhouse` validates at least 20 rights-cleared, evaluation-disjoint
+examples in every domain, binds an immutable base model and trainer artifact,
+and runs only the owner-approved absolute executable through the existing
+no-shell, no-network `ExecutionSandbox`. It records `trained` only after a zero
+exit and a nonempty model artifact, hashes the artifact bytes, derives a fresh
+benchmark run identity, and HMAC-authorizes the immutable build record with the
+owner token. The deterministic suite includes a real subprocess that creates
+artifact bytes; failed and missing-artifact trainers cannot produce a trained
+claim. Owner data, a production trainer/base model, compute, and fresh private
+benchmark results remain external requirements.
+
 ## Powerhouse service-domain routing
 
 The authenticated Responses API supports seven explicit service contracts:
@@ -135,5 +147,14 @@ cloud provider accounts are live. Run `npm run test:live` on a machine with
 CrewAI/Ollama and any required external services configured. Use the owner
 console `/api/status` page to verify local reachability of Ollama, OmniRoute
 and 9Router.
+
+## Android client
+
+The Tauri Android workflow builds an installable debug APK with pinned tooling,
+verifies it with `apksigner`, publishes SHA-256 checksums and install directions,
+and retains the GitHub Actions artifact for 90 days. The APK is a secure native
+owner client for the HTTPS runtime; it intentionally does not embed provider
+keys, the owner token, or model-training infrastructure. See
+`docs/ANDROID_INSTALL.md`.
 
 Never commit API keys or owner access tokens. `.env` files are ignored.

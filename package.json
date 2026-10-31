@@ -15,6 +15,7 @@
     "evaluate:powerhouse": "npm run build && node build/runtimes/powerhouse-evaluation/cli.js",
     "evaluate:powerhouse:live": "npm run build && node build/runtimes/powerhouse-evaluation/live-cli.js",
     "review:powerhouse": "npm run build && node build/runtimes/powerhouse-evaluation/review-cli.js",
+    "train:powerhouse": "npm run build && node build/runtimes/powerhouse-training/cli.js",
     "start": "npm run build && node ui/project-owner/server.mjs",
     "start:router": "npm run build && node build/runtimes/app-router/server.js",
     "platform:check": "node development/platform-check.mjs",

@@ -171,9 +171,13 @@ These additions directly address the locked requirement for extensible programmi
 - `evaluate:powerhouse:live` preflights all seven-domain capabilities, requires the existing owner token before any provider request, executes configured OmniRoute/9Router/Ollama adapters, and produces a qualification-ready evidence artifact without exposing private prompts or raw outputs in that artifact.
 - Subjective rubric tasks remain failed until a distinct authorized reviewer attaches evidence; the evaluated model cannot self-approve. No current model is claimed qualified merely because this execution path now exists.
 
-**Owner-authorized rubric review — current checkpoint**
+**Owner-authorized rubric review and corrective training — current checkpoint**
 - `authorizePowerhouseRubricReviews` binds an approved human score to the exact run, manifest hash, provider, model, task, rubric, evidence SHA-256, and model-output SHA-256 using an owner-token HMAC.
 - `applyAuthorizedPowerhouseRubricReviews` verifies artifact integrity, checkpoint integrity, output identity, and authorization in constant time before attaching review evidence to model responses.
+- `validatePowerhouseTrainingPackage` requires 20 rights-cleared corrective examples in every domain and rejects id, normalized-prompt, and source-group overlap with validation or held-out evaluation data.
+- `PowerhouseModelTrainingExecutor` records a trained build only after a real trainer process exits zero and creates a nonempty artifact; it binds artifact bytes to a fresh benchmark-run identity.
+- `train:powerhouse` uses the existing no-shell execution sandbox, checks the approved trainer artifact digest, forbids trainer network access, and writes an owner-HMAC-authorized model-build record without persisting the owner token.
+- The Tauri Android workflow produces verified debug APKs, `SHA256SUMS`, and install directions. The APK is the secure client for an owner-controlled HTTPS runtime rather than a container for provider secrets or the training toolchain.
 - Wrong owner tokens, modified review artifacts, changed outputs, duplicate reviews, model self-review, failed model tasks, and attempts to review deterministic tasks fail closed.
 - Owner authorization proves approval but does not override rubric thresholds; below-threshold or missing reviews remain benchmark failures.
 - `review:powerhouse` performs the complete private file workflow under the execution checkpoint lock, writes owner-only signed-review/evidence artifacts, and makes zero additional provider requests.

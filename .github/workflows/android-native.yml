@@ -135,12 +135,24 @@ jobs:
             cp "$apk" android-artifacts/
             sha256sum "$apk" >> android-artifacts/SHA256SUMS
           done
+          cat > android-artifacts/INSTALL.txt <<EOF
+          K.I.N.G.S. AI Android debug installation
+          Source commit: $GITHUB_SHA
+
+          1. Download the APK that matches your phone (arm64/aarch64 is standard on current Android phones).
+          2. Verify its SHA-256 against SHA256SUMS.
+          3. Allow installation from your browser or file manager when Android asks.
+          4. Install the APK, open K.I.N.G.S. AI, and enter your trusted HTTPS owner-runtime origin.
+          5. Enter William's owner access token only in the app bootstrap field. The app does not store it.
+
+          This is a debug-signed review build. A production release requires William's private Android signing key.
+          EOF
           printf 'Verified %s installable K.I.N.G.S. APK artifact(s).\n' "${#APKS[@]}"
 
       - name: Upload Android APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kings-ai-android-${{ github.sha }}
+          name: kings-ai-android-debug-${{ github.sha }}
           path: android-artifacts/
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90

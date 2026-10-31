@@ -33,6 +33,11 @@ assert.match(cargo, /crate-type\s*=\s*\["staticlib",\s*"cdylib",\s*"rlib"\]/, "m
 assertOfficialKingsLogo(officialLogo);
 assert.match(shell, /kings-ai-official-logo\.png/, "native shell must display the official K.I.N.G.S. AI crest");
 assert.match(shell, /alt="K\.I\.N\.G\.S\. AI official crowned lion crest"/, "official crest must have accessible text");
+for (const focus of ["Coding", "Collectibles", "Sports Cards", "Writing"]) {
+  assert.match(shell, new RegExp(`>${focus}<`), `Android owner gateway must identify the ${focus} service focus`);
+}
+assert.match(shell, /This APK is the secure native client/, "Android shell must accurately explain the client/runtime boundary");
+assert.match(shell, /intelligence, provider routing, governed coding tools, collectibles research/, "Android shell must name the owner-runtime responsibilities");
 
 assert.match(app, /const STORAGE_KEY = "kings-owner-origin";/);
 assert.match(app, /parsed\.protocol !== "https:"/, "owner host normalization must reject non-HTTPS URLs");
