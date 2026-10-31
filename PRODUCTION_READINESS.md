@@ -12,11 +12,21 @@ K.I.N.G.S. is configured for Node.js 22+ and Python 3.11+ on Windows, macOS, and
 6. `npm start`
 7. Open `http://127.0.0.1:8787`.
 
-The owner console intentionally defaults to loopback. A non-loopback bind now
+The owner console intentionally defaults to loopback. A non-loopback bind
 fails closed unless `KINGS_CODING_MACHINE_TOKEN` contains at least 24 characters.
-For phone/tablet or other remote access, place the owner console behind a trusted
-HTTPS reverse proxy/tunnel, set `KINGS_CODING_MACHINE_BIND=0.0.0.0`, and provide
-the owner token through your secret manager.
+**A configured owner token also enforces owner authentication on loopback**:
+this prevents a public HTTPS reverse proxy forwarding requests to
+`127.0.0.1:8787` from bypassing the owner boundary. A configured token shorter
+than 24 characters fails startup on every interface. With no token configured,
+local loopback development remains available; it must never be exposed through
+an external reverse proxy, tunnel, or public ingress.
+
+For phone/tablet access, run K.I.N.G.S. behind a trusted HTTPS reverse proxy
+or tunnel and supply the owner token through your secret manager. You can keep
+`KINGS_CODING_MACHINE_BIND=127.0.0.1` when the HTTPS proxy runs on the same
+host, or use `KINGS_CODING_MACHINE_BIND=0.0.0.0` when your controlled network
+requires it; both modes enforce authentication when the owner token is set.
+Only the trusted HTTPS proxy should be exposed publicly, not the raw HTTP port.
 
 Browser/mobile clients bootstrap once at
 `https://<owner-host>/?access=<KINGS_CODING_MACHINE_TOKEN>`. K.I.N.G.S. validates
