@@ -3,8 +3,7 @@ import { resolve } from "node:path";
 import { AppAiRouter } from "../../core/workforce/app-ai-router";
 import { PowerhouseBenchmarkExecutor } from "../../core/workforce/powerhouse-benchmark-executor";
 import type { PowerhouseBenchmarkManifest } from "../../core/workforce/powerhouse-benchmark-runner";
-import { createConfiguredGatewayAdapters } from "../../core/workforce/openai-compatible-gateway";
-import { createConfiguredOllamaAdapter } from "../../core/workforce/ollama-provider-adapter";
+import { registerConfiguredKingsInference, resolveKingsIntelligenceMode } from "../../core/workforce/inference-sovereignty";
 import { ProviderAdapterRegistry } from "../../core/workforce/provider-adapters";
 import { listPowerhouseServiceDomains } from "../../core/workforce/powerhouse-service-domain";
 import {
@@ -88,9 +87,7 @@ function parseArguments(values: string[]): LiveCliOptions {
 
 function createProviders(env: NodeJS.ProcessEnv): ProviderAdapterRegistry {
   const providers = new ProviderAdapterRegistry();
-  for (const adapter of createConfiguredGatewayAdapters(env)) providers.register(adapter);
-  const ollama = createConfiguredOllamaAdapter(env);
-  if (ollama) providers.register(ollama);
+  registerConfiguredKingsInference(providers, env, resolveKingsIntelligenceMode(env));
   return providers;
 }
 
