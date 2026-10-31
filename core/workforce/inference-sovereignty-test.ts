@@ -3,6 +3,7 @@ import { createOmniRouteAdapter } from "./openai-compatible-gateway";
 import { ProviderAdapterRegistry } from "./provider-adapters";
 import {
   assertKingsInferenceSovereignty,
+  assertSovereignInferenceEndpoint,
   registerConfiguredKingsInference,
   resolveKingsIntelligenceMode,
   resolveKingsProviderOrder,
@@ -25,6 +26,27 @@ assert.throws(() => resolveKingsProviderOrder({
 assert.throws(() => resolveKingsProviderOrder({
   ...configured, KINGS_APP_ROUTER_PROVIDER_ORDER: " ",
 }, "sovereign"), /must contain a provider/);
+
+assert.doesNotThrow(() => assertSovereignInferenceEndpoint({
+  KINGS_OLLAMA_BASE_URL: "http://127.0.0.1:11434",
+}));
+assert.doesNotThrow(() => assertSovereignInferenceEndpoint({
+  KINGS_OLLAMA_BASE_URL: "http://192.168.1.10:11434",
+}));
+assert.doesNotThrow(() => assertSovereignInferenceEndpoint({
+  KINGS_OLLAMA_BASE_URL: "https://owner-gpu.example:11434",
+  KINGS_SOVEREIGN_INFERENCE_HOSTS: "owner-gpu.example",
+}));
+assert.throws(() => registerConfiguredKingsInference(new ProviderAdapterRegistry(), {
+  KINGS_OLLAMA_BASE_URL: "https://external-ai.example/v1",
+  KINGS_OLLAMA_MODEL: "fake-local",
+}), /endpoint must be private or explicitly owner-allowlisted/);
+assert.throws(() => assertSovereignInferenceEndpoint({
+  KINGS_OLLAMA_BASE_URL: "http://8.8.8.8:11434",
+}), /endpoint must be private or explicitly owner-allowlisted/);
+assert.throws(() => assertSovereignInferenceEndpoint({
+  KINGS_OLLAMA_BASE_URL: "https://evil.example@localhost:11434",
+}), /clean HTTP\(S\) model endpoint URL/);
 
 const sovereign = new ProviderAdapterRegistry();
 registerConfiguredKingsInference(sovereign, configured);
