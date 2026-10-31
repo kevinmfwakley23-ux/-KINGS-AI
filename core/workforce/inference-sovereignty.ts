@@ -1,5 +1,5 @@
-import { createConfiguredGatewayAdapters } from "./openai-compatible-gateway";
-import { createConfiguredOllamaAdapter } from "./ollama-provider-adapter";
+import { createConfiguredGatewayAdapters, OpenAICompatibleGatewayAdapter } from "./openai-compatible-gateway";
+import { createConfiguredOllamaAdapter, OllamaProviderAdapter } from "./ollama-provider-adapter";
 import { ProviderAdapterRegistry } from "./provider-adapters";
 import { createConfiguredSelfHostedAdapter, KINGS_SELF_HOSTED_PROVIDER_ID } from "./self-hosted-inference-provider";
 
@@ -115,6 +115,20 @@ export function assertKingsInferenceSovereignty(
     }
     const adapter = providers.get(provider.id);
     if (!adapter) throw new Error(`Missing registered adapter: ${provider.id}`);
+    // A self-declared "internal" descriptor cannot authorize arbitrary code to
+    // call an outside service. Only the known first-party adapter boundaries
+    // are allowed while the independent model policy is in force.
+    if (provider.id === "ollama-internal") {
+      if (!(adapter instanceof OllamaProviderAdapter) || provider.kind !== "internal-local") {
+        throw new Error("Sovereign mode rejects untrusted Ollama adapter injection");
+      }
+    } else if (provider.id === KINGS_SELF_HOSTED_PROVIDER_ID) {
+      if (!(adapter instanceof OpenAICompatibleGatewayAdapter) || provider.kind !== "internal-self-hosted") {
+        throw new Error("Sovereign mode rejects untrusted self-hosted adapter injection");
+      }
+    } else {
+      throw new Error(`Sovereign mode rejects unapproved provider identity: ${provider.id}`);
+    }
     for (const model of adapter.listModels()) {
       if (model.providerId !== provider.id ||
         (model.providerKind !== "internal-local" && model.providerKind !== "internal-self-hosted")) {
