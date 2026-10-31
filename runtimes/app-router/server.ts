@@ -310,7 +310,7 @@ export function createAppRouterRuntime(
       const bearer = typeof request.headers.authorization === "string" &&
         request.headers.authorization.startsWith("Bearer ")
         ? request.headers.authorization.slice("Bearer ".length) : "";
-      const subscriber = isOwner || !bearer ? undefined : usageAuthority?.accountForToken(bearer);
+      const subscriber = isOwner || bearer.length < 24 ? undefined : usageAuthority?.accountForToken(bearer);
       if (!isOwner && !subscriber) {
         return sendJson(response, 401, { ok: false, error: "unauthorized" });
       }
@@ -322,9 +322,12 @@ export function createAppRouterRuntime(
       }
       const routeWithUsage = async (input: AppAiRouteRequest) => {
         if (!subscriber || !usageAuthority) return router.route(input);
-        const hold = usageAuthority.reserve(subscriber, input);
+        // Apply a real provider-side output cap even if a subscriber omits it.
+        const bounded = { ...input,
+          maxOutputTokens: input.maxOutputTokens ?? Math.min(2048, subscriber.maxOutputTokens) };
+        const hold = usageAuthority.reserve(subscriber, bounded);
         let result;
-        try { result = await router.route(input); }
+        try { result = await router.route(bounded); }
         catch (error) { hold.finish(); throw error; }
         hold.finish(result.success ? Math.max(1, result.usage.totalTokens) : undefined);
         return result;
