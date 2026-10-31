@@ -39,6 +39,42 @@ export function resolveKingsProviderOrder(
   return result;
 }
 
+/**
+ * A sovereign Ollama endpoint must be loopback/private by default.
+ * Owner-controlled remote hosts require exact explicit allowlisting; public
+ * third-party APIs cannot masquerade as the "local" model by changing a URL.
+ */
+export function assertSovereignInferenceEndpoint(
+  env: NodeJS.ProcessEnv,
+): void {
+  const raw = env.KINGS_OLLAMA_BASE_URL?.trim();
+  if (!raw) return;
+  const url = new URL(raw);
+  if (!["http:", "https:"].includes(url.protocol) ||
+      url.username || url.password || url.search || url.hash) {
+    throw new Error("Sovereign inference requires a clean HTTP(S) model endpoint URL");
+  }
+  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  const allowed = (env.KINGS_SOVEREIGN_INFERENCE_HOSTS ?? "")
+    .split(",").map((host) => host.trim().toLowerCase()).filter(Boolean);
+  const octets = hostname.split(".").map(Number);
+  const ipv4 = octets.length === 4 && octets.every((octet, index) =>
+    /^\d{1,3}$/.test(hostname.split(".")[index]) &&
+    Number.isInteger(octet) && octet >= 0 && octet <= 255);
+  const privateIpv4 = ipv4 && (
+    octets[0] === 127 || octets[0] === 10 ||
+    (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+    (octets[0] === 192 && octets[1] === 168) ||
+    (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127)
+  );
+  const privateIpv6 = hostname === "::1" ||
+    /^f[cd][0-9a-f:]+$/i.test(hostname);
+  if (hostname !== "localhost" && !privateIpv4 && !privateIpv6 &&
+      !allowed.includes(hostname)) {
+    throw new Error("Sovereign inference endpoint must be private or explicitly owner-allowlisted");
+  }
+}
+
 /** Use the existing provider registry; never register an external adapter in sovereign mode. */
 export function registerConfiguredKingsInference(
   providers: ProviderAdapterRegistry,
@@ -47,6 +83,8 @@ export function registerConfiguredKingsInference(
 ): void {
   if (mode === "hybrid") {
     for (const gateway of createConfiguredGatewayAdapters(env)) providers.register(gateway);
+  } else {
+    assertSovereignInferenceEndpoint(env);
   }
   const local = createConfiguredOllamaAdapter(env);
   if (local) providers.register(local);
