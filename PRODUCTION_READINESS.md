@@ -6,7 +6,7 @@ K.I.N.G.S. is configured for Node.js 22+ and Python 3.11+ on Windows, macOS, and
 
 1. `npm ci`
 2. Configure environment variables from `.env.example` in your shell/secret manager.
-3. Run an owner-operated local/self-hosted inference server such as Ollama and load a real model approved for this deployment. Configure `KINGS_OLLAMA_BASE_URL` and `KINGS_OLLAMA_MODEL`.
+3. Run an owner-operated inference server serving a real model you are authorized to use: `KINGS_SELF_HOSTED_BASE_URL` plus `KINGS_SELF_HOSTED_MODEL` for a local OpenAI-compatible llama.cpp/vLLM server, or `KINGS_OLLAMA_BASE_URL` plus `KINGS_OLLAMA_MODEL` for local Ollama.
 4. Keep `KINGS_INTELLIGENCE_MODE=sovereign` (default). This prevents external AI inference even if external gateway credentials exist. `hybrid` is an explicit alternative for deployments that permit outside models, **not** the independent K.I.N.G.S. model target.
 5. `npm run verify`
 6. `npm start`
@@ -48,7 +48,7 @@ authentication and HTTPS transport.
 
 ## Independent inference and honest capability evidence
 
-Sovereign mode applies to both the owner mission executor and the app-facing Responses API. The default provider order is `ollama-internal`; external models are not registered, and injected external adapters are rejected. No private local model configured means **no model inference**, not an undocumented cloud fallback. The first-party K.I.N.G.S. workforce controls tasks, context, memory, tools, code writes, evaluation, and recovery. Ollama is an owner-operated inference engine, not an outside agent; a downloaded third-party model weight still does **not** mean the model was trained by K.I.N.G.S. or matches frontier performance. Production independence of model **weights** requires a lawfully sourced, owner-controlled base and demonstrated internal fine-tuning or training, plus rights-cleared private benchmarks.
+Sovereign mode applies to both the owner mission executor and the app-facing Responses API. The default provider order is `kings-self-hosted,ollama-internal`; external models are not registered, and injected external adapters are rejected. No private local model configured means **no model inference**, not an undocumented cloud fallback. The first-party K.I.N.G.S. workforce controls tasks, context, memory, tools, code writes, evaluation, and recovery. Ollama is an owner-operated inference engine, not an outside agent; a downloaded third-party model weight still does **not** mean the model was trained by K.I.N.G.S. or matches frontier performance. Production independence of model **weights** requires a lawfully sourced, owner-controlled base and demonstrated internal fine-tuning or training, plus rights-cleared private benchmarks.
 
 The existing HTTPS web research gateway can retrieve outside information only within the governed request and source rules; retrieving information does not authorize model-weight training, copyright infringement, or automatic permanent knowledge promotion. The owner can request research without delegating model inference to a remote AI agent.
 
