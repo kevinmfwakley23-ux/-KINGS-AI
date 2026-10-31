@@ -19,6 +19,10 @@ const ownerToken = String(process.env.KINGS_CODING_MACHINE_TOKEN ?? "").trim();
 const ownerCookieName = "__Host-kings_owner_access";
 const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1"]);
 const remoteMode = !loopbackHosts.has(host);
+// Loopback is not an authentication boundary: HTTPS reverse proxies normally
+// forward public traffic to 127.0.0.1. An explicitly configured owner token
+// therefore enables authentication regardless of the listening interface.
+const ownerAuthRequired = remoteMode || ownerToken.length > 0;
 const ownerSessionToken = ownerToken
   ? createHash("sha256").update(`kings-owner-session:${ownerToken}`).digest("hex")
   : "";
@@ -67,6 +71,9 @@ if (remoteMode && ownerToken.length < 24) {
   throw new Error(
     "K.I.N.G.S. Owner Console refuses non-loopback binding without KINGS_CODING_MACHINE_TOKEN of at least 24 characters",
   );
+}
+if (ownerToken.length > 0 && ownerToken.length < 24) {
+  throw new Error("K.I.N.G.S. Owner Console refuses configured owner tokens shorter than 24 characters");
 }
 
 const ownerMissionRuntime = new OwnerMissionRuntime(ownerMissionStorePath);
@@ -152,7 +159,7 @@ function parseCookies(value) {
 }
 
 function authorizeOwnerRequest(req, url) {
-  if (!remoteMode) return { allowed: true, bootstrap: false };
+  if (!ownerAuthRequired) return { allowed: true, bootstrap: false };
   if (url.searchParams.has("access")) {
     const supplied = url.searchParams.get("access") ?? "";
     const bootstrap = req.method === "GET" && url.pathname === "/" && tokenMatches(supplied, ownerToken);
@@ -538,6 +545,7 @@ const server = http.createServer(async (req, res) => {
       pid: process.pid,
       uptimeSeconds: process.uptime(),
       remoteMode,
+      ownerAuthRequired,
       workspace: engineeringWorkspace,
     });
   }
@@ -749,8 +757,8 @@ const server = http.createServer(async (req, res) => {
 server.requestTimeout = 60_000;
 server.headersTimeout = 10_000;
 server.listen(port, host, () => {
-  if (remoteMode) {
-    console.log(`K.I.N.G.S. Owner Console: authenticated remote mode on ${host}:${port}; terminate transport at trusted HTTPS and bootstrap with ?access=<KINGS_CODING_MACHINE_TOKEN>`);
+  if (ownerAuthRequired) {
+    console.log(`K.I.N.G.S. Owner Console: owner authentication required on ${host}:${port}; use trusted HTTPS for any remote clients`);
   } else {
     console.log(`K.I.N.G.S. Owner Console: http://${host}:${port}`);
   }
