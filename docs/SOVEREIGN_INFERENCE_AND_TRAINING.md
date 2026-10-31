@@ -65,6 +65,20 @@ inference ports. The configured context window is sent to the actual Ollama
 `num_ctx` field, not merely displayed on a settings screen. Hardware and
 model support determine the real usable context.
 
+## On-demand web research without outside AI inference
+
+The owner console provides a first-party internet research panel backed by
+`POST /api/owner-research`. The server requires the owner's session and
+`X-KINGS-Owner-Action: retrieve-public-sources`. Supply a question and at
+most five explicit public HTTPS source URLs. K.I.N.G.S. runs the existing
+governed `AppBrainGateway` and `WebAccessAdapter` (private-network blocked,
+redirects disabled, response/time bounded). No outside AI agent is invoked.
+No permanent knowledge promotion or model weight training occurs implicitly.
+
+This is source retrieval rather than an unlimited autonomous crawler. Real
+source access must be tested with backend network permissions; fetching
+content does not establish a legal right to train on that content.
+
 ## Genuine local fine-tuning
 
 `runtimes/powerhouse-training/sovereign_lora_trainer.py` contains a real
