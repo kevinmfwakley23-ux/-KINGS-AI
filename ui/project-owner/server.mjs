@@ -11,6 +11,7 @@ const require = createRequire(import.meta.url);
 const { OwnerMissionRuntime } = require("../../build/core/workforce/owner-mission-runtime.js");
 const { OwnerPdfContextRuntime } = require("../../build/core/workforce/owner-pdf-context-runtime.js");
 const { createOwnerMissionExecutionService } = require("../../build/core/workforce/owner-mission-execution-service.js");
+const { resolveKingsIntelligenceMode } = require("../../build/core/workforce/inference-sovereignty.js");
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
 const host = String(process.env.KINGS_CODING_MACHINE_BIND ?? "127.0.0.1").trim();
@@ -19,6 +20,7 @@ const ownerToken = String(process.env.KINGS_CODING_MACHINE_TOKEN ?? "").trim();
 const ownerCookieName = "__Host-kings_owner_access";
 const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1"]);
 const remoteMode = !loopbackHosts.has(host);
+const intelligenceMode = resolveKingsIntelligenceMode(process.env);
 // Loopback is not an authentication boundary: HTTPS reverse proxies normally
 // forward public traffic to 127.0.0.1. An explicitly configured owner token
 // therefore enables authentication regardless of the listening interface.
@@ -132,7 +134,7 @@ const connectors = [
     healthPath: "/api/tags",
     configured: ollamaConfigured,
   },
-];
+].filter((connector) => intelligenceMode === "hybrid" || connector.id === "ollama-internal");
 
 function joinUrl(base, path) {
   return `${base.replace(/\/+$/, "")}${path}`;
@@ -569,6 +571,7 @@ const server = http.createServer(async (req, res) => {
       uptimeSeconds: process.uptime(),
       remoteMode,
       ownerAuthRequired,
+      intelligenceMode,
       workspace: engineeringWorkspace,
     });
   }
