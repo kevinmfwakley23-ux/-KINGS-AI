@@ -18,8 +18,8 @@ const configured: NodeJS.ProcessEnv = {
 assert.equal(resolveKingsIntelligenceMode({}), "sovereign", "no external agent or cloud model may be the default");
 assert.equal(resolveKingsIntelligenceMode({ KINGS_INTELLIGENCE_MODE: "hybrid" }), "hybrid");
 assert.throws(() => resolveKingsIntelligenceMode({ KINGS_INTELLIGENCE_MODE: "unknown" }), /sovereign or hybrid/);
-assert.deepEqual(resolveKingsProviderOrder(configured, "sovereign"), ["ollama-internal"]);
-assert.deepEqual(resolveKingsProviderOrder(configured, "hybrid"), ["omniroute", "9router", "ollama-internal"]);
+assert.deepEqual(resolveKingsProviderOrder(configured, "sovereign"), ["kings-self-hosted", "ollama-internal"]);
+assert.deepEqual(resolveKingsProviderOrder(configured, "hybrid"), ["kings-self-hosted", "omniroute", "9router", "ollama-internal"]);
 assert.throws(() => resolveKingsProviderOrder({
   ...configured, KINGS_APP_ROUTER_PROVIDER_ORDER: "omniroute,ollama-internal",
 }, "sovereign"), /Sovereign mode permits only/);
@@ -37,6 +37,13 @@ assert.doesNotThrow(() => assertSovereignInferenceEndpoint({
   KINGS_OLLAMA_BASE_URL: "https://owner-gpu.example:11434",
   KINGS_SOVEREIGN_INFERENCE_HOSTS: "owner-gpu.example",
 }));
+assert.throws(() => assertSovereignInferenceEndpoint({
+  KINGS_SOVEREIGN_INFERENCE_HOSTS: "owner-gpu.example",
+}, "http://owner-gpu.example:1234/v1"), /must use HTTPS/);
+assert.doesNotThrow(() => assertSovereignInferenceEndpoint({
+  KINGS_SOVEREIGN_INFERENCE_HOSTS: "owner-gpu.example",
+}, "https://owner-gpu.example:1234/v1"));
+
 assert.throws(() => registerConfiguredKingsInference(new ProviderAdapterRegistry(), {
   KINGS_OLLAMA_BASE_URL: "https://external-ai.example/v1",
   KINGS_OLLAMA_MODEL: "fake-local",
