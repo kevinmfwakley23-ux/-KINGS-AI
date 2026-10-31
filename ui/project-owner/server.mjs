@@ -1,7 +1,7 @@
 import http from "node:http";
 import os from "node:os";
 import { spawn } from "node:child_process";
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
@@ -12,6 +12,8 @@ const { OwnerMissionRuntime } = require("../../build/core/workforce/owner-missio
 const { OwnerPdfContextRuntime } = require("../../build/core/workforce/owner-pdf-context-runtime.js");
 const { createOwnerMissionExecutionService } = require("../../build/core/workforce/owner-mission-execution-service.js");
 const { resolveKingsIntelligenceMode } = require("../../build/core/workforce/inference-sovereignty.js");
+const { AppBrainGateway } = require("../../build/core/workforce/app-brain-gateway.js");
+const { WebAccessAdapter } = require("../../build/core/workforce/web-access.js");
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
 const host = String(process.env.KINGS_CODING_MACHINE_BIND ?? "127.0.0.1").trim();
@@ -95,6 +97,15 @@ const ownerMissionExecutionService = createOwnerMissionExecutionService(
     env: process.env,
   },
 );
+
+const ownerResearch = new AppBrainGateway(new WebAccessAdapter({
+  allowedMethods: ["GET"],
+  allowedSchemes: ["https"],
+  maxResponseBytes: 256 * 1024,
+  timeoutMs: 10_000,
+  maxRedirects: 0,
+  blockPrivateNetworks: true,
+}), 5);
 
 const ollamaConfigured = Boolean(
   process.env.KINGS_OLLAMA_BASE_URL &&
@@ -592,6 +603,38 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       connectors: await Promise.all(connectors.map(probe)),
     });
+  }
+
+  // Public web research requires owner authentication, an explicit fixed
+  // action, and bounded source URLs. It never calls outside model agents and
+  // never promotes source text to permanent/training knowledge implicitly.
+  if (req.method === "POST" && url.pathname === "/api/owner-research") {
+    if (!actionHeaderMatches(req, "retrieve-public-sources")) {
+      return json(res, 400, {
+        ok: false,
+        error: "owner_research_confirmation_required",
+        message: "Set X-KINGS-Owner-Action to retrieve-public-sources to authorize this retrieval.",
+      });
+    }
+    try {
+      const body = await readJsonBody(req);
+      assertOnlyKeys(body, ["question", "urls", "maxSources"]);
+      const result = await ownerResearch.retrieveResearch({
+        appId: "kings.ai",
+        requestId: randomUUID(),
+        taskId: `owner-research-${randomUUID()}`,
+        question: body.question,
+        urls: body.urls,
+        ...(body.maxSources === undefined ? {} : { maxSources: body.maxSources }),
+      });
+      return json(res, 200, { ok: true, ...result });
+    } catch (error) {
+      return json(res, Number(error?.statusCode) || 400, {
+        ok: false,
+        error: "owner_research_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   if (req.method === "GET" && url.pathname === "/api/context") {
