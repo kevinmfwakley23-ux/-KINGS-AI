@@ -41,7 +41,9 @@ that key must live in an approved secret manager and must never be committed.
 - Supply `KINGS_CODING_MACHINE_TOKEN` from a secret manager; do not put it in
   the repository or APK.
 - Set `KINGS_INTELLIGENCE_MODE=sovereign` (the default). Use an owner-operated
-  inference server with `KINGS_OLLAMA_BASE_URL` and `KINGS_OLLAMA_MODEL`.
+  inference server with `KINGS_SELF_HOSTED_BASE_URL` and
+  `KINGS_SELF_HOSTED_MODEL`, or local Ollama with `KINGS_OLLAMA_BASE_URL`
+  and `KINGS_OLLAMA_MODEL`.
   External AI gateways are not registered in this mode. Without a configured
   local model, inference fails closed rather than showing fabricated answers.
 - The app is a native HTTPS client, not a phone-hosted trained foundation model.
