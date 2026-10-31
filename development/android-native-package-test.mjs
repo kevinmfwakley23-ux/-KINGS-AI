@@ -22,6 +22,8 @@ assert.equal(android.bundle?.android?.minSdkVersion, 24, "Android package must r
 for (const csp of [config.app?.security?.csp, android.app?.security?.csp]) {
   assert.equal(typeof csp, "string");
   assert.match(csp, /connect-src[^;]*https:/, "native shell may connect to trusted HTTPS owner hosts");
+  assert.match(csp, /form-action\s+https:/, "native owner-token form may only POST to HTTPS");
+  assert.doesNotMatch(csp, /form-action[^;]*http:/, "native owner-token form must reject plain HTTP");
   assert.match(csp, /navigate-to\s+https:/, "native navigation must remain HTTPS-only");
   assert.doesNotMatch(csp, /navigate-to[^;]*http:/, "plain HTTP remote navigation must stay forbidden");
 }
@@ -45,8 +47,11 @@ assert.match(shell, /intelligence, provider routing, governed coding tools, coll
 assert.match(app, /const STORAGE_KEY = "kings-owner-origin";/);
 assert.match(app, /parsed\.protocol !== "https:"/, "owner host normalization must reject non-HTTPS URLs");
 assert.match(app, /value\.length < 24/, "native bootstrap must enforce the owner-token floor");
-assert.match(app, /bootstrap\.searchParams\.set\("access", token\)/, "native client must use the one-time server bootstrap contract");
-assert.match(app, /tokenInput\.value = "";\s*navigate\(bootstrap\.href\)/s, "token input must be erased before leaving the gateway shell");
+assert.match(app, /bootstrapForm\.method = "POST"/, "native bootstrap must submit token via POST");
+assert.match(app, /bootstrapForm\.action = \x60\$\{origin\}\/session\/bootstrap\x60/, "native bootstrap must target the owner HTTPS endpoint");
+assert.match(app, /secretField\.name = "access"/, "native bootstrap must supply the expected credential field");
+assert.match(app, /tokenInput\.value = "";\s*bootstrapForm\.submit\(\)/s, "token input must be erased before POSTing");
+assert.doesNotMatch(app, /searchParams\.set\("access"/, "native bootstrap must not put owner credentials in a URL");
 assert.doesNotMatch(app, /localStorage\.setItem\([^\n]*(?:token|access)/i, "the reusable owner token must never be persisted to localStorage");
 assert.match(shell, /autocomplete="current-password"|autocomplete="off"|autocomplete="new-password"/, "token entry must declare browser autofill behavior explicitly");
 
