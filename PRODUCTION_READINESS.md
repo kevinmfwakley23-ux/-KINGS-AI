@@ -59,6 +59,20 @@ runner requires a real licensed base model and rights-cleared private data.
 The optional `KINGS_OLLAMA_CONTEXT_TOKENS` passes directly to the local
 inference server and remains hardware/model-dependent.
 
+## Owner-approved internet research on every client
+
+The authenticated owner console now exposes `POST /api/owner-research` and a
+browser/mobile research panel. It requires the fixed
+`X-KINGS-Owner-Action: retrieve-public-sources` confirmation and an
+owner-supplied `question` plus 1–5 explicit public HTTPS `urls`.
+The existing K.I.N.G.S. `AppBrainGateway` and `WebAccessAdapter` retrieve
+the sources, without an outside AI agent. Requests allow HTTPS GET only, block
+private-network targets and redirects, limit each response to 256 KiB, and
+time out after 10 seconds. The results preserve source URLs and time evidence.
+No retrieved text enters permanent memory or model training automatically.
+Live public internet access depends on the deployed backend's network policy,
+DNS, and trusted TLS connectivity and must be tested after deployment.
+
 ## Autonomous coding recovery
 
 Owner-created coding missions now perform a bounded validation-repair cycle.
