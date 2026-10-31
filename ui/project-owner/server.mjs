@@ -527,6 +527,29 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { ok: true, service: "kings-owner-console" });
   }
 
+  // Native Android and web clients submit the owner token in a bounded POST
+  // body, never in a browser navigation URL. The token is not logged, persisted,
+  // or echoed; the response replaces it with the existing HttpOnly session.
+  if (req.method === "POST" && url.pathname === "/session/bootstrap") {
+    if (!ownerAuthRequired) return unauthorized(res);
+    const contentType = String(req.headers["content-type"] ?? "").toLowerCase();
+    if (!/^application\/x-www-form-urlencoded(?:\s*;|$)/u.test(contentType)) {
+      return json(res, 415, { ok: false, error: "unsupported_owner_bootstrap_content_type" });
+    }
+    try {
+      const body = await readRawBody(req, 4096);
+      const params = new URLSearchParams(body.toString("utf8"));
+      const secrets = params.getAll("access");
+      if (secrets.length !== 1 || !tokenMatches(secrets[0], ownerToken)) return unauthorized(res);
+      return establishOwnerSession(res);
+    } catch (error) {
+      return json(res, Number(error?.statusCode) || 400, {
+        ok: false,
+        error: "invalid_owner_bootstrap",
+      });
+    }
+  }
+
   const authorization = authorizeOwnerRequest(req, url);
   if (!authorization.allowed) return unauthorized(res);
   if (authorization.bootstrap) return establishOwnerSession(res);
