@@ -34,9 +34,13 @@ in the request body, not the URL, and the server accepts at most 4 KiB of form
 data. The server checks the credential, returns a redirect to `/`, and issues
 a `Secure`, `HttpOnly`, `SameSite=Strict` host cookie containing a
 hash-derived session value rather than the reusable owner token. Invalid,
-duplicate, or oversized credentials fail closed. The old root GET
-`/?access=<token>` remains available temporarily for older clients; it is
-not recommended because request URLs can enter access logs and browser history.
+duplicate, or oversized credentials fail closed. The old root GET `/?access=<token>` is **disabled by default** because
+URLs can expose the reusable owner credential in access logs, browser history,
+and intermediary telemetry. Only for a time-limited migration of old clients,
+set `KINGS_ENABLE_LEGACY_GET_BOOTSTRAP=1` on the owner console; this opt-in
+re-enables the risky GET endpoint and must be removed once clients support
+the secure `POST /session/bootstrap` flow. Never distribute owner tokens in
+URLs, including while this compatibility setting is enabled.
 The owner API also accepts the original token as a Bearer credential for
 non-browser clients. `/health` remains a minimal unauthenticated infrastructure
 probe; owner UI and `/api/status` require authentication whenever the owner
