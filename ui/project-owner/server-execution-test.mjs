@@ -136,7 +136,7 @@ async function loopbackExecutionBoundary() {
 
     const routeState = await fetch(`${base}/api/mission-execution`, { cache: "no-store" });
     const routeBody = await routeState.json();
-    assert.deepEqual(routeBody.providerOrder, ["omniroute", "9router", "ollama-internal"]);
+    assert.deepEqual(routeBody.providerOrder, ["ollama-internal"], "default owner mission execution must not depend on external inference gateways");
     assert.deepEqual(routeBody.availableProviders, [], "no provider must be fabricated when none is configured");
     assert.equal(routeBody.workspace, rootPath, "mission executor workspace must be server-configured");
 
