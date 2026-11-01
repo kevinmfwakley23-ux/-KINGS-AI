@@ -22,6 +22,8 @@ try {
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /--base-model/);
   assert.match(help.stdout, /--validate-only/);
+  assert.match(help.stdout, /--epochs/);
+  assert.match(help.stdout, /--preference-epochs/);
 
   const base = join(home, "licensed-base");
   mkdirSync(base);
@@ -63,6 +65,9 @@ try {
   const accepted = run(args);
   assert.equal(accepted.status, 0, accepted.stderr);
   assert.equal(JSON.parse(accepted.stdout).validatedExamples, 140);
+  assert.equal(JSON.parse(accepted.stdout).supervisedEpochs, 2);
+  assert.equal(JSON.parse(accepted.stdout).preferenceEpochs, 0);
+  assert.equal(JSON.parse(accepted.stdout).domainSampling, "seeded-round-robin-without-replacement");
   assert.equal(JSON.parse(accepted.stdout).trained, false);
   assert.equal(existsSync(artifact), false, "validation-only must not fabricate an adapter");
 
@@ -93,6 +98,12 @@ try {
   assert.equal(dual.status, 0, dual.stderr);
   assert.equal(JSON.parse(dual.stdout).validatedExamples, 140);
   assert.equal(JSON.parse(dual.stdout).validatedPreferencePairs, 140);
+  assert.equal(JSON.parse(dual.stdout).supervisedEpochs, 2);
+  assert.equal(JSON.parse(dual.stdout).preferenceEpochs, 2);
+  const explicitPasses = run([...dualArgs, "--epochs", "3", "--preference-epochs", "4"]);
+  assert.equal(explicitPasses.status, 0, explicitPasses.stderr);
+  assert.equal(JSON.parse(explicitPasses.stdout).supervisedEpochs, 3);
+  assert.equal(JSON.parse(explicitPasses.stdout).preferenceEpochs, 4);
   assert.deepEqual(JSON.parse(dual.stdout).trainingStages, ["supervised-lora", "preference-dpo"]);
   assert.equal(JSON.parse(dual.stdout).trained, false);
   assert.equal(existsSync(artifact), false, "dual-stage preflight must not fabricate trained weights");
