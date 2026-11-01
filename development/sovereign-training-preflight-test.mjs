@@ -75,6 +75,40 @@ try {
   assert.match(leaking.stderr, /overlaps held-out or validation/);
   assert.equal(existsSync(artifact), false, "a failed training preflight cannot create an artifact");
 
+  writeFileSync(training, JSON.stringify(valid));
+  writeFileSync(benchmark, JSON.stringify({
+    items: [{ id: "held-out", split: "held-out", sourceGroupId: "separate",
+      prompt: examples[0].prompt }],
+  }));
+  const promptLeak = run(args);
+  assert.notEqual(promptLeak.status, 0, "held-out prompt duplication must fail even across distinct groups");
+  assert.match(promptLeak.stderr, /held-out training prompt/);
+
+  writeFileSync(benchmark, JSON.stringify({
+    items: [{ id: "held-out", split: "held-out", sourceGroupId: "separate",
+      prompt: "Unseen private benchmark content" }],
+  }));
+  writeFileSync(training, JSON.stringify({
+    ...valid, examples: examples.map((item, index) =>
+      index === 0 ? { ...item, sourceGroupId: "" } : item),
+  }));
+  const ungrouped = run(args);
+  assert.notEqual(ungrouped.status, 0, "training source group must be attributable");
+  assert.match(ungrouped.stderr, /sourceGroupId must be nonempty/);
+
+  writeFileSync(training, JSON.stringify(valid));
+  writeFileSync(benchmark, JSON.stringify({
+    items: [{ id: "held-out", split: "unknown", sourceGroupId: "separate",
+      prompt: "Unseen private benchmark content" }],
+  }));
+  const badSplit = run(args);
+  assert.notEqual(badSplit.status, 0, "unrecognized benchmark partitions cannot be treated as held-out evidence");
+  assert.match(badSplit.stderr, /Benchmark split must be/);
+
+  writeFileSync(benchmark, JSON.stringify({
+    items: [{ id: "held-out", split: "held-out", sourceGroupId: "held-out-source",
+      prompt: "Unseen private benchmark content" }],
+  }));
   writeFileSync(training, JSON.stringify({
     ...valid, examples: examples.map((item, index) =>
       index === 0 ? { ...item, rights: { ...item.rights, trainingAllowed: false } } : item),
