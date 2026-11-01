@@ -66,6 +66,52 @@ try {
   assert.equal(JSON.parse(accepted.stdout).trained, false);
   assert.equal(existsSync(artifact), false, "validation-only must not fabricate an adapter");
 
+  // Two actual training *programs*: SFT on approved target responses and DPO
+  // on separate, rights-cleared chosen/rejected preferences. Preflight runs
+  // without PyTorch, GPU, model weights or any invented trained artifact.
+  const preferencePath = join(home, "preferences.json");
+  const pairs = domains.flatMap((domain) => Array.from({ length: 20 }, (_, index) => ({
+    id: domain + "-preference-" + index,
+    domain,
+    sourceGroupId: domain + "-preference-group-" + index,
+    prompt: "Independent synthetic preference test prompt " + domain + " " + index,
+    chosenResponse: "Grounded answer A for data-isolation testing.",
+    rejectedResponse: "Unverified answer B for data-isolation testing.",
+    rights: {
+      licenseId: "unit-test-data",
+      sourceReference: "synthetic-test",
+      permissionReference: "unit-test-generated",
+      permissionEvidenceSha256: "b".repeat(64),
+      attestedBy: "unit-test-author",
+      trainingAllowed: true,
+      evaluationAllowed: false,
+    },
+  })));
+  writeFileSync(preferencePath, JSON.stringify({ schemaVersion: "1", pairs }));
+  const dualArgs = [...args, "--preference-package", preferencePath];
+  const dual = run(dualArgs);
+  assert.equal(dual.status, 0, dual.stderr);
+  assert.equal(JSON.parse(dual.stdout).validatedExamples, 140);
+  assert.equal(JSON.parse(dual.stdout).validatedPreferencePairs, 140);
+  assert.deepEqual(JSON.parse(dual.stdout).trainingStages, ["supervised-lora", "preference-dpo"]);
+  assert.equal(JSON.parse(dual.stdout).trained, false);
+  assert.equal(existsSync(artifact), false, "dual-stage preflight must not fabricate trained weights");
+
+  for (const [name, edit, expected] of [
+    ["overlapping supervised prompt", (p) => ({ ...p, prompt: examples[0].prompt }), /Preference prompt overlaps/],
+    ["overlapping benchmark source group", (p) => ({ ...p, sourceGroupId: "held-out-source" }), /Preference source group overlaps/],
+    ["no distinction between responses", (p) => ({ ...p, rejectedResponse: p.chosenResponse }), /distinct/],
+    ["missing authorization", (p) => ({ ...p, rights: { ...p.rights, trainingAllowed: false } }), /rights are denied/],
+  ]) {
+    const tampered = pairs.map((pair, index) => index === 0 ? edit(pair) : pair);
+    writeFileSync(preferencePath, JSON.stringify({ schemaVersion: "1", pairs: tampered }));
+    const refused = run(dualArgs);
+    assert.notEqual(refused.status, 0, name + " must be rejected");
+    assert.match(refused.stderr, expected);
+    assert.equal(existsSync(artifact), false, "rejected preference inputs cannot create fake model weights");
+  }
+  writeFileSync(preferencePath, JSON.stringify({ schemaVersion: "1", pairs }));
+
   writeFileSync(training, JSON.stringify({
     ...valid, examples: examples.map((item, index) =>
       index === 0 ? { ...item, sourceGroupId: "held-out-source" } : item),
