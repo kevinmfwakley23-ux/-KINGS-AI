@@ -41,7 +41,7 @@ function temporaryOwnerState() {
   };
 }
 
-function startOwner({ port, bind, token, state = temporaryOwnerState() }) {
+function startOwner({ port, bind, token, legacyGetBootstrap = false, state = temporaryOwnerState() }) {
   const env = {
     ...process.env,
     KINGS_CODING_MACHINE_PORT: String(port),
@@ -53,6 +53,8 @@ function startOwner({ port, bind, token, state = temporaryOwnerState() }) {
   };
   if (token === undefined) delete env.KINGS_CODING_MACHINE_TOKEN;
   else env.KINGS_CODING_MACHINE_TOKEN = token;
+  if (legacyGetBootstrap) env.KINGS_ENABLE_LEGACY_GET_BOOTSTRAP = "1";
+  else delete env.KINGS_ENABLE_LEGACY_GET_BOOTSTRAP;
 
   const child = spawn(process.execPath, ["ui/project-owner/server.mjs"], {
     cwd: root,
@@ -384,8 +386,15 @@ async function assertRemoteAuthenticationLifecycle() {
     const wrongBootstrap = await fetch(`${base}/?access=wrong-owner-token`, { redirect: "manual" });
     assert.equal(wrongBootstrap.status, 401, "wrong bootstrap credentials must not create a browser session");
 
-    const bootstrap = await fetch(`${base}/?access=${encodeURIComponent(token)}`, { redirect: "manual" });
-    assert.equal(bootstrap.status, 303, "correct one-time bootstrap must redirect to a clean URL");
+    const getBootstrap = await fetch(`${base}/?access=${encodeURIComponent(token)}`, { redirect: "manual" });
+    assert.equal(getBootstrap.status, 401, "owner token in GET URL is disabled by default");
+    const bootstrap = await fetch(`${base}/session/bootstrap`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ access: token }),
+      redirect: "manual",
+    });
+    assert.equal(bootstrap.status, 303, "secure POST owner bootstrap must redirect to a clean URL");
     assert.equal(bootstrap.headers.get("location"), "/");
     const setCookie = bootstrap.headers.get("set-cookie") ?? "";
     assert.match(setCookie, /__Host-kings_owner_access=/);
@@ -562,9 +571,9 @@ async function assertLoopbackProxyRequiresOwnerAuthentication() {
     const wrong = await fetch(base + "/?access=wrong-token", { redirect: "manual" });
     assert.equal(wrong.status, 401, "incorrect bootstrap must be rejected even on loopback");
 
-    const bootstrap = await fetch(base + "/?access=" + encodeURIComponent(token), { redirect: "manual" });
-    assert.equal(bootstrap.status, 303, "owner token must establish a redirecting browser session");
-    const cookie = bootstrap.headers.get("set-cookie") ?? "";
+    const legacyBootstrap = await fetch(base + "/?access=" + encodeURIComponent(token), { redirect: "manual" });
+    assert.equal(legacyBootstrap.status, 401, "configured owner access code must never work through GET by default");
+    const cookie = securePostCookie;
     assert.match(cookie, /__Host-kings_owner_access=/);
     assert.match(cookie, /HttpOnly/i);
     assert.match(cookie, /Secure/i);
@@ -583,6 +592,30 @@ async function assertLoopbackProxyRequiresOwnerAuthentication() {
       headers: { authorization: "Bearer " + token },
     });
     assert.equal(bearer.status, 200, "authorized API clients must still work behind the reverse proxy");
+  } finally {
+    await stop(run.child);
+    await cleanupOwnerState(run.state);
+  }
+}
+
+async function assertLegacyGetBootstrapRequiresExplicitOptIn() {
+  const port = await freePort();
+  const token = "kings-test-legacy-owner-secret-0123456789abcdef";
+  const run = startOwner({ port, bind: "127.0.0.1", token, legacyGetBootstrap: true });
+  try {
+    await waitForHealth(port, run.child, run.output);
+    const base = "http://127.0.0.1:" + port;
+    const legacy = await fetch(base + "/?access=" + encodeURIComponent(token), { redirect: "manual" });
+    assert.equal(legacy.status, 303, "legacy GET bootstrap must require explicit server-side opt-in");
+    assert.equal(legacy.headers.get("location"), "/");
+    const cookie = legacy.headers.get("set-cookie") ?? "";
+    assert.match(cookie, /HttpOnly/i);
+    assert.match(cookie, /Secure/i);
+    assert.doesNotMatch(cookie, /kings-test-legacy-owner-secret/, "session cookie must not contain the master access code");
+    const authenticated = await fetch(base + "/api/status", {
+      headers: { cookie: cookie.split(";", 1)[0] },
+    });
+    assert.equal(authenticated.status, 200);
   } finally {
     await stop(run.child);
     await cleanupOwnerState(run.state);
@@ -644,6 +677,7 @@ function createTextPdf(text) {
 await assertRemoteStartupRequiresToken();
 await assertLoopbackRemainsLocalAndUsable();
 await assertLoopbackProxyRequiresOwnerAuthentication();
+await assertLegacyGetBootstrapRequiresExplicitOptIn();
 await assertWeakLoopbackTokenFailsClosed();
 await assertRemoteAuthenticationLifecycle();
 console.log("K.I.N.G.S. owner-console auth + voice mission + governed PDF context boundary: SUCCESS");
