@@ -126,6 +126,73 @@ prompt/response pairs with target-response-only loss, saves nonempty
 `safetensors` LoRA weights plus tokenizer into a ZIP, and prints its hash.
 An interrupted/error run must not yield a valid trained model artifact.
 
+## Doubled training capability — supervised LoRA + preference DPO
+
+The optional second **real gradient-training program** is
+`runtimes/powerhouse-training/sovereign_preference_stage.py`. It is invoked
+after successful supervised LoRA updates when the owner supplies
+`--preference-package`. Unlike repeatedly training on the same answers,
+the second program uses **new, separate, rights-cleared chosen/rejected
+response pairs** to optimize answer preference through direct preference
+optimization (DPO).
+
+Training runs only on the owner-approved local model. Before stage-two updates,
+K.I.N.G.S. computes a frozen **post-supervised policy** reference from the
+same loaded model; no outside AI agent, teacher API or second remote model
+is used. The optimizer interleaves all seven specialist domains, clips
+gradients, requires finite loss, and refuses to publish an adapter unless
+both training stages genuinely update trainable weights.
+
+The private JSON preference package uses `schemaVersion: "1"` and a `pairs`
+array. Each pair contains precisely `id`, `domain`, `sourceGroupId`,
+`prompt`, `chosenResponse`, `rejectedResponse`, and `rights`.
+`rights` requires the same author/license/permission evidence as supervised
+training, with `trainingAllowed: true`. The chosen and rejected answers
+must be different; each domain requires at least **20 preference pairs**.
+All preference IDs, source groups and prompts must be disjoint from the
+supervised examples **and the benchmark manifest**. For the minimum dataset,
+stage one consumes at least 140 distinct supervised examples, and stage two
+consumes at least 140 **additional** preference pairs. These counts are
+minimum preflight checks, not evidence of high model capability.
+
+Run both-stage validation without loading weights or running a gradient:
+
+```bash
+python3 runtimes/powerhouse-training/sovereign_lora_trainer.py \
+  --base-model /private/models/licensed-base \
+  --training-package /private/kings/train-package.json \
+  --preference-package /private/kings/preferences.json \
+  --benchmark-manifest /private/kings/benchmark-manifest.json \
+  --model-artifact /private/kings/output/kings-dual-stage.zip \
+  --preference-epochs 1 --preference-beta 0.1 \
+  --preference-learning-rate 0.00002 --validate-only
+```
+
+To perform real supervised + preference training, omit `--validate-only`
+after the owner verifies the model license, dataset provenance, GPU capacity,
+training budget and authorized runner. Both phases execute on the same
+in-memory model; a final adapter contains both updates, a preference-package
+SHA-256, supervised optimization evidence and separate DPO optimization
+evidence. Preference training can be more computationally demanding than
+supervised training because every pair requires reference and policy scores.
+
+For the signed `npm run train:powerhouse` launcher, the owner-approved
+`runner.args` must include `"--preference-package", "{preferencePackage}"`.
+The launch manifest's `runner.preferencePackagePath` must be an absolute path
+inside its authorized working directory and
+`runner.preferencePackageSha256` must equal both the file's real SHA-256
+and `job.hyperparameters.preferencePackageSha256`. The launcher verifies the
+file hash before and after execution, and rejects literal/unbound preference
+paths or tampered inputs. Never commit training packages, evaluation prompts,
+model files or owner secrets to Git.
+
+**Status:** The two-stage training implementation and preflight tests exist.
+That is not a completed GPU training run, proof of K.I.N.G.S. original
+pretraining, or an independent held-out seven-office qualification. The
+second stage can run only when genuine licensed weights and owner-attested
+preference datasets are available. Real specialized evaluations remain a
+separate release gate.
+
 The existing `npm run train:powerhouse` is the preferred owner-authorized
 launcher: use the absolute Python executable path as `runner.command`, the
 trainer script path as a fixed runner argument, and the required
