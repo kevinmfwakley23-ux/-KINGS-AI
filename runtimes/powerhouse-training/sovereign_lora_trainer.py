@@ -121,6 +121,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-artifact", type=Path, required=True)
     parser.add_argument("--base-model", type=Path, required=True,
                         help="Absolute local directory of approved, licensed model weights")
+    parser.add_argument("--preference-package", type=Path,
+                        help="Optional second-stage, independent rights-cleared preference pairs")
+    parser.add_argument("--preference-epochs", type=int, default=1)
+    parser.add_argument("--preference-beta", type=float, default=0.1)
+    parser.add_argument("--preference-learning-rate", type=float, default=0.00002)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--grad-accum", type=int, default=4)
@@ -143,13 +148,26 @@ def main() -> None:
         args.grad_accum < 1 or args.grad_accum > 256 or
         args.max_length < 128 or args.max_length > 32768 or
         args.lora_rank not in (4, 8, 16, 32, 64, 128) or
-        not (0 < args.learning_rate <= 0.01) or args.seed < 0):
+        not (0 < args.learning_rate <= 0.01) or args.seed < 0 or
+        args.preference_epochs < 1 or args.preference_epochs > 10 or
+        not (0.01 <= args.preference_beta <= 1) or
+        not (0 < args.preference_learning_rate <= 0.001)):
         raise ValueError("Invalid bounded training hyperparameters")
     examples = validate_training_inputs(args.training_package, args.benchmark_manifest)
+    preferences = None
+    if args.preference_package is not None:
+        from sovereign_preference_stage import validate_preference_inputs
+        preferences = validate_preference_inputs(
+            args.preference_package, args.benchmark_manifest, examples
+        )
     if args.model_artifact.exists():
         raise FileExistsError("Refusing to overwrite an existing trained model artifact")
     if args.validate_only:
         print(json.dumps({"ok": True, "validatedExamples": len(examples),
+                          "validatedPreferencePairs": len(preferences) if preferences is not None else 0,
+                          "trainingStages": ["supervised-lora"] + (
+                              ["preference-dpo"] if preferences is not None else []
+                          ),
                           "baseModel": args.base_model.name, "trained": False}))
         return
 
@@ -260,6 +278,17 @@ def main() -> None:
         }
         if not any(not torch.equal(before[name], value) for name, value in after.items()):
             raise RuntimeError("Training completed without changing any trainable LoRA weights")
+        preference_evidence = None
+        if preferences is not None:
+            from sovereign_preference_stage import train_preference_stage
+            preference_evidence = train_preference_stage(
+                model, tokenizer, preferences,
+                max_length=args.max_length,
+                epochs=args.preference_epochs,
+                beta=args.preference_beta,
+                learning_rate=args.preference_learning_rate,
+                seed=args.seed,
+            )
         adapter = root / "adapter"
         model.save_pretrained(str(adapter), safe_serialization=True)
         tokenizer.save_pretrained(str(adapter))
@@ -278,6 +307,13 @@ def main() -> None:
             "trainingLoss": result.training_loss,
             "optimizationSteps": result.global_step,
             "trainableParametersChanged": True,
+            "trainingStages": ["supervised-lora"] + (
+                ["preference-dpo"] if preference_evidence is not None else []
+            ),
+            "preferencePackageSha256": (
+                sha256(args.preference_package) if preference_evidence is not None else None
+            ),
+            "preferenceStage": preference_evidence,
             "notes": "Real fine-tuned adapter, not a claim of top-tier capability or a merged deployable model.",
         }
         (adapter / "kings-training-metadata.json").write_text(
@@ -292,6 +328,8 @@ def main() -> None:
             raise RuntimeError("Empty adapter archive")
         os.replace(temporary, artifact)
     print(json.dumps({"ok": True, "trained": True, "examples": len(records),
+                      "preferencePairs": len(preferences) if preferences is not None else 0,
+                      "trainingStages": metadata["trainingStages"],
                       "artifactSha256": sha256(artifact), "format": metadata["format"]}))
 
 
