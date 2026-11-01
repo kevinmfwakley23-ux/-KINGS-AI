@@ -21,6 +21,9 @@ interface PowerhouseTrainerRunner {
   workingDirectory: string;
   trainerArtifactPath: string;
   modelArtifactPath: string;
+  /** Stage-two preference input must remain an owner-locked, immutable file. */
+  preferencePackagePath?: string;
+  preferencePackageSha256?: string;
   timeoutMs: number;
 }
 
@@ -181,6 +184,27 @@ function validateLaunchManifest(value: unknown): PowerhouseTrainingLaunchManifes
   for (const placeholder of ["{trainingPackage}", "{benchmarkManifest}", "{modelArtifact}"]) {
     if (!runner.args.includes(placeholder)) throw new Error(`Trainer arguments must include ${placeholder}`);
   }
+  const preferenceFlag = runner.args.indexOf("--preference-package");
+  if (runner.args.some((arg) => arg.startsWith("--preference-package=")) ||
+      (preferenceFlag !== -1 && runner.args[preferenceFlag + 1] !== "{preferencePackage}") ||
+      runner.args.filter((arg) => arg === "--preference-package").length > 1) {
+    throw new Error("Preference package must be supplied through the bound {preferencePackage} argument");
+  }
+  const hasPreference = runner.args.includes("{preferencePackage}");
+  if (hasPreference !== (preferenceFlag !== -1)) {
+    throw new Error("Bound preference package requires exactly one --preference-package argument");
+  }
+  if (hasPreference) {
+    if (typeof runner.preferencePackagePath !== "string" ||
+        !isAbsolute(runner.preferencePackagePath) ||
+        !/^[a-f0-9]{64}$/u.test(runner.preferencePackageSha256 ?? "") ||
+        manifest.job.hyperparameters?.preferencePackageSha256 !== runner.preferencePackageSha256) {
+      throw new Error("Owner-locked preference package path and SHA-256 must match signed job hyperparameters");
+    }
+  } else if (runner.preferencePackagePath !== undefined ||
+             runner.preferencePackageSha256 !== undefined) {
+    throw new Error("Unused preference package path and hash are not authorized");
+  }
   return manifest;
 }
 
@@ -202,6 +226,9 @@ class SandboxedTrainerExecution implements PowerhouseTrainingExecutionPort {
       ["benchmark manifest", benchmarkManifestPath],
       ["trainer artifact", trainerArtifactPath],
       ["model artifact", this.modelArtifactPath],
+      ...(runner.preferencePackagePath
+        ? [["preference package", resolve(runner.preferencePackagePath)] as const]
+        : []),
     ] as const) {
       if (!isWithin(path, this.workingDirectory)) {
         throw new Error(`${label} must stay inside the authorized training working directory`);
@@ -226,6 +253,7 @@ class SandboxedTrainerExecution implements PowerhouseTrainingExecutionPort {
     const args = this.runner.args.map((arg) => ({
       "{trainingPackage}": this.trainingPackagePath,
       "{benchmarkManifest}": this.benchmarkManifestPath,
+      "{preferencePackage}": this.runner.preferencePackagePath,
       "{modelArtifact}": this.modelArtifactPath,
     })[arg] ?? arg);
     const result = await this.sandbox.execute({
@@ -280,6 +308,15 @@ export async function runPowerhouseTrainingFiles(
   if (trainerDigest !== launch.job.trainer.immutableDigest) {
     throw new Error("Trainer artifact digest does not match the owner-approved job");
   }
+  if (launch.runner.preferencePackagePath) {
+    if (!isWithin(launch.runner.preferencePackagePath, launch.runner.workingDirectory)) {
+      throw new Error("Preference package must stay in the owner-authorized training directory");
+    }
+    const preferenceDigest = await fileSha256(launch.runner.preferencePackagePath);
+    if (preferenceDigest !== launch.runner.preferencePackageSha256) {
+      throw new Error("Preference package contents differ from the approved training job");
+    }
+  }
   const release = await acquireLock(options.outputPath);
   try {
     const execution = new SandboxedTrainerExecution(
@@ -292,6 +329,10 @@ export async function runPowerhouseTrainingFiles(
       trainingPackage,
       benchmarkManifest,
     );
+    if (launch.runner.preferencePackagePath &&
+        await fileSha256(launch.runner.preferencePackagePath) !== launch.runner.preferencePackageSha256) {
+      throw new Error("Preference data changed during training; refusing signed model promotion");
+    }
     const artifact: PowerhouseSignedBuildArtifact = {
       schemaVersion: "1",
       buildRecord,
