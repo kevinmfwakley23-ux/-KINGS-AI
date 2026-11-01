@@ -144,7 +144,36 @@ The supervised package is bounded to 200,000 examples before any GPU work.
 
 The `--validate-only` result now reports `supervisedEpochs`,
 `preferenceEpochs`, and `domainSampling` so the owner can inspect the
-effective plan without creating an adapter. Owners can override the epoch
+effective plan without creating an adapter.
+
+**Curriculum enforcement:** The supervised stage uses a deterministic,
+seeded interleaving of all seven domains and an explicit sequential optimizer
+sampler. Hugging Face's default random sampler would otherwise undo this
+order. With unequal domain dataset sizes, later portions of an epoch can still
+contain more examples from the larger domain; the scheduler does **not** fake
+new examples or silently duplicate the smaller datasets.
+
+**Long-form training:** Every approved supervised answer is now segmented into
+response-only-loss records (up to 256 bounded segments per response, and
+200,000 segments per run). Each segment includes real prompt/preceding-answer
+context; target spans do not overlap or disappear. The training artifact records
+`supervisedSegmentCount`, `supervisedTargetTokens`,
+`supervisedExamplesByDomain`, and `targetResponseTruncations: 0` after
+successful training. A run that exceeds segment budgets fails instead of
+silently chopping off important book chapters or coding responses.
+
+**Preference-stage long answers:** DPO likewise consumes full chosen/rejected
+answers as bounded segments, up to 16 per answer. The preference optimizer
+computes a true DPO margin and backpropagates each segment separately with
+the exact scalar gradient coefficients, avoiding retention of all segment
+activation graphs at once. It uses eval-mode deterministic forward passes
+while still updating trainable adapter parameters, then verifies genuine
+weight changes. This is slower than truncated training but protects long-form
+content. Over-budget answers fail closed rather than being mislabeled trained.
+Run the optional local PyTorch smoke check with
+`python3 development/sovereign-preference-gradient-smoke.py`
+to verify that the preference adapter changes while base weights stay frozen.
+ Owners can override the epoch
 counts with `--epochs` and `--preference-epochs` after reviewing validation
 loss and held-out regressions. No model weights or GPU were available to run
 the new passes in GitHub CI; preflight verification must not be confused with
