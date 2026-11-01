@@ -32,7 +32,7 @@ export function verifyOwnerSession(value, ownerToken, nowMs = Date.now()) {
   if (!Number.isSafeInteger(issuedAt) || issuedAt > nowSeconds + CLOCK_SKEW_SECONDS ||
       nowSeconds - issuedAt >= OWNER_SESSION_TTL_SECONDS) return false;
   const supplied = Buffer.from(match[3], "base64url");
-  if (supplied.length !== 32) return false;
+  if (supplied.length !== 32 || supplied.toString("base64url") !== match[3]) return false;
   const payload = `v1.${match[1]}.${match[2]}`;
   try {
     const expected = createHmac("sha256", signingKey(ownerToken)).update(payload).digest();
