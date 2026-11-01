@@ -62,3 +62,97 @@ def validate_preference_inputs(path: Path, benchmark_path: Path, supervised: lis
     if missing:
         raise ValueError("At least 20 preference pairs required per domain: " + ", ".join(missing))
     return package["pairs"]
+
+
+def train_preference_stage(
+    model, tokenizer, pairs: list[dict], *,
+    max_length: int, epochs: int, beta: float,
+    learning_rate: float, seed: int,
+) -> dict:
+    """Train a DPO adapter using the frozen post-SFT model as reference.
+
+    Reference log probabilities are computed before the optimizer modifies
+    any weights. This needs one local base model plus its trainable adapter,
+    not a remote teacher or second full model in VRAM.
+    """
+    import torch
+    import torch.nn.functional as functional
+
+    if epochs < 1 or epochs > 10 or not (0.01 <= beta <= 1.0) or not (0 < learning_rate <= 0.001):
+        raise ValueError("Preference hyperparameters are outside bounded limits")
+
+    def encode(prompt: str, response: str):
+        prefix = tokenizer.encode("User: " + prompt + "\nAssistant: ", add_special_tokens=False)
+        answer = tokenizer.encode(response, add_special_tokens=False)
+        answer = answer[:max(1, max_length // 2 - 1)] + [tokenizer.eos_token_id]
+        prefix = prefix[-(max_length - len(answer)):]
+        return (
+            torch.tensor([prefix + answer], dtype=torch.long),
+            torch.tensor([[-100] * len(prefix) + answer], dtype=torch.long),
+        )
+
+    def log_probability(ids, labels):
+        device = next(model.parameters()).device
+        ids, labels = ids.to(device), labels.to(device)
+        logits = model(input_ids=ids, attention_mask=torch.ones_like(ids)).logits[:, :-1, :].float()
+        selected = torch.log_softmax(logits, -1).gather(-1, ids[:, 1:].unsqueeze(-1)).squeeze(-1)
+        return (selected * (labels[:, 1:] != -100)).sum(-1)
+
+    records = [(pair["domain"], encode(pair["prompt"], pair["chosenResponse"]),
+                encode(pair["prompt"], pair["rejectedResponse"])) for pair in pairs]
+    model.eval()
+    frozen_reference = []
+    with torch.no_grad():
+        for _, chosen, rejected in records:
+            frozen_reference.append((
+                log_probability(*chosen).detach().cpu(),
+                log_probability(*rejected).detach().cpu(),
+            ))
+    trainable = {name: p for name, p in model.named_parameters() if p.requires_grad}
+    if not trainable:
+        raise RuntimeError("No trainable preference adapter parameters")
+    before = {name: p.detach().cpu().clone() for name, p in trainable.items()}
+    optimizer = torch.optim.AdamW(list(trainable.values()), lr=learning_rate, weight_decay=0.0)
+    buckets = defaultdict(list)
+    for index, record in enumerate(records):
+        buckets[record[0]].append(index)
+    rng = random.Random(seed + 1)
+    losses = []
+    steps = 0
+    model.train()
+    for _ in range(epochs):
+        pending = {name: rng.sample(indices, len(indices)) for name, indices in buckets.items()}
+        while any(pending.values()):
+            for domain in sorted(pending):
+                if not pending[domain]:
+                    continue
+                index = pending[domain].pop()
+                _, chosen, rejected = records[index]
+                ref_good, ref_bad = frozen_reference[index]
+                optimizer.zero_grad(set_to_none=True)
+                good = log_probability(*chosen)
+                bad = log_probability(*rejected)
+                delta = (good - bad) - (ref_good - ref_bad).to(good.device)
+                loss = -functional.logsigmoid(beta * delta).mean()
+                if not bool(torch.isfinite(loss)):
+                    raise RuntimeError("Non-finite preference loss")
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(list(trainable.values()), 1.0)
+                optimizer.step()
+                steps += 1
+                losses.append(float(loss.detach().cpu()))
+    if steps < len(records) or not all(math.isfinite(x) for x in losses):
+        raise RuntimeError("Preference optimizer did not complete all gradient steps")
+    if not any(not torch.equal(before[name], p.detach().cpu()) for name, p in trainable.items()):
+        raise RuntimeError("Preference optimization made no trainable weight changes")
+    return {
+        "algorithm": "direct-preference-optimization",
+        "reference": "frozen-post-supervised-policy-logprobs",
+        "pairCount": len(records),
+        "epochs": epochs,
+        "optimizationSteps": steps,
+        "beta": beta,
+        "learningRate": learning_rate,
+        "meanLoss": sum(losses) / len(losses),
+        "trainableParametersChanged": True,
+    }
