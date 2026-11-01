@@ -224,6 +224,9 @@ export class OpenAICompatibleGatewayAdapter implements ProviderAdapter {
         method: "POST",
         headers,
         signal: controller.signal,
+        // Never follow a redirect into a different model endpoint. In sovereign
+        // mode that could silently outsource inference and leak owner prompts.
+        redirect: "manual",
         body: JSON.stringify({
           model: model.modelId,
           messages: request.messages,
@@ -237,6 +240,10 @@ export class OpenAICompatibleGatewayAdapter implements ProviderAdapter {
         }),
       });
 
+      if (response.status >= 300 && response.status < 400) {
+        return failure(request, model, startedAt, "GATEWAY_REDIRECT_REJECTED",
+          "Inference endpoints must not redirect model requests.", false);
+      }
       const raw = await response.text();
       let payload: ChatCompletionPayload;
       try {
