@@ -46,7 +46,7 @@ def main() -> None:
     result = train_preference_stage(
         model, TestTokenizer(), [
             {"domain": "chat", "prompt": "Explain tokens.",
-             "chosenResponse": "Tokens encode text units.", "rejectedResponse": "No idea."},
+             "chosenResponse": "Tokens encode text units. " * 9, "rejectedResponse": "No idea."},
             {"domain": "coding", "prompt": "How to test?",
              "chosenResponse": "Run assertions.", "rejectedResponse": "Trust a guess."},
         ],
@@ -54,6 +54,8 @@ def main() -> None:
     )
     assert result["optimizationSteps"] == 4, result
     assert result["trainableParametersChanged"], result
+    assert result["targetResponseTruncations"] == 0, result
+    assert result["gradientMemory"] == "single-bounded-segment", result
     assert all(torch.equal(frozen_before[name], p.detach()) for name, p in model.named_parameters()
                if not p.requires_grad), "Frozen base-model weights must not change in preference training"
     print("K.I.N.G.S. preference DPO: real gradient smoke PASS; synthetic quality claims: NONE")
