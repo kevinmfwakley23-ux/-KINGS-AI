@@ -117,6 +117,27 @@ def validate_training_inputs(training_path: Path, benchmark_path: Path) -> list[
     return package["examples"]
 
 
+def interleave_training_examples(examples: list[dict], seed: int) -> list[dict]:
+    """Shuffle within each specialty, then interleave without duplication.
+
+    This is an ordering strategy, not minority upsampling: no licensed example
+    is repeated or secretly invented. The trainer must use a sequential
+    sampler or the library's random sampler will undo the interleaving.
+    """
+    buckets = defaultdict(list)
+    for item in examples:
+        buckets[item["domain"]].append(item)
+    rng = random.Random(seed)
+    for bucket in buckets.values():
+        rng.shuffle(bucket)
+    ordered = []
+    while any(buckets.values()):
+        for domain in sorted(buckets):
+            if buckets[domain]:
+                ordered.append(buckets[domain].pop())
+    return ordered
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--training-package", type=Path, required=True)
@@ -184,7 +205,7 @@ def main() -> None:
 
     try:
         import torch
-        from torch.utils.data import Dataset
+        from torch.utils.data import Dataset, SequentialSampler
         from transformers import (AutoModelForCausalLM, AutoTokenizer,
                                   Trainer, TrainingArguments)
         from peft import LoraConfig, TaskType, get_peft_model
@@ -204,20 +225,9 @@ def main() -> None:
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # Deterministic domain round-robin prevents a large specialty corpus from
-    # crowding the others out of each optimization pass. This reorders only
-    # authorized examples; it does not fabricate, duplicate, or augment data.
-    domain_buckets = defaultdict(list)
-    for item in examples:
-        domain_buckets[item["domain"]].append(item)
-    rng = random.Random(args.seed)
-    for bucket in domain_buckets.values():
-        rng.shuffle(bucket)
-    balanced_examples = []
-    while any(domain_buckets.values()):
-        for domain in sorted(DOMAINS):
-            if domain_buckets[domain]:
-                balanced_examples.append(domain_buckets[domain].pop())
+    # The default HF Trainer uses RandomSampler, which would silently erase
+    # the intended per-domain interleaving. Preserve this schedule below.
+    balanced_examples = interleave_training_examples(examples, args.seed)
     records = []
     for item in balanced_examples:
         prompt = tokenizer.encode(
@@ -239,6 +249,12 @@ def main() -> None:
 
         def __getitem__(self, index):
             return records[index]
+
+    class DomainInterleavedTrainer(Trainer):
+        def _get_train_sampler(self):
+            # Local single-owner training: do not reshuffle the already
+            # reproducible, domain-interleaved record ordering.
+            return SequentialSampler(self.train_dataset)
 
     def collate(batch):
         length = max(len(x["input_ids"]) for x in batch)
@@ -286,7 +302,7 @@ def main() -> None:
         }
         if not before:
             raise RuntimeError("No trainable LoRA parameters were configured")
-        result = Trainer(
+        result = DomainInterleavedTrainer(
             model=model, args=training, train_dataset=TrainingDataset(),
             data_collator=collate,
         ).train()
@@ -324,6 +340,11 @@ def main() -> None:
             "exampleCount": len(records),
             "domainSampling": "seeded-round-robin-without-replacement",
             "trainingPasses": args.epochs,
+            "optimizerSampler": "sequential-interleaved",
+            "supervisedExamplesByDomain": {
+                domain: sum(item["domain"] == domain for item in examples)
+                for domain in sorted(DOMAINS)
+            },
             "epochs": args.epochs,
             "seed": args.seed,
             "trainingLoss": result.training_loss,
