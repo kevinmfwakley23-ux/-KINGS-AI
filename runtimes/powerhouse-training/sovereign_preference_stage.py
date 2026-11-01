@@ -77,26 +77,38 @@ def train_preference_stage(
     """
     import torch
     import torch.nn.functional as functional
+    from sovereign_lora_trainer import supervised_answer_segments
 
     if epochs < 1 or epochs > 10 or not (0.01 <= beta <= 1.0) or not (0 < learning_rate <= 0.001):
         raise ValueError("Preference hyperparameters are outside bounded limits")
 
     def encode(prompt: str, response: str):
-        prefix = tokenizer.encode("User: " + prompt + "\nAssistant: ", add_special_tokens=False)
-        answer = tokenizer.encode(response, add_special_tokens=False)
-        answer = answer[:max(1, max_length // 2 - 1)] + [tokenizer.eos_token_id]
-        prefix = prefix[-(max_length - len(answer)):]
-        return (
-            torch.tensor([prefix + answer], dtype=torch.long),
-            torch.tensor([[-100] * len(prefix) + answer], dtype=torch.long),
+        # Never silently truncate chosen/rejected answers. The full response
+        # is supervised in bounded contextual segments, as in stage one.
+        records = supervised_answer_segments(
+            tokenizer, {"prompt": prompt, "targetResponse": response}, max_length
         )
+        if len(records) > 16:
+            raise ValueError("DPO response exceeds the 16-segment memory budget")
+        return [
+            (torch.tensor([segment["input_ids"]], dtype=torch.long),
+             torch.tensor([segment["labels"]], dtype=torch.long))
+            for segment in records
+        ]
 
-    def log_probability(ids, labels):
+    def segment_log_probability(ids, labels):
         device = next(model.parameters()).device
         ids, labels = ids.to(device), labels.to(device)
         logits = model(input_ids=ids, attention_mask=torch.ones_like(ids)).logits[:, :-1, :].float()
         selected = torch.log_softmax(logits, -1).gather(-1, ids[:, 1:].unsqueeze(-1)).squeeze(-1)
         return (selected * (labels[:, 1:] != -100)).sum(-1)
+
+    def log_probability(segments):
+        total = None
+        for ids, labels in segments:
+            value = segment_log_probability(ids, labels)
+            total = value if total is None else total + value
+        return total
 
     records = [(pair["domain"], encode(pair["prompt"], pair["chosenResponse"]),
                 encode(pair["prompt"], pair["rejectedResponse"])) for pair in pairs]
@@ -105,8 +117,8 @@ def train_preference_stage(
     with torch.no_grad():
         for _, chosen, rejected in records:
             frozen_reference.append((
-                log_probability(*chosen).detach().cpu(),
-                log_probability(*rejected).detach().cpu(),
+                log_probability(chosen).detach().cpu(),
+                log_probability(rejected).detach().cpu(),
             ))
     trainable = {name: p for name, p in model.named_parameters() if p.requires_grad}
     if not trainable:
@@ -119,7 +131,10 @@ def train_preference_stage(
     rng = random.Random(seed + 1)
     losses = []
     steps = 0
-    model.train()
+    # Keep dropout disabled so that the no-grad preference margin and the
+    # independently backpropagated segment scores describe the same policy.
+    # Trainable adapter parameters still receive true DPO gradients in eval().
+    model.eval()
     for _ in range(epochs):
         pending = {name: rng.sample(indices, len(indices)) for name, indices in buckets.items()}
         while any(pending.values()):
@@ -130,13 +145,23 @@ def train_preference_stage(
                 _, chosen, rejected = records[index]
                 ref_good, ref_bad = frozen_reference[index]
                 optimizer.zero_grad(set_to_none=True)
-                good = log_probability(*chosen)
-                bad = log_probability(*rejected)
-                delta = (good - bad) - (ref_good - ref_bad).to(good.device)
-                loss = -functional.logsigmoid(beta * delta).mean()
+                # Compute the current DPO margin without retaining a graph for
+                # every segment. Differentiate that same scalar exactly using
+                # dL/d(good)=-beta*sigmoid(-beta*delta), dL/d(bad)=-dL/d(good).
+                # The next loops release each segment graph immediately; peak
+                # activation memory stays bounded for long-form writing pairs.
+                with torch.no_grad():
+                    good = log_probability(chosen)
+                    bad = log_probability(rejected)
+                    delta = (good - bad) - (ref_good - ref_bad).to(good.device)
+                    loss = -functional.logsigmoid(beta * delta).mean()
+                    weight = (beta * torch.sigmoid(-beta * delta)).detach()
                 if not bool(torch.isfinite(loss)):
                     raise RuntimeError("Non-finite preference loss")
-                loss.backward()
+                for segment in chosen:
+                    (-weight * segment_log_probability(*segment)).mean().backward()
+                for segment in rejected:
+                    (weight * segment_log_probability(*segment)).mean().backward()
                 torch.nn.utils.clip_grad_norm_(list(trainable.values()), 1.0)
                 optimizer.step()
                 steps += 1
@@ -155,4 +180,6 @@ def train_preference_stage(
         "learningRate": learning_rate,
         "meanLoss": sum(losses) / len(losses),
         "trainableParametersChanged": True,
+        "targetResponseTruncations": 0,
+        "gradientMemory": "single-bounded-segment",
     }
