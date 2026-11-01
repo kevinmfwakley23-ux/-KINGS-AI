@@ -65,6 +65,21 @@ inference ports. The configured context window is sent to the actual Ollama
 `num_ctx` field, not merely displayed on a settings screen. Hardware and
 model support determine the real usable context.
 
+## Use the seven K.I.N.G.S. specialist offices
+
+After deploying the owner runtime behind authenticated HTTPS, the Android,
+macOS, Windows and browser owner console shows a **K.I.N.G.S. Sovereign Chat**
+section. The seven office options are chat, coding, collectibles, sports
+cards, book editing, publishing, and storytelling. `GET /api/owner-chat`
+reports model identity and declared capabilities. An owner-authorized
+`POST /api/owner-chat` sends a bounded chat request to the actual owner-operated
+inference engine. This does not hand off to outside AI agents.
+
+If no model qualifies for the selected specialist capabilities, the request
+returns `NO_QUALIFIED_LOCAL_MODEL` (503) rather than substituting an unrelated
+model or a fabricated answer. Declared capabilities are owner configuration,
+**not** verification that the model performs at a professional level.
+
 ## On-demand web research without outside AI inference
 
 The owner console provides a first-party internet research panel backed by
