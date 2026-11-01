@@ -166,6 +166,88 @@ async function run(): Promise<void> {
       assert.equal((await stat(outputPath)).mode & 0o077, 0, "signed model-build evidence must be owner-only");
     }
     assert.doesNotMatch(await readFile(outputPath, "utf8"), new RegExp(ownerToken, "u"));
+
+    // The second training program must be pinned to an owner-approved SHA-256.
+    // The launcher test checks input-binding and actual process execution; it
+    // does NOT claim this synthetic subprocess updated neural network weights.
+    const preferencePath = join(directory, "private-preferences.json");
+    const preferences = {
+      schemaVersion: "1",
+      pairs: trainingPackage.examples.map((example) => ({
+        id: "preference-" + example.id,
+        domain: example.domain,
+        sourceGroupId: "preference-" + example.sourceGroupId,
+        prompt: "Independent preference question " + example.prompt,
+        chosenResponse: "Preferred answer with authorized evidence.",
+        rejectedResponse: "Rejected answer lacking verified evidence.",
+        rights: rights(),
+      })),
+    };
+    const preferenceText = JSON.stringify(preferences);
+    await writeFile(preferencePath, preferenceText, { mode: 0o600 });
+    const preferenceHash = createHash("sha256").update(preferenceText).digest("hex");
+    const dualOutputPath = join(directory, "second-build-record.json");
+    const dualArtifactPath = join(directory, "second-model.bin");
+    const dualJob: PowerhouseTrainingJob = {
+      ...job,
+      jobId: "training-job-cli-preference-002",
+      buildId: "model-build-cli-preference-002",
+      outputModelId: "kings-powerhouse-cli-preference-002",
+      hyperparameters: { ...job.hyperparameters, preferencePackageSha256: preferenceHash },
+    };
+    const dualRunner = {
+      command: process.execPath,
+      commandSha256: commandDigest,
+      args: [trainerPath, "{trainingPackage}", "{benchmarkManifest}", "{modelArtifact}",
+        "--preference-package", "{preferencePackage}"],
+      workingDirectory: directory,
+      trainerArtifactPath: trainerPath,
+      modelArtifactPath: dualArtifactPath,
+      preferencePackagePath: preferencePath,
+      preferencePackageSha256: preferenceHash,
+      timeoutMs: 30_000,
+    };
+    const dualRequest = {
+      trainingPackagePath,
+      benchmarkManifestPath,
+      launchManifestPath,
+      outputPath: dualOutputPath,
+    };
+    await writeFile(launchManifestPath, JSON.stringify({
+      schemaVersion: "1", job: dualJob,
+      runner: { ...dualRunner, preferencePackageSha256: "0".repeat(64) },
+    }));
+    await assert.rejects(
+      runPowerhouseTrainingFiles(dualRequest, { KINGS_CODING_MACHINE_TOKEN: ownerToken }),
+      /Owner-locked preference package path and SHA-256 must match/u,
+    );
+    await writeFile(launchManifestPath, JSON.stringify({
+      schemaVersion: "1", job: dualJob,
+      runner: { ...dualRunner, preferencePackagePath: join(tmpdir(), "outside-training-preferences.json") },
+    }));
+    await assert.rejects(
+      runPowerhouseTrainingFiles(dualRequest, { KINGS_CODING_MACHINE_TOKEN: ownerToken }),
+      /Preference package must stay in the owner-authorized training directory/u,
+    );
+    await writeFile(launchManifestPath, JSON.stringify({
+      schemaVersion: "1", job: dualJob, runner: dualRunner,
+    }));
+    const dualArtifact = await runPowerhouseTrainingFiles(
+      dualRequest, { KINGS_CODING_MACHINE_TOKEN: ownerToken },
+    );
+    assert.equal(dualArtifact.buildRecord.status, "trained");
+    assert.equal(dualArtifact.buildRecord.hyperparameters.preferencePackageSha256, preferenceHash);
+    verifyPowerhouseSignedBuildArtifact(dualArtifact, ownerToken);
+    assert.ok((await stat(dualArtifactPath)).size > 0);
+
+    // A changed preference file must fail before creating another build.
+    await writeFile(preferencePath, preferenceText + " ");
+    await assert.rejects(
+      runPowerhouseTrainingFiles({
+        ...dualRequest, outputPath: join(directory, "tampered-build-record.json"),
+      }, { KINGS_CODING_MACHINE_TOKEN: ownerToken }),
+      /Preference package contents differ/u,
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
