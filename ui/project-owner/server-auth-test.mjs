@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { rm } from "node:fs/promises";
 import net from "node:net";
@@ -411,7 +411,17 @@ async function assertRemoteAuthenticationLifecycle() {
     assert.match(setCookie, /Secure/i);
     assert.match(setCookie, /SameSite=Strict/i);
     assert.doesNotMatch(setCookie, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "session cookie must not contain the reusable owner token");
+    assert.match(setCookie, /Max-Age=43200/, "owner session must expire after 12 hours");
     const sessionCookie = setCookie.split(";", 1)[0];
+    const oldSessionDigest = createHash("sha256").update(`kings-owner-session:${token}`).digest("hex");
+    const legacyCookie = await fetch(`${base}/api/status`, {
+      headers: { cookie: `__Host-kings_owner_access=${oldSessionDigest}` },
+    });
+    assert.equal(legacyCookie.status, 401, "legacy perpetual owner session digests must be rejected");
+    const tamperedCookie = await fetch(`${base}/api/status`, {
+      headers: { cookie: sessionCookie.replace("=v1.", "=v2.") },
+    });
+    assert.equal(tamperedCookie.status, 401, "tampered owner browser sessions must be rejected");
 
     const session = await fetch(`${base}/api/status`, {
       cache: "no-store",
