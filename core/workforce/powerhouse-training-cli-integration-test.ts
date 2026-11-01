@@ -186,6 +186,11 @@ async function run(): Promise<void> {
     const preferenceText = JSON.stringify(preferences);
     await writeFile(preferencePath, preferenceText, { mode: 0o600 });
     const preferenceHash = createHash("sha256").update(preferenceText).digest("hex");
+    // This test fixture pins the source file but does not claim it is a trained model.
+    const preferenceTrainerPath = join(directory, "sovereign_preference_stage.py");
+    const preferenceTrainerSource = "# integration fixture: executable owner source must be hash-pinned\n";
+    await writeFile(preferenceTrainerPath, preferenceTrainerSource, { mode: 0o600 });
+    const preferenceTrainerHash = createHash("sha256").update(preferenceTrainerSource).digest("hex");
     const dualOutputPath = join(directory, "second-build-record.json");
     const dualArtifactPath = join(directory, "second-model.bin");
     const dualJob: PowerhouseTrainingJob = {
@@ -193,7 +198,11 @@ async function run(): Promise<void> {
       jobId: "training-job-cli-preference-002",
       buildId: "model-build-cli-preference-002",
       outputModelId: "kings-powerhouse-cli-preference-002",
-      hyperparameters: { ...job.hyperparameters, preferencePackageSha256: preferenceHash },
+      hyperparameters: {
+        ...job.hyperparameters,
+        preferencePackageSha256: preferenceHash,
+        preferenceTrainerSha256: preferenceTrainerHash,
+      },
     };
     const dualRunner = {
       command: process.execPath,
@@ -205,6 +214,8 @@ async function run(): Promise<void> {
       modelArtifactPath: dualArtifactPath,
       preferencePackagePath: preferencePath,
       preferencePackageSha256: preferenceHash,
+      preferenceTrainerArtifactPath: preferenceTrainerPath,
+      preferenceTrainerSha256: preferenceTrainerHash,
       timeoutMs: 30_000,
     };
     const dualRequest = {
@@ -240,6 +251,15 @@ async function run(): Promise<void> {
     verifyPowerhouseSignedBuildArtifact(dualArtifact, ownerToken);
     assert.ok((await stat(dualArtifactPath)).size > 0);
 
+    // An altered optimizer module must be rejected before execution.
+    await writeFile(preferenceTrainerPath, preferenceTrainerSource + "# modified\n");
+    await assert.rejects(
+      runPowerhouseTrainingFiles({
+        ...dualRequest, outputPath: join(directory, "tampered-optimizer-build.json"),
+      }, { KINGS_CODING_MACHINE_TOKEN: ownerToken }),
+      /Preference optimizer code differs from the owner-approved digest/u,
+    );
+    await writeFile(preferenceTrainerPath, preferenceTrainerSource);
     // A changed preference file must fail before creating another build.
     await writeFile(preferencePath, preferenceText + " ");
     await assert.rejects(
