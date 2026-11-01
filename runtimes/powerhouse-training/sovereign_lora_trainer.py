@@ -138,6 +138,50 @@ def interleave_training_examples(examples: list[dict], seed: int) -> list[dict]:
     return ordered
 
 
+def supervised_answer_segments(tokenizer, item: dict, max_length: int) -> list[dict]:
+    """Cover the full licensed target answer with response-only loss.
+
+    Each segment contains a real (possibly shortened) user prompt, preceding
+    answer context when available, and a non-overlapping target span. No token
+    of the target response is silently omitted, and no context token is
+    trained as a target. This improves long-form book/writing supervision
+    without assuming the model can infer beyond its actual context window.
+    """
+    if max_length < 128:
+        raise ValueError("Training context must contain at least 128 tokens")
+    prompt = tokenizer.encode(
+        "User: " + item["prompt"] + "\nAssistant: ", add_special_tokens=False
+    )
+    target = tokenizer.encode(item["targetResponse"], add_special_tokens=False)
+    if not prompt or not target:
+        raise ValueError("Tokenizer produced an empty user prompt or target response")
+    target = target + [tokenizer.eos_token_id]
+    chunk_length = max(1, max_length // 2)
+    segment_count = (len(target) + chunk_length - 1) // chunk_length
+    if segment_count > 256:
+        raise ValueError("Response requires more than 256 bounded training segments")
+    segments = []
+    for start in range(0, len(target), chunk_length):
+        labels_to_learn = target[start:start + chunk_length]
+        context_budget = max_length - len(labels_to_learn)
+        if start == 0:
+            context = prompt[-context_budget:]
+        else:
+            prompt_budget = min(len(prompt), max(1, min(max_length // 8, context_budget // 2)))
+            recent_prompt = prompt[-prompt_budget:]
+            history_budget = context_budget - len(recent_prompt)
+            recent_answer = target[max(0, start - history_budget):start]
+            context = recent_prompt + recent_answer
+        token_ids = context + labels_to_learn
+        if not context or len(token_ids) > max_length:
+            raise ValueError("Cannot fit a contextualized supervised answer segment")
+        segments.append({
+            "input_ids": token_ids,
+            "labels": [-100] * len(context) + labels_to_learn,
+        })
+    return segments
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--training-package", type=Path, required=True)
@@ -228,20 +272,23 @@ def main() -> None:
     # The default HF Trainer uses RandomSampler, which would silently erase
     # the intended per-domain interleaving. Preserve this schedule below.
     balanced_examples = interleave_training_examples(examples, args.seed)
-    records = []
+    records_with_domain = []
     for item in balanced_examples:
-        prompt = tokenizer.encode(
-            "User: " + item["prompt"] + "\nAssistant: ", add_special_tokens=False
-        )
-        target = tokenizer.encode(item["targetResponse"], add_special_tokens=False)
-        target = target[: max(1, args.max_length // 2 - 1)] + [tokenizer.eos_token_id]
-        allowed_prompt = args.max_length - len(target)
-        if allowed_prompt < 1:
-            raise ValueError("Target answer leaves no room for the input prompt")
-        prompt = prompt[-allowed_prompt:]
-        ids = prompt + target
-        labels = [-100] * len(prompt) + target
-        records.append({"input_ids": ids, "labels": labels})
+        for segment in supervised_answer_segments(tokenizer, item, args.max_length):
+            records_with_domain.append({**segment, "domain": item["domain"]})
+            if len(records_with_domain) > 200000:
+                raise ValueError("Supervised token segmentation exceeds 200000 bounded records")
+    # Long responses can yield several segments. Keep the optimizer's domain
+    # interleaving effective at the segment level, not just the example level.
+    ordered_segments = interleave_training_examples(records_with_domain, args.seed + 1)
+    supervised_target_tokens = sum(
+        sum(token != -100 for token in segment["labels"])
+        for segment in ordered_segments
+    )
+    records = [
+        {"input_ids": segment["input_ids"], "labels": segment["labels"]}
+        for segment in ordered_segments
+    ]
 
     class TrainingDataset(Dataset):
         def __len__(self):
@@ -349,6 +396,9 @@ def main() -> None:
             "seed": args.seed,
             "trainingLoss": result.training_loss,
             "optimizationSteps": result.global_step,
+            "supervisedSegmentCount": len(records),
+            "supervisedTargetTokens": supervised_target_tokens,
+            "targetResponseTruncations": 0,
             "trainableParametersChanged": True,
             "trainingStages": ["supervised-lora"] + (
                 ["preference-dpo"] if preference_evidence is not None else []
