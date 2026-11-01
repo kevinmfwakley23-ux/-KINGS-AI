@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import random
@@ -51,12 +52,26 @@ def validate_training_inputs(training_path: Path, benchmark_path: Path) -> list[
         raise ValueError("Benchmark manifest must supply items")
     protected_groups = set()
     protected_prompts = set()
+    benchmark_ids = set()
     for item in benchmark["items"]:
         if not isinstance(item, dict):
             raise ValueError("Invalid benchmark item")
-        if item.get("split") != "train":
-            protected_groups.add(item.get("sourceGroupId"))
-            protected_prompts.add(" ".join(str(item.get("prompt", "")).lower().split()))
+        identifier = item.get("id")
+        split = item.get("split")
+        group = item.get("sourceGroupId")
+        prompt = item.get("prompt")
+        if not isinstance(identifier, str) or not identifier.strip() or identifier in benchmark_ids:
+            raise ValueError("Benchmark items require unique nonempty ids")
+        if split not in ("train", "validation", "held-out", "test"):
+            raise ValueError("Benchmark split must be train, validation, held-out, or test")
+        if not isinstance(group, str) or not group.strip():
+            raise ValueError("Benchmark sourceGroupId must be nonempty")
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("Benchmark prompt must be nonempty")
+        benchmark_ids.add(identifier)
+        if split != "train":
+            protected_groups.add(group)
+            protected_prompts.add(" ".join(prompt.lower().split()))
     domain_counts = {domain: 0 for domain in DOMAINS}
     ids, prompts = set(), set()
     for example in package["examples"]:
@@ -69,14 +84,17 @@ def validate_training_inputs(training_path: Path, benchmark_path: Path) -> list[
         rights = example.get("rights")
         if domain not in DOMAINS or not isinstance(identifier, str) or not identifier:
             raise ValueError("Training example has invalid domain or id")
-        if identifier in ids or not isinstance(prompt, str) or not prompt.strip():
+        if identifier in ids or identifier in benchmark_ids or not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("Duplicate id or empty training prompt")
         if not isinstance(answer, str) or not answer.strip():
             raise ValueError("Training answer must be nonempty")
         prompt_norm = " ".join(prompt.lower().split())
         if prompt_norm in prompts or prompt_norm in protected_prompts:
             raise ValueError("Duplicate or held-out training prompt")
-        if example.get("sourceGroupId") in protected_groups:
+        source_group = example.get("sourceGroupId")
+        if not isinstance(source_group, str) or not source_group.strip():
+            raise ValueError("Training sourceGroupId must be nonempty")
+        if source_group in protected_groups:
             raise ValueError("Training source group overlaps held-out or validation data")
         if not isinstance(rights, dict) or rights.get("trainingAllowed") is not True:
             raise ValueError("Training rights are not granted")
@@ -128,6 +146,8 @@ def main() -> None:
         not (0 < args.learning_rate <= 0.01) or args.seed < 0):
         raise ValueError("Invalid bounded training hyperparameters")
     examples = validate_training_inputs(args.training_package, args.benchmark_manifest)
+    if args.model_artifact.exists():
+        raise FileExistsError("Refusing to overwrite an existing trained model artifact")
     if args.validate_only:
         print(json.dumps({"ok": True, "validatedExamples": len(examples),
                           "baseModel": args.base_model.name, "trained": False}))
@@ -222,10 +242,24 @@ def main() -> None:
             remove_unused_columns=False,
             dataloader_num_workers=0,
         )
+        before = {
+            name: value.detach().cpu().clone()
+            for name, value in model.named_parameters() if value.requires_grad
+        }
+        if not before:
+            raise RuntimeError("No trainable LoRA parameters were configured")
         result = Trainer(
             model=model, args=training, train_dataset=TrainingDataset(),
             data_collator=collate,
         ).train()
+        if result.global_step < 1 or not math.isfinite(result.training_loss):
+            raise RuntimeError("Training did not complete a valid gradient optimization step")
+        after = {
+            name: value.detach().cpu()
+            for name, value in model.named_parameters() if value.requires_grad
+        }
+        if not any(not torch.equal(before[name], value) for name, value in after.items()):
+            raise RuntimeError("Training completed without changing any trainable LoRA weights")
         adapter = root / "adapter"
         model.save_pretrained(str(adapter), safe_serialization=True)
         tokenizer.save_pretrained(str(adapter))
@@ -242,6 +276,8 @@ def main() -> None:
             "epochs": args.epochs,
             "seed": args.seed,
             "trainingLoss": result.training_loss,
+            "optimizationSteps": result.global_step,
+            "trainableParametersChanged": True,
             "notes": "Real fine-tuned adapter, not a claim of top-tier capability or a merged deployable model.",
         }
         (adapter / "kings-training-metadata.json").write_text(
