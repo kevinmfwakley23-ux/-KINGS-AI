@@ -62,6 +62,25 @@ runner requires a real licensed base model and rights-cleared private data.
 The optional `KINGS_OLLAMA_CONTEXT_TOKENS` passes directly to the local
 inference server and remains hardware/model-dependent.
 
+## Real sovereign chat from Android and desktop
+
+The authenticated owner console exposes a seven-office chat screen and
+`GET /api/owner-chat` (declared model/capability discovery) plus
+`POST /api/owner-chat` (actual local inference). The POST requires
+`X-KINGS-Owner-Action: send-chat` and a JSON `domain`, bounded user/assistant
+`messages`, and optional `maxOutputTokens`. Browser requests cannot inject
+provider selection, system messages, model credentials, or hidden tool calls.
+The router uses the owner-hosted local/self-hosted model or local Ollama;
+sovereign mode never delegates to an outside AI agent. The screen keeps chat
+history only in the current browser process, not on a server.
+
+This **does not install model weights on the phone**: the native mobile client
+must reach a secured owner-operated backend and that backend must serve a real,
+qualified model. No model configured produces a 503 error rather than a fake
+answer. Specialist capability declarations and successful inference are not
+proof that an independently trained expert model exists. Run a live seven-domain
+held-out evaluation before advertising professional-grade model capabilities.
+
 ## Owner-approved internet research on every client
 
 The authenticated owner console now exposes `POST /api/owner-research` and a
