@@ -13,6 +13,7 @@ const { OwnerPdfContextRuntime } = require("../../build/core/workforce/owner-pdf
 const { createOwnerMissionExecutionService } = require("../../build/core/workforce/owner-mission-execution-service.js");
 const { resolveKingsIntelligenceMode } = require("../../build/core/workforce/inference-sovereignty.js");
 const { AppBrainGateway } = require("../../build/core/workforce/app-brain-gateway.js");
+const { OwnerChatService } = require("../../build/core/workforce/owner-chat-service.js");
 const { WebAccessAdapter } = require("../../build/core/workforce/web-access.js");
 
 const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
@@ -100,6 +101,7 @@ const ownerMissionExecutionService = createOwnerMissionExecutionService(
   },
 );
 
+const ownerChatService = new OwnerChatService(process.env);
 const ownerResearch = new AppBrainGateway(new WebAccessAdapter({
   allowedMethods: ["GET"],
   allowedSchemes: ["https"],
@@ -607,6 +609,32 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       connectors: await Promise.all(connectors.map(probe)),
     });
+  }
+
+  // Never permit untrusted clients to supply a model/provider ID or system
+  // prompt. Chat is a bounded first-party inference operation, not a tool or
+  // code-execution authorization.
+  if (req.method === "GET" && url.pathname === "/api/owner-chat") {
+    return json(res, 200, { ok: true, ...ownerChatService.discover() });
+  }
+  if (req.method === "POST" && url.pathname === "/api/owner-chat") {
+    if (!actionHeaderMatches(req, "send-chat")) {
+      return json(res, 400, {
+        ok: false,
+        error: "owner_chat_confirmation_required",
+        message: "Set X-KINGS-Owner-Action to send-chat to use the configured K.I.N.G.S. model.",
+      });
+    }
+    try {
+      const result = await ownerChatService.respond(await readJsonBody(req));
+      return json(res, 200, result);
+    } catch (error) {
+      return json(res, Number(error?.statusCode) || 400, {
+        ok: false,
+        error: typeof error?.code === "string" ? error.code : "owner_chat_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   // Public web research requires owner authentication, an explicit fixed
