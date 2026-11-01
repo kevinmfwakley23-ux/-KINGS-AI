@@ -24,6 +24,9 @@ interface PowerhouseTrainerRunner {
   /** Stage-two preference input must remain an owner-locked, immutable file. */
   preferencePackagePath?: string;
   preferencePackageSha256?: string;
+  /** The imported preference optimizer is executable code and must be pinned too. */
+  preferenceTrainerArtifactPath?: string;
+  preferenceTrainerSha256?: string;
   timeoutMs: number;
 }
 
@@ -198,11 +201,17 @@ function validateLaunchManifest(value: unknown): PowerhouseTrainingLaunchManifes
     if (typeof runner.preferencePackagePath !== "string" ||
         !isAbsolute(runner.preferencePackagePath) ||
         !/^[a-f0-9]{64}$/u.test(runner.preferencePackageSha256 ?? "") ||
-        manifest.job.hyperparameters?.preferencePackageSha256 !== runner.preferencePackageSha256) {
+        manifest.job.hyperparameters?.preferencePackageSha256 !== runner.preferencePackageSha256 ||
+        typeof runner.preferenceTrainerArtifactPath !== "string" ||
+        !isAbsolute(runner.preferenceTrainerArtifactPath) ||
+        !/^[a-f0-9]{64}$/u.test(runner.preferenceTrainerSha256 ?? "") ||
+        manifest.job.hyperparameters?.preferenceTrainerSha256 !== runner.preferenceTrainerSha256) {
       throw new Error("Owner-locked preference package path and SHA-256 must match signed job hyperparameters");
     }
   } else if (runner.preferencePackagePath !== undefined ||
-             runner.preferencePackageSha256 !== undefined) {
+             runner.preferencePackageSha256 !== undefined ||
+             runner.preferenceTrainerArtifactPath !== undefined ||
+             runner.preferenceTrainerSha256 !== undefined) {
     throw new Error("Unused preference package path and hash are not authorized");
   }
   return manifest;
@@ -227,7 +236,10 @@ class SandboxedTrainerExecution implements PowerhouseTrainingExecutionPort {
       ["trainer artifact", trainerArtifactPath],
       ["model artifact", this.modelArtifactPath],
       ...(runner.preferencePackagePath
-        ? [["preference package", resolve(runner.preferencePackagePath)] as const]
+        ? [
+            ["preference package", resolve(runner.preferencePackagePath)] as const,
+            ["preference optimizer", resolve(runner.preferenceTrainerArtifactPath!)] as const,
+          ]
         : []),
     ] as const) {
       if (!isWithin(path, this.workingDirectory)) {
@@ -309,6 +321,13 @@ export async function runPowerhouseTrainingFiles(
     throw new Error("Trainer artifact digest does not match the owner-approved job");
   }
   if (launch.runner.preferencePackagePath) {
+    if (!isWithin(launch.runner.preferenceTrainerArtifactPath!, launch.runner.workingDirectory)) {
+      throw new Error("Preference optimizer must stay inside the owner-authorized training directory");
+    }
+    if (await fileSha256(launch.runner.preferenceTrainerArtifactPath!) !==
+        launch.runner.preferenceTrainerSha256) {
+      throw new Error("Preference optimizer code differs from the owner-approved digest");
+    }
     if (!isWithin(launch.runner.preferencePackagePath, launch.runner.workingDirectory)) {
       throw new Error("Preference package must stay in the owner-authorized training directory");
     }
@@ -332,6 +351,10 @@ export async function runPowerhouseTrainingFiles(
     if (launch.runner.preferencePackagePath &&
         await fileSha256(launch.runner.preferencePackagePath) !== launch.runner.preferencePackageSha256) {
       throw new Error("Preference data changed during training; refusing signed model promotion");
+    }
+    if (launch.runner.preferenceTrainerArtifactPath &&
+        await fileSha256(launch.runner.preferenceTrainerArtifactPath) !== launch.runner.preferenceTrainerSha256) {
+      throw new Error("Preference optimizer changed during training; refusing signed model promotion");
     }
     const artifact: PowerhouseSignedBuildArtifact = {
       schemaVersion: "1",
