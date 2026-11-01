@@ -126,6 +126,30 @@ prompt/response pairs with target-response-only loss, saves nonempty
 `safetensors` LoRA weights plus tokenizer into a ZIP, and prints its hash.
 An interrupted/error run must not yield a valid trained model artifact.
 
+## Strengthened training passes and seven-domain sampling
+
+The offline supervised LoRA trainer now defaults to **two full supervised
+epochs**, rather than one. When the separately authorized DPO preference
+dataset is supplied, the preference optimizer also defaults to **two full
+epochs**. Each stage still uses real gradient updates and checks that the
+trainable weights changed. These are additional passes over existing licensed
+data, **not** double the number of independent examples and **not** evidence
+of better generalization. More epochs can overfit small datasets.
+
+Supervised examples are shuffled deterministically by the owner-approved seed
+within each specialist domain, then interleaved round-robin without replacement.
+This prevents the largest source domain from dominating consecutive training
+steps, while preserving all seven domains and the exact example count.
+The supervised package is bounded to 200,000 examples before any GPU work.
+
+The `--validate-only` result now reports `supervisedEpochs`,
+`preferenceEpochs`, and `domainSampling` so the owner can inspect the
+effective plan without creating an adapter. Owners can override the epoch
+counts with `--epochs` and `--preference-epochs` after reviewing validation
+loss and held-out regressions. No model weights or GPU were available to run
+the new passes in GitHub CI; preflight verification must not be confused with
+a completed training run.
+
 ## Doubled training capability — supervised LoRA + preference DPO
 
 The optional second **real gradient-training program** is
