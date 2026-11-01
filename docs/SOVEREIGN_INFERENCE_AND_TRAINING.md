@@ -181,10 +181,16 @@ For the signed `npm run train:powerhouse` launcher, the owner-approved
 The launch manifest's `runner.preferencePackagePath` must be an absolute path
 inside its authorized working directory and
 `runner.preferencePackageSha256` must equal both the file's real SHA-256
-and `job.hyperparameters.preferencePackageSha256`. The launcher verifies the
-file hash before and after execution, and rejects literal/unbound preference
-paths or tampered inputs. Never commit training packages, evaluation prompts,
-model files or owner secrets to Git.
+and `job.hyperparameters.preferencePackageSha256`. Additionally,
+`runner.preferenceTrainerArtifactPath` must identify
+`sovereign_preference_stage.py` alongside the pinned supervised trainer,
+and `runner.preferenceTrainerSha256` must match both the file's SHA-256
+and `job.hyperparameters.preferenceTrainerSha256`. The launcher verifies
+**both the dataset and the imported optimizer code** before and after the
+run, rejects unbound preference paths or source-code substitution, and
+incorporates both digests in the owner-signed training record.
+Never commit training packages, evaluation prompts, model files or
+owner secrets to Git.
 
 **Status:** The two-stage training implementation and preflight tests exist.
 That is not a completed GPU training run, proof of K.I.N.G.S. original
