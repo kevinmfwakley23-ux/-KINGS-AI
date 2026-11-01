@@ -22,6 +22,13 @@ try {
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /--base-model/);
   assert.match(help.stdout, /--validate-only/);
+
+  const curriculum = spawnSync(python, [join(root, "development", "sovereign-training-curriculum-test.py")], {
+    cwd: root, encoding: "utf8", timeout: 15_000,
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+  });
+  assert.equal(curriculum.status, 0, curriculum.stderr);
+  assert.match(curriculum.stdout, /seven-domain supervised curriculum and real sampler: SUCCESS/);
   assert.match(help.stdout, /--epochs/);
   assert.match(help.stdout, /--preference-epochs/);
 
