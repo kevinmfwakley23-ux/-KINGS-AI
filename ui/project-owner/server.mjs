@@ -19,6 +19,8 @@ const port = Number(process.env.KINGS_CODING_MACHINE_PORT ?? 8787);
 const host = String(process.env.KINGS_CODING_MACHINE_BIND ?? "127.0.0.1").trim();
 const timeoutMs = Number(process.env.KINGS_CONNECTOR_HEALTH_TIMEOUT_MS ?? 1500);
 const ownerToken = String(process.env.KINGS_CODING_MACHINE_TOKEN ?? "").trim();
+// URL credentials leak through history and intermediary logs. Legacy clients must opt in explicitly.
+const legacyGetBootstrapEnabled = process.env.KINGS_ENABLE_LEGACY_GET_BOOTSTRAP === "1";
 const ownerCookieName = "__Host-kings_owner_access";
 const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1"]);
 const remoteMode = !loopbackHosts.has(host);
@@ -186,7 +188,7 @@ function authorizeOwnerRequest(req, url) {
   if (!ownerAuthRequired) return { allowed: true, bootstrap: false };
   if (url.searchParams.has("access")) {
     const supplied = url.searchParams.get("access") ?? "";
-    const bootstrap = req.method === "GET" && url.pathname === "/" && tokenMatches(supplied, ownerToken);
+    const bootstrap = legacyGetBootstrapEnabled && req.method === "GET" && url.pathname === "/" && tokenMatches(supplied, ownerToken);
     return { allowed: bootstrap, bootstrap };
   }
   const authorization = String(req.headers.authorization ?? "");
