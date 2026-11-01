@@ -28,7 +28,7 @@ try {
     env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
   });
   assert.equal(curriculum.status, 0, curriculum.stderr);
-  assert.match(curriculum.stdout, /seven-domain supervised curriculum and real sampler: SUCCESS/);
+  assert.match(curriculum.stdout, /seven-domain supervised curriculum, sampler and full-answer coverage: SUCCESS/);
   assert.match(help.stdout, /--epochs/);
   assert.match(help.stdout, /--preference-epochs/);
 
