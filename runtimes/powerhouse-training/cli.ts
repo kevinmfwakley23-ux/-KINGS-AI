@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { lstat, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { ExecutionSandbox } from "../../core/workforce/execution-sandbox";
 import type { PowerhouseBenchmarkManifest } from "../../core/workforce/powerhouse-benchmark-runner";
@@ -321,6 +321,12 @@ export async function runPowerhouseTrainingFiles(
     throw new Error("Trainer artifact digest does not match the owner-approved job");
   }
   if (launch.runner.preferencePackagePath) {
+    const expectedPreferenceTrainerPath = join(
+      dirname(resolve(launch.runner.trainerArtifactPath)), "sovereign_preference_stage.py",
+    );
+    if (resolve(launch.runner.preferenceTrainerArtifactPath!) !== expectedPreferenceTrainerPath) {
+      throw new Error("Preference optimizer must be the pinned module imported beside the supervised trainer");
+    }
     if (!isWithin(launch.runner.preferenceTrainerArtifactPath!, launch.runner.workingDirectory)) {
       throw new Error("Preference optimizer must stay inside the owner-authorized training directory");
     }
