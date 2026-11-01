@@ -50,4 +50,39 @@ assert any(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
            and node.func.id == "SequentialSampler" for node in ast.walk(samplers[0]))
 assert "result = DomainInterleavedTrainer(" in SCRIPT.read_text(encoding="utf8")
 
-print("K.I.N.G.S. seven-domain supervised curriculum and real sampler: SUCCESS")
+class FakeTokenizer:
+    eos_token_id = 3
+
+    def encode(self, value, add_special_tokens=False):
+        assert add_special_tokens is False
+        return [ord(character) + 10 for character in value]
+
+
+tokenizer = FakeTokenizer()
+for answer in ("Short answer.", "A" * 13000 + " Long-form conclusion."):
+    item = {"prompt": "Edit this book chapter while retaining story continuity.", "targetResponse": answer}
+    segments = trainer.supervised_answer_segments(tokenizer, item, max_length=128)
+    expected = tokenizer.encode(answer) + [tokenizer.eos_token_id]
+    actual = []
+    for segment in segments:
+        ids, labels = segment["input_ids"], segment["labels"]
+        assert len(ids) == len(labels) and len(ids) <= 128
+        assert any(label == -100 for label in labels), "each target segment needs a prompt/context"
+        assert any(label != -100 for label in labels), "every segment needs real target supervision"
+        actual.extend(label for label in labels if label != -100)
+        assert all(label == token or label == -100
+                   for label, token in zip(labels, ids)), "labels must be correct"
+    assert actual == expected, "training must cover every approved answer token, including EOS"
+    if len(answer) > 128:
+        assert len(segments) > 1, "long targets need multiple bounded supervised records"
+
+try:
+    trainer.supervised_answer_segments(
+        tokenizer, {"prompt": "Bounded", "targetResponse": "X" * 17000}, max_length=128
+    )
+except ValueError as error:
+    assert "256 bounded training segments" in str(error)
+else:
+    raise AssertionError("oversized long-form responses must fail rather than exhausting memory")
+
+print("K.I.N.G.S. seven-domain supervised curriculum, sampler and full-answer coverage: SUCCESS")
