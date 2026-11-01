@@ -17,6 +17,7 @@ import math
 import os
 from pathlib import Path
 import random
+from collections import defaultdict
 import re
 import tempfile
 import zipfile
@@ -48,6 +49,8 @@ def validate_training_inputs(training_path: Path, benchmark_path: Path) -> list[
         raise ValueError("Unsupported training package schema")
     if not isinstance(package.get("examples"), list):
         raise ValueError("Training examples must be a list")
+    if len(package["examples"]) > 200000:
+        raise ValueError("Training package exceeds the bounded 200000-example limit")
     if not isinstance(benchmark.get("items"), list):
         raise ValueError("Benchmark manifest must supply items")
     protected_groups = set()
@@ -123,10 +126,10 @@ def parse_args() -> argparse.Namespace:
                         help="Absolute local directory of approved, licensed model weights")
     parser.add_argument("--preference-package", type=Path,
                         help="Optional second-stage, independent rights-cleared preference pairs")
-    parser.add_argument("--preference-epochs", type=int, default=1)
+    parser.add_argument("--preference-epochs", type=int, default=2)
     parser.add_argument("--preference-beta", type=float, default=0.1)
     parser.add_argument("--preference-learning-rate", type=float, default=0.00002)
-    parser.add_argument("--epochs", type=int, default=1)
+    parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--grad-accum", type=int, default=4)
     parser.add_argument("--max-length", type=int, default=2048)
@@ -165,6 +168,9 @@ def main() -> None:
     if args.validate_only:
         print(json.dumps({"ok": True, "validatedExamples": len(examples),
                           "validatedPreferencePairs": len(preferences) if preferences is not None else 0,
+                          "supervisedEpochs": args.epochs,
+                          "preferenceEpochs": args.preference_epochs if preferences is not None else 0,
+                          "domainSampling": "seeded-round-robin-without-replacement",
                           "trainingStages": ["supervised-lora"] + (
                               ["preference-dpo"] if preferences is not None else []
                           ),
@@ -198,8 +204,22 @@ def main() -> None:
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    records = []
+    # Deterministic domain round-robin prevents a large specialty corpus from
+    # crowding the others out of each optimization pass. This reorders only
+    # authorized examples; it does not fabricate, duplicate, or augment data.
+    domain_buckets = defaultdict(list)
     for item in examples:
+        domain_buckets[item["domain"]].append(item)
+    rng = random.Random(args.seed)
+    for bucket in domain_buckets.values():
+        rng.shuffle(bucket)
+    balanced_examples = []
+    while any(domain_buckets.values()):
+        for domain in sorted(DOMAINS):
+            if domain_buckets[domain]:
+                balanced_examples.append(domain_buckets[domain].pop())
+    records = []
+    for item in balanced_examples:
         prompt = tokenizer.encode(
             "User: " + item["prompt"] + "\nAssistant: ", add_special_tokens=False
         )
@@ -302,6 +322,8 @@ def main() -> None:
             "trainingPackageSha256": sha256(args.training_package),
             "benchmarkManifestSha256": sha256(args.benchmark_manifest),
             "exampleCount": len(records),
+            "domainSampling": "seeded-round-robin-without-replacement",
+            "trainingPasses": args.epochs,
             "epochs": args.epochs,
             "seed": args.seed,
             "trainingLoss": result.training_loss,
