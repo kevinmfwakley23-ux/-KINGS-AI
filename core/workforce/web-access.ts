@@ -1,6 +1,10 @@
 import {
   lookup,
 } from "node:dns/promises";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { isIP } from "node:net";
+import { Readable } from "node:stream";
 
 import type {
   ID,
@@ -75,8 +79,57 @@ export type WebAccessFetcher = (
     headers?: Record<string, string>;
     redirect: "manual";
     signal: AbortSignal;
+    validatedAddresses: string[];
   },
 ) => Promise<WebAccessResponse>;
+
+/**
+ * Connect to the IP address that passed the policy check, rather than letting
+ * fetch resolve the hostname a second time (DNS rebinding / TOCTOU SSRF).
+ * TLS SNI and certificate hostname verification still use the original host.
+ * Never use the process-wide connection pool for an owner research request.
+ */
+async function pinnedWebFetch(
+  rawUrl: string,
+  options: Parameters<WebAccessFetcher>[1],
+): Promise<WebAccessResponse> {
+  const original = new URL(rawUrl);
+  const address = options.validatedAddresses[0];
+  const family = isIP(address ?? "");
+  if (!family) throw new WebAccessPolicyError("no validated IP address for outbound connection");
+  const pinned = new URL(rawUrl);
+  pinned.hostname = family === 6 ? `[${address}]` : address;
+  const headers = { ...options.headers, host: original.host };
+  // Reject a caller's Host override by always setting it from the URL.
+  const requestFn = original.protocol === "https:" ? httpsRequest : httpRequest;
+  const hostname = original.hostname.replace(/^\\[|\\]$/gu, "");
+  return await new Promise<WebAccessResponse>((resolve, reject) => {
+    const request = requestFn(pinned, {
+      method: options.method,
+      headers,
+      agent: false,
+      signal: options.signal,
+      ...(original.protocol === "https:" && isIP(hostname) === 0
+        ? { servername: hostname }
+        : {}),
+    }, (response) => {
+      resolve({
+        status: response.statusCode ?? 0,
+        statusText: response.statusMessage ?? "",
+        url: original.toString(),
+        headers: {
+          get(name: string) {
+            const value = response.headers[name.toLowerCase()];
+            return Array.isArray(value) ? value.join(", ") : value ?? null;
+          },
+        },
+        body: Readable.toWeb(response) as unknown as WebAccessResponse["body"],
+      });
+    });
+    request.once("error", reject);
+    request.end();
+  });
+}
 
 export class NodeWebAccessHostResolver
   implements WebAccessHostResolver {
@@ -172,6 +225,11 @@ function isBlockedIPv4(
     ) ||
     ipv4InRange(
       address,
+      "100.64.0.0",
+      "100.127.255.255",
+    ) ||
+    ipv4InRange(
+      address,
       "172.16.0.0",
       "172.31.255.255",
     ) ||
@@ -197,6 +255,31 @@ function isBlockedIPv4(
     ) ||
     ipv4InRange(
       address,
+      "192.0.0.0",
+      "192.0.0.255",
+    ) ||
+    ipv4InRange(
+      address,
+      "192.0.2.0",
+      "192.0.2.255",
+    ) ||
+    ipv4InRange(
+      address,
+      "198.18.0.0",
+      "198.19.255.255",
+    ) ||
+    ipv4InRange(
+      address,
+      "198.51.100.0",
+      "198.51.100.255",
+    ) ||
+    ipv4InRange(
+      address,
+      "203.0.113.0",
+      "203.0.113.255",
+    ) ||
+    ipv4InRange(
+      address,
       "224.0.0.0",
       "255.255.255.255",
     )
@@ -214,40 +297,24 @@ function isBlockedIPv6(
         "",
       );
 
-  return (
-    normalized === "::" ||
-    normalized === "::1" ||
-    normalized.startsWith(
-      "fe80:",
-    ) ||
-    normalized.startsWith(
-      "fc",
-    ) ||
-    normalized.startsWith(
-      "fd",
-    ) ||
-    normalized.startsWith(
-      "ff",
-    )
-  );
+  // Fail closed for non-global-unicast IPv6, including IPv4-mapped,
+  // link-local, unique-local, NAT64 and other translation/tunnel prefixes.
+  // IPv4-mapped addresses can otherwise smuggle 127.0.0.1 or 169.254/16.
+  const first = Number.parseInt(normalized.split(":")[0] || "0", 16);
+  if (!(first >= 0x2000 && first <= 0x3fff)) return true;
+  // 6to4, Teredo and documentation addresses are not ordinary public hosts.
+  return /^2002:/u.test(normalized) ||
+    /^2001:(?:0{0,3}:|db8:)/u.test(normalized);
 }
 
 function isBlockedAddress(
   address: string,
 ): boolean {
-  if (
-    isIPv4(
-      address,
-    )
-  ) {
-    return isBlockedIPv4(
-      address,
-    );
-  }
-
-  return isBlockedIPv6(
-    address,
-  );
+  const family = isIP(address);
+  if (family === 4) return isBlockedIPv4(address);
+  if (family === 6) return isBlockedIPv6(address);
+  // Invalid resolver output must never be treated as a public address.
+  return true;
 }
 
 function normalizeHost(
@@ -351,16 +418,7 @@ export class WebAccessAdapter
       resolver ??
       new NodeWebAccessHostResolver();
 
-    this.fetcher =
-      fetcher ??
-      (async (
-        url,
-        options,
-      ) =>
-        fetch(
-          url,
-          options,
-        ) as unknown as WebAccessResponse);
+    this.fetcher = fetcher ?? pinnedWebFetch;
   }
 
   async execute(
@@ -372,7 +430,7 @@ export class WebAccessAdapter
         request,
       );
 
-    const url =
+    const { url, addresses } =
       await this.validateUrl(
         input.url,
       );
@@ -414,6 +472,7 @@ export class WebAccessAdapter
               this.policy
                 .timeoutMs,
             ),
+          validatedAddresses: addresses,
         },
       );
 
@@ -525,7 +584,7 @@ export class WebAccessAdapter
 
   private async validateUrl(
     rawUrl: string,
-  ): Promise<URL> {
+  ): Promise<{ url: URL; addresses: string[] }> {
     let url: URL;
 
     try {
@@ -653,7 +712,7 @@ export class WebAccessAdapter
       );
     }
 
-    return url;
+    return { url, addresses };
   }
 
   private async readBoundedBody(
