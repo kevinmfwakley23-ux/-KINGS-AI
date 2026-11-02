@@ -167,14 +167,6 @@ export class WebAccessPolicyError
   }
 }
 
-function isIPv4(
-  value: string,
-): boolean {
-  return /^\d{1,3}(\.\d{1,3}){3}$/.test(
-    value,
-  );
-}
-
 function ipv4ToNumber(
   value: string,
 ): number {
@@ -303,8 +295,9 @@ function isBlockedIPv6(
   const first = Number.parseInt(normalized.split(":")[0] || "0", 16);
   if (!(first >= 0x2000 && first <= 0x3fff)) return true;
   // 6to4, Teredo and documentation addresses are not ordinary public hosts.
-  return /^2002:/u.test(normalized) ||
-    /^2001:(?:0{0,3}:|db8:)/u.test(normalized);
+  const second = Number.parseInt(normalized.split(":")[1] || "0", 16);
+  return first === 0x2002 ||
+    (first === 0x2001 && (second === 0 || second === 0xdb8));
 }
 
 function isBlockedAddress(
@@ -650,7 +643,7 @@ export class WebAccessAdapter
 
     const hostname =
       normalizeHost(
-        url.hostname,
+        url.hostname.replace(/^\[|\]$/gu, ""),
       );
 
     if (
