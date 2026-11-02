@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+
 import {
   WEB_ACCESS_TOOL_ID,
   WebAccessAdapter,
@@ -679,6 +681,77 @@ async function runTest(): Promise<void> {
   console.log(
     "04.7 deterministic web result structure: SUCCESS",
   );
+
+  // DNS-rebinding protection: the actual default transport must connect to
+  // the IP approved by the resolver, without a second DNS lookup. This hostname
+  // is intentionally unresolvable; a non-pinned fetch would fail the test.
+  const localServer = createServer((req, res) => {
+    if (req.headers.host?.startsWith("research.example.invalid:")) {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end("pinned DNS transport reached approved IP");
+    } else {
+      res.writeHead(400);
+      res.end("unexpected Host header");
+    }
+  });
+  await new Promise<void>((resolveListen) => localServer.listen(0, "127.0.0.1", resolveListen));
+  try {
+    const address = localServer.address();
+    assert(address !== null && typeof address !== "string", "test listener needs a TCP port");
+    if (!address || typeof address === "string") throw new Error("Missing test port");
+    const pinnedAdapter = new WebAccessAdapter(
+      policy({
+        allowedHosts: ["research.example.invalid"],
+        allowedSchemes: ["http"],
+        blockPrivateNetworks: false, // local-only transport test, NOT owner production policy
+      }),
+      new TestResolver({ "research.example.invalid": ["127.0.0.1"] }),
+    );
+    const pinnedResult = await pinnedAdapter.execute(request({
+      url: `http://research.example.invalid:${address.port}/`,
+    })) as { status: number; content: string; finalUrl: string };
+    assert(pinnedResult.status === 200, "pinned transport must reach approved IP");
+    assert(pinnedResult.content === "pinned DNS transport reached approved IP", "Host and body must be preserved");
+    assert(pinnedResult.finalUrl.startsWith("http://research.example.invalid:"), "provenance must preserve original host");
+  } finally {
+    await new Promise<void>((resolveClose, rejectClose) =>
+      localServer.close((error) => error ? rejectClose(error) : resolveClose()));
+  }
+
+  // A hostname with any nonpublic answer must fail closed, including IPv4
+  // translation, NAT64, link-local IPv6 and provider/internal address ranges.
+  for (const address of [
+    "::ffff:7f00:1", "::ffff:127.0.0.1", "fe90::1", "fc00::1",
+    "64:ff9b::7f00:1", "2002:c0a8:101::", "2001:0000::1",
+    "100.64.0.1", "198.18.0.1", "192.0.2.1", "203.0.113.1",
+  ]) {
+    let fetched = false;
+    const blocked = new WebAccessAdapter(
+      policy(),
+      new TestResolver({ "example.com": [address] }),
+      async () => { fetched = true; return createResponse("must not fetch"); },
+    );
+    let rejected = false;
+    try {
+      await blocked.execute(request({ url: "https://example.com/" }));
+    } catch (error) {
+      rejected = error instanceof Error && error.message.includes("blocked network");
+    }
+    assert(rejected, `nonpublic resolver answer must fail closed: ${address}`);
+    assert(!fetched, `blocked resolver answer must not reach fetcher: ${address}`);
+  }
+
+  let receivedPinnedAddresses: string[] | undefined;
+  const addressBound = new WebAccessAdapter(
+    policy(),
+    new TestResolver({ "example.com": ["93.184.216.34"] }),
+    async (_url, options) => {
+      receivedPinnedAddresses = options.validatedAddresses;
+      return createResponse("approved");
+    },
+  );
+  await addressBound.execute(request({ url: "https://example.com/" }));
+  assert(receivedPinnedAddresses?.[0] === "93.184.216.34", "transport must receive validated resolver result");
 
   console.log(
     "TREE-04.7 WEB / EXTERNAL KNOWLEDGE ACCESS: SUCCESS",
