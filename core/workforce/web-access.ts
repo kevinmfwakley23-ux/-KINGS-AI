@@ -102,7 +102,7 @@ async function pinnedWebFetch(
   const headers = { ...options.headers, host: original.host };
   // Reject a caller's Host override by always setting it from the URL.
   const requestFn = original.protocol === "https:" ? httpsRequest : httpRequest;
-  const hostname = original.hostname.replace(/^\\[|\\]$/gu, "");
+  const hostname = original.hostname.startsWith("[") ? original.hostname.slice(1, -1) : original.hostname;
   return await new Promise<WebAccessResponse>((resolve, reject) => {
     const request = requestFn(pinned, {
       method: options.method,
