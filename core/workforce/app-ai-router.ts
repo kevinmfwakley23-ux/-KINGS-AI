@@ -36,6 +36,10 @@ export interface AppAiRouteRequest {
   messages: readonly ModelRequestMessage[];
   requiredCapabilities?: readonly IntelligenceCapability[];
   maxOutputTokens?: number;
+  // Optional hard routing gate: no model with a smaller declared context
+  // may receive the request. Callers must compute their own conservative
+  // prompt+completion budget; this option does not fabricate model capacity.
+  minContextWindowTokens?: number;
   temperature?: number;
   requireStructuredOutput?: boolean;
   allowToolProposals?: boolean;
@@ -141,6 +145,12 @@ function validateRequest(input: AppAiRouteRequest): void {
   if (input.maxOutputTokens !== undefined &&
       (!Number.isInteger(input.maxOutputTokens) || input.maxOutputTokens < 1 || input.maxOutputTokens > 65_536)) {
     throw new AppAiRouterError("INVALID_MAX_OUTPUT_TOKENS", "maxOutputTokens must be an integer between 1 and 65536.");
+  }
+  if (input.minContextWindowTokens !== undefined &&
+      (!Number.isSafeInteger(input.minContextWindowTokens) ||
+       input.minContextWindowTokens < 1 || input.minContextWindowTokens > 262_144)) {
+    throw new AppAiRouterError("INVALID_REQUIRED_CONTEXT",
+      "minContextWindowTokens must be an integer between 1 and 262144.");
   }
   if (input.temperature !== undefined &&
       (!Number.isFinite(input.temperature) || input.temperature < 0 || input.temperature > 2)) {
@@ -269,6 +279,8 @@ export class AppAiRouter {
       if (!adapter || !adapter.descriptor.available) continue;
       const models = adapter.listModels().filter((model) => {
         if (!model.available) return false;
+        if (input.minContextWindowTokens !== undefined &&
+            model.contextWindowTokens < input.minContextWindowTokens) return false;
         if (input.modelId && model.modelId !== input.modelId.trim()) return false;
         if (!request.requiredCapabilities.every((capability) => model.capabilities.includes(capability))) return false;
         if (!request.inputModalities.every((modality) => model.inputModalities.includes(modality))) return false;
