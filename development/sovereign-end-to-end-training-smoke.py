@@ -111,12 +111,27 @@ def main():
         artifact = root / "trained-test-adapter.zip"
         training.write_text(json.dumps({"schemaVersion": "1", "examples": examples}), encoding="utf8")
         preferences.write_text(json.dumps({"schemaVersion": "1", "pairs": pairs}), encoding="utf8")
-        evaluation.write_text(json.dumps({"items": [{
-            "id": "unseen-ci-evaluation",
+        # Seven explicitly evaluation-licensed, isolated reference answers are
+        # scored before and after training; none enters either optimizer.
+        heldout_rights = {
+            "licenseId": "synthetic-ci-evaluation-only",
+            "sourceReference": "generated-test-references-only",
+            "permissionReference": "code-generated-for-verification",
+            "permissionEvidenceSha256": hashlib.sha256(b"synthetic-evaluation-integration-only").hexdigest(),
+            "attestedBy": "CI-test-script",
+            "trainingAllowed": False,
+            "evaluationAllowed": True,
+        }
+        heldout = [{
+            "id": f"unseen-ci-{domain}",
+            "domain": domain,
             "split": "held-out",
-            "sourceGroupId": "private-ci-evaluation-source",
-            "prompt": "Unique unseen evaluation prompt never used for training.",
-        }]}), encoding="utf8")
+            "sourceGroupId": f"private-ci-evaluation-{domain}",
+            "prompt": f"Unique unseen evaluation prompt about {domain} never used for training.",
+            "targetResponse": f"Carefully check evidence and cite uncertainty in {domain} answers.",
+            "rights": dict(heldout_rights),
+        } for domain in DOMAINS]
+        evaluation.write_text(json.dumps({"items": heldout}), encoding="utf8")
         script = Path(__file__).resolve().parents[1] / (
             "runtimes/powerhouse-training/sovereign_lora_trainer.py"
         )
@@ -168,6 +183,14 @@ def main():
         assert metadata["exampleCount"] == 140, "source-example count must not be inflated by segmentation"
         assert metadata["supervisedSegmentCount"] >= 140
         assert metadata["epochs"] == 3, "default supervised program must train three full epochs"
+        assert metadata["heldOutReferenceCount"] == 7
+        heldout_evidence = metadata["heldOutReferenceEvaluation"]
+        assert heldout_evidence["independentExpertQualification"] is False
+        assert heldout_evidence["hasAtLeast20ReferencesPerDomain"] is False
+        assert set(heldout_evidence["baseline"]["evaluatedExamplesByDomain"]) == set(DOMAINS)
+        assert set(heldout_evidence["final"]["evaluatedTokensByDomain"]) == set(DOMAINS)
+        assert all(count == 1 for count in heldout_evidence["final"]["evaluatedExamplesByDomain"].values())
+        assert heldout_evidence["scope"] == "held-out-reference-loss-proxy-only-separate-specialist-evaluations-required"
         assert metadata["optimizationSteps"] >= 1
         assert metadata["trainableParametersChanged"] is True
         assert metadata["preferenceStage"]["pairCount"] == 140
