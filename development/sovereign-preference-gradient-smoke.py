@@ -18,6 +18,7 @@ from torch.nn import functional
 from sovereign_lora_trainer import supervised_answer_segments
 from sovereign_preference_stage import (
     backward_segmented_dpo_loss, train_preference_stage, train_retention_stage,
+    measure_in_sample_preference_alignment,
     verify_retention_domain_losses,
 )
 
@@ -173,13 +174,14 @@ def main() -> None:
                      if not value.requires_grad}
     sft_reference = {name: p.detach().cpu().clone()
                      for name, p in model.named_parameters() if p.requires_grad}
+    pairs = [
+        {"id": "pref-chat", "domain": "chat", "prompt": "Explain tokens.",
+         "chosenResponse": "Tokens encode text units. " * 9, "rejectedResponse": "No idea."},
+        {"id": "pref-code", "domain": "coding", "prompt": "How to test?",
+         "chosenResponse": "Run assertions.", "rejectedResponse": "Trust a guess."},
+    ]
     result = train_preference_stage(
-        model, TestTokenizer(), [
-            {"domain": "chat", "prompt": "Explain tokens.",
-             "chosenResponse": "Tokens encode text units. " * 9, "rejectedResponse": "No idea."},
-            {"domain": "coding", "prompt": "How to test?",
-             "chosenResponse": "Run assertions.", "rejectedResponse": "Trust a guess."},
-        ],
+        model, TestTokenizer(), pairs,
         max_length=128, epochs=2, beta=0.1, learning_rate=0.0001, seed=13,
     )
     assert result["optimizationSteps"] == 4, result
@@ -205,11 +207,29 @@ def main() -> None:
         for domain in ("chat", "coding", "collectibles", "sports-cards",
                        "book-editing", "publishing", "storytelling")
     ]
+    prior_alignment = measure_in_sample_preference_alignment(
+        model, TestTokenizer(), pairs, max_length=128, max_pairs_per_domain=1
+    )
+    # Measure the same exact, deterministic rights-vetted training-pair sample
+    # before and after stage 3; never substitute it for held-out evaluation.
+    assert set(prior_alignment["meanChosenMinusRejectedLogprobPerTokenByDomain"]) == {"chat", "coding"}
+    assert prior_alignment["evaluatedPairsByDomain"] == {"chat": 1, "coding": 1}
+    assert prior_alignment["scope"] == "in-sample-training-pairs-only-not-held-out-model-quality"
+    prior_repeat = measure_in_sample_preference_alignment(
+        model, TestTokenizer(), pairs, max_length=128, max_pairs_per_domain=1
+    )
+    assert prior_repeat == prior_alignment, "reference alignment must be deterministic"
     rehearsal = train_retention_stage(
         model, TestTokenizer(), supervised, max_length=128,
         epochs=1, learning_rate=0.0005, seed=13,
         sft_reference_weights=sft_reference, anchor_strength=0.01,
     )
+    after_alignment = measure_in_sample_preference_alignment(
+        model, TestTokenizer(), pairs, max_length=128, max_pairs_per_domain=1
+    )
+    assert set(after_alignment["meanChosenMinusRejectedLogprobPerTokenByDomain"]) == {"chat", "coding"}
+    assert all(torch.isfinite(torch.tensor(score)) for score in
+               after_alignment["meanChosenMinusRejectedLogprobPerTokenByDomain"].values())
     assert rehearsal["exampleCount"] == 7, rehearsal
     assert rehearsal["optimizationSteps"] == rehearsal["segmentCount"], rehearsal
     assert rehearsal["trainableParametersChanged"], rehearsal
