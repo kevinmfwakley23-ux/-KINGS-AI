@@ -304,6 +304,51 @@ supported by the owner-operated inference engine. Do not label it ready for
 production until full end-to-end inference and independent seven-domain
 held-out evaluation have passed.
 
+## Triple-ability gradient training — supervised, preference, retention
+
+The default owner-approved curriculum is now **three supervised LoRA epochs**,
+**three preference DPO epochs**, then **one anchored retention-rehearsal epoch**
+when a separate authorized preference dataset is provided. The three stages
+have different objectives and execute sequentially on the same owner-held
+local model; **they are not three independent new datasets or three
+independently pretrained foundation models**.
+
+1. **Supervised LoRA:** response-only learning from fully rights-cleared
+   prompts and target answers, with seven-domain interleaving and complete
+   long-form target token coverage.
+2. **Preference DPO:** chosen-vs-rejected optimization from a separately
+   attested, leakage-isolated dataset, using exact bounded gradients.
+3. **Anchored retention rehearsal:** additional real gradient updates from the
+   **already approved supervised examples**, after DPO. The response-only
+   cross-entropy loss includes a bounded L2 penalty toward the *post-SFT*
+   adapter parameter snapshot, with a lower learning rate to help retain
+   earlier supervised skills. It uses no unlicensed third corpus or outside
+   teacher. Like any rehearsal, it can still cause regressions: held-out
+   expert evaluations and retention/forgetting tests remain mandatory.
+
+The third stage is implemented as `train_retention_stage` inside the existing
+**owner-hash-pinned** `sovereign_preference_stage.py` optimizer module.
+The signed `npm run train:powerhouse` launcher validates the pinned preference
+module before and after execution, so this stage cannot be silently
+substituted through the signed path. The supervised trainer requires actual
+changed parameters and non-finite loss checks before publishing weights.
+The third stage records real optimization steps, loss and adapter-update
+evidence in `retentionStage` of the model archive metadata. That training
+loss is **in-sample evidence only**, not proof of generalization.
+
+Owner-approved bounded overrides include `--epochs`,
+`--preference-epochs`, `--retention-epochs` (0–5;
+0 **explicitly disables** rehearsal), `--retention-learning-rate`,
+and `--retention-anchor-strength`. By default rehearsal is active only
+when a valid preference package is supplied. `--validate-only` reports
+the exact three-stage plan without loading training weights or writing
+a fabricated adapter. Real activation of the third stage requires actual
+licensed weights, owner-approved datasets and enough authorized compute.
+
+GitHub CPU PyTorch smoke tests execute genuine gradient updates on a tiny
+randomly initialized local test model, including the third retention optimizer
+and frozen-base assertions. They do not train the production foundation model.
+
 ## Release gates
 
 1. Confirm local model ownership, license, source, actual weights, and hardware.
