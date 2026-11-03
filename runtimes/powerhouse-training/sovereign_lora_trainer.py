@@ -191,6 +191,8 @@ def parse_args() -> argparse.Namespace:
                         help="Absolute local directory of approved, licensed model weights")
     parser.add_argument("--preference-package", type=Path,
                         help="Optional second-stage, independent rights-cleared preference pairs")
+    parser.add_argument("--training-profile", choices=("standard", "double"), default="standard",
+                        help="Owner-approved double mode uses 6 SFT, 6 DPO and 2 retention epochs; requires 20 held-out references per domain")
     parser.add_argument("--preference-epochs", type=int, default=3)
     parser.add_argument("--preference-beta", type=float, default=0.1)
     parser.add_argument("--preference-learning-rate", type=float, default=0.00002)
@@ -212,6 +214,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.training_profile == "double":
+        if args.preference_package is None:
+            raise ValueError("Double training requires a separately authorized preference package")
+        if (args.epochs, args.preference_epochs, args.retention_epochs) != (3, 3, 1):
+            raise ValueError("Double training profile cannot combine with stage-specific epoch overrides")
+        # Twice the standard supervised and preference optimization, plus
+        # twice the bounded retention rehearsal; these are not new examples.
+        args.epochs, args.preference_epochs, args.retention_epochs = 6, 6, 2
     if not args.base_model.is_absolute() or not args.base_model.is_dir():
         raise ValueError("Base model must be an existing absolute local directory")
     if not (args.base_model / "config.json").is_file():
@@ -240,12 +250,20 @@ def main() -> None:
     # continue to work, but cannot claim any held-out quality evidence.
     from sovereign_heldout_stage import validate_heldout_references
     heldout_references = validate_heldout_references(args.benchmark_manifest)
+    if args.training_profile == "double":
+        # Higher training intensity is only authorized with a meaningful
+        # disjoint before/after evaluation for every specialist office.
+        from collections import Counter
+        heldout_counts = Counter(row["domain"] for row in heldout_references)
+        if any(heldout_counts[domain] < 20 for domain in DOMAINS):
+            raise ValueError("Double training requires at least 20 evaluation-only held-out references per specialty")
     if args.model_artifact.exists():
         raise FileExistsError("Refusing to overwrite an existing trained model artifact")
     if args.validate_only:
         print(json.dumps({"ok": True, "validatedExamples": len(examples),
                           "validatedPreferencePairs": len(preferences) if preferences is not None else 0,
                           "heldOutReferenceCount": len(heldout_references),
+                          "trainingProfile": args.training_profile,
                           "supervisedEpochs": args.epochs,
                           "preferenceEpochs": args.preference_epochs if preferences is not None else 0,
                           "retentionEpochs": args.retention_epochs if preferences is not None else 0,
@@ -456,6 +474,7 @@ def main() -> None:
             # multiple segments of one long authorized book/chapter response.
             "exampleCount": len(examples),
             "domainSampling": "seeded-round-robin-without-replacement",
+            "trainingProfile": args.training_profile,
             "trainingPasses": args.epochs,
             "optimizerSampler": "sequential-interleaved",
             "supervisedExamplesByDomain": {
