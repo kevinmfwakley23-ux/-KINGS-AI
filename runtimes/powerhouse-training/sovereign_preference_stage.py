@@ -170,6 +170,22 @@ def train_preference_stage(
         raise RuntimeError("Preference optimizer did not complete all gradient steps")
     if not any(not torch.equal(before[name], p.detach().cpu()) for name, p in trainable.items()):
         raise RuntimeError("Preference optimization made no trainable weight changes")
+
+    # Re-evaluate the *training pairs* against their frozen pre-DPO scores,
+    # measuring whether the optimizer actually improved chosen-vs-rejected
+    # log-odds. This is diagnostic, NOT held-out or expert qualification.
+    improvements = defaultdict(list)
+    with torch.no_grad():
+        for index, (domain, chosen, rejected) in enumerate(records):
+            updated_margin = log_probability(chosen) - log_probability(rejected)
+            baseline_margin = frozen_reference[index][0] - frozen_reference[index][1]
+            movement = float((updated_margin.cpu() - baseline_margin).item())
+            if not math.isfinite(movement):
+                raise RuntimeError("Preference optimization produced non-finite post-training margin")
+            improvements[domain].append(movement)
+    all_movements = [value for values in improvements.values() for value in values]
+    if len(all_movements) != len(records):
+        raise RuntimeError("Preference outcome measurement skipped training pairs")
     return {
         "algorithm": "direct-preference-optimization",
         "reference": "frozen-post-supervised-policy-logprobs",
@@ -180,6 +196,13 @@ def train_preference_stage(
         "learningRate": learning_rate,
         "meanLoss": sum(losses) / len(losses),
         "trainableParametersChanged": True,
+        "trainingPairMeanMarginImprovement": sum(all_movements) / len(all_movements),
+        "trainingPairImprovedFraction": sum(value > 0 for value in all_movements) / len(all_movements),
+        "trainingPairMeanMarginImprovementByDomain": {
+            domain: sum(values) / len(values)
+            for domain, values in sorted(improvements.items())
+        },
+        "outcomeEvidenceScope": "in-sample-training-pairs-only-not-held-out-quality",
         "targetResponseTruncations": 0,
         "gradientMemory": "single-bounded-segment",
     }
