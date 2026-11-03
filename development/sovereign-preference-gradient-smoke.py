@@ -185,6 +185,7 @@ def main() -> None:
     assert result["trainableParametersChanged"], result
     assert result["targetResponseTruncations"] == 0, result
     assert result["gradientMemory"] == "single-bounded-segment", result
+    assert result["preferenceTokenization"] == "on-demand-per-pair-no-eager-tensor-corpus", result
     assert result["outcomeEvidenceScope"] == "in-sample-training-pairs-only-not-held-out-quality", result
     assert set(result["trainingPairMeanMarginImprovementByDomain"]) == {"chat", "coding"}, result
     assert 0 <= result["trainingPairImprovedFraction"] <= 1, result
