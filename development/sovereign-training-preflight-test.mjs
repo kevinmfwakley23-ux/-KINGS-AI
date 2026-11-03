@@ -31,6 +31,7 @@ try {
   assert.match(curriculum.stdout, /seven-domain supervised curriculum, sampler and full-answer coverage: SUCCESS/);
   assert.match(help.stdout, /--epochs/);
   assert.match(help.stdout, /--preference-epochs/);
+  assert.match(help.stdout, /--retention-epochs/);
 
   const base = join(home, "licensed-base");
   mkdirSync(base);
@@ -74,12 +75,15 @@ try {
   assert.equal(JSON.parse(accepted.stdout).validatedExamples, 140);
   assert.equal(JSON.parse(accepted.stdout).supervisedEpochs, 3);
   assert.equal(JSON.parse(accepted.stdout).preferenceEpochs, 0);
+  assert.equal(JSON.parse(accepted.stdout).retentionEpochs, 0);
+  assert.deepEqual(JSON.parse(accepted.stdout).trainingStages, ["supervised-lora"]);
   assert.equal(JSON.parse(accepted.stdout).domainSampling, "seeded-round-robin-without-replacement");
   assert.equal(JSON.parse(accepted.stdout).trained, false);
   assert.equal(existsSync(artifact), false, "validation-only must not fabricate an adapter");
 
-  // Two actual training *programs*: SFT on approved target responses and DPO
-  // on separate, rights-cleared chosen/rejected preferences. Preflight runs
+  // Three gradient stages: supervised LoRA, preference DPO, then real
+  // anchored retention rehearsal on the SAME authorized supervised data.
+  // Preflight runs
   // without PyTorch, GPU, model weights or any invented trained artifact.
   const preferencePath = join(home, "preferences.json");
   const pairs = domains.flatMap((domain) => Array.from({ length: 20 }, (_, index) => ({
@@ -107,11 +111,27 @@ try {
   assert.equal(JSON.parse(dual.stdout).validatedPreferencePairs, 140);
   assert.equal(JSON.parse(dual.stdout).supervisedEpochs, 3);
   assert.equal(JSON.parse(dual.stdout).preferenceEpochs, 3);
+  assert.equal(JSON.parse(dual.stdout).retentionEpochs, 1);
   const explicitPasses = run([...dualArgs, "--epochs", "2", "--preference-epochs", "4"]);
   assert.equal(explicitPasses.status, 0, explicitPasses.stderr);
   assert.equal(JSON.parse(explicitPasses.stdout).supervisedEpochs, 2);
   assert.equal(JSON.parse(explicitPasses.stdout).preferenceEpochs, 4);
-  assert.deepEqual(JSON.parse(dual.stdout).trainingStages, ["supervised-lora", "preference-dpo"]);
+  assert.deepEqual(JSON.parse(dual.stdout).trainingStages,
+    ["supervised-lora", "preference-dpo", "anchored-retention-rehearsal"]);
+  const disabledRehearsal = run([...dualArgs, "--retention-epochs", "0"]);
+  assert.equal(disabledRehearsal.status, 0, disabledRehearsal.stderr);
+  assert.equal(JSON.parse(disabledRehearsal.stdout).retentionEpochs, 0);
+  assert.deepEqual(JSON.parse(disabledRehearsal.stdout).trainingStages,
+    ["supervised-lora", "preference-dpo"]);
+  for (const [flag, value] of [
+    ["--retention-epochs", "6"], ["--retention-learning-rate", "0"],
+    ["--retention-anchor-strength", "2"],
+  ]) {
+    const invalid = run([...dualArgs, flag, value]);
+    assert.notEqual(invalid.status, 0, `${flag} must reject out-of-range values`);
+    assert.match(invalid.stderr, /Invalid bounded training hyperparameters/);
+    assert.equal(existsSync(artifact), false);
+  }
   assert.equal(JSON.parse(dual.stdout).trained, false);
   assert.equal(existsSync(artifact), false, "dual-stage preflight must not fabricate trained weights");
 
