@@ -7,7 +7,7 @@ group and prompt from all training samples by the trainer's existing preflight.
 """
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import defaultdict, Counter
 import math
 from pathlib import Path
 
@@ -29,6 +29,16 @@ def validate_heldout_references(path: Path) -> list[dict]:
     all_benchmark_ids = set()
     protected_groups = set()
     seen_prompts = set()
+    # Do not let a benchmark-marked train/validation/test item secretly reuse
+    # the same source group or normalized prompt as an evaluation-only item.
+    all_group_counts = Counter(
+        row.get("sourceGroupId") for row in items
+        if isinstance(row, dict) and isinstance(row.get("sourceGroupId"), str)
+    )
+    all_prompt_counts = Counter(
+        " ".join(row["prompt"].lower().split()) for row in items
+        if isinstance(row, dict) and isinstance(row.get("prompt"), str)
+    )
     for item in items:
         if not isinstance(item, dict):
             raise ValueError("Benchmark item must be an object")
@@ -49,6 +59,8 @@ def validate_heldout_references(path: Path) -> list[dict]:
             if not isinstance(group, str) or not group.strip():
                 raise ValueError("Held-out reference sourceGroupId is required")
             normalized = " ".join(prompt.lower().split())
+            if all_group_counts[group] != 1 or all_prompt_counts[normalized] != 1:
+                raise ValueError("Held-out references cannot reuse source groups or prompts across benchmark splits")
             if normalized in seen_prompts:
                 raise ValueError("Held-out reference prompts must be unique")
             seen_prompts.add(normalized)
