@@ -384,6 +384,14 @@ def main() -> None:
                 seed=args.seed,
             )
             if args.retention_epochs:
+                from sovereign_preference_stage import measure_in_sample_preference_alignment
+                # Stage-three skill rehearsal can inadvertently undo some DPO
+                # preferences. Measure that risk before/after retention on a
+                # bounded, disjoint-from-evaluation subset of training pairs.
+                # This is never held-out proof of quality.
+                before_alignment = measure_in_sample_preference_alignment(
+                    model, tokenizer, preferences, max_length=args.max_length
+                )
                 retention_evidence = train_retention_stage(
                     model, tokenizer, examples, max_length=args.max_length,
                     epochs=args.retention_epochs,
@@ -391,6 +399,26 @@ def main() -> None:
                     anchor_strength=args.retention_anchor_strength,
                     seed=args.seed, sft_reference_weights=after,
                 )
+                after_alignment = measure_in_sample_preference_alignment(
+                    model, tokenizer, preferences, max_length=args.max_length
+                )
+                old_scores = before_alignment["meanChosenMinusRejectedLogprobPerTokenByDomain"]
+                new_scores = after_alignment["meanChosenMinusRejectedLogprobPerTokenByDomain"]
+                if set(old_scores) != set(new_scores):
+                    raise RuntimeError("Retention preference-drift evaluation lost a specialty")
+                changes = {
+                    domain: new_scores[domain] - old_scores[domain]
+                    for domain in sorted(old_scores)
+                }
+                retention_evidence["preferenceDrift"] = {
+                    "before": before_alignment,
+                    "after": after_alignment,
+                    "deltaByDomain": changes,
+                    "regressedDomains": [
+                        domain for domain, change in changes.items() if change < 0
+                    ],
+                    "scope": "in-sample-training-pairs-only-not-held-out-model-quality",
+                }
         adapter = root / "adapter"
         model.save_pretrained(str(adapter), safe_serialization=True)
         tokenizer.save_pretrained(str(adapter))
