@@ -85,4 +85,13 @@ except ValueError as error:
 else:
     raise AssertionError("oversized long-form responses must fail rather than exhausting memory")
 
+# The real training artifact must not count long-form target segments as
+# independent licensed examples. Segment count is a separately auditable
+# quantity even when one writing sample spans several model contexts.
+script_source = SCRIPT.read_text(encoding="utf8")
+assert '"exampleCount": len(examples)' in script_source
+assert '"supervisedSegments": len(records)' in script_source
+assert '"examples": len(examples)' in script_source
+assert '"supervisedSegmentCount": len(records)' in script_source
+
 print("K.I.N.G.S. seven-domain supervised curriculum, sampler and full-answer coverage: SUCCESS")
