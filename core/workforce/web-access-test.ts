@@ -234,6 +234,41 @@ async function runTest(): Promise<void> {
     "04.7 web access tool identity: SUCCESS",
   );
 
+  // Owner-approved research must never leak caller credentials or spoof
+  // routing headers, even if the target host itself is authorized.
+  for (const name of [
+    "Authorization", "authorization", "Cookie", "Proxy-Authorization",
+    "Host", "Forwarded", "X-Forwarded-For",
+  ]) {
+    let outboundCalled = false;
+    const guarded = new WebAccessAdapter(
+      policy(),
+      new TestResolver({ "example.com": ["93.184.216.34"] }),
+      async () => { outboundCalled = true; return createResponse("unexpected"); },
+    );
+    let rejected = false;
+    try {
+      await guarded.execute(request({
+        url: "https://example.com/",
+        headers: { [name]: "private-owner-credential" },
+      }));
+    } catch (error: unknown) {
+      rejected = error instanceof Error && error.message.includes("not permitted");
+    }
+    assert(rejected && !outboundCalled, `Sensitive header ${name} must fail before fetch`);
+  }
+  let invalidHeaderRejected = false;
+  try {
+    await valid.execute(request({
+      url: "https://example.com/",
+      headers: { "X-Research-Tag": 123 },
+    }));
+  } catch (error: unknown) {
+    invalidHeaderRejected = error instanceof Error && error.message.includes("must be a string");
+  }
+  assert(invalidHeaderRejected, "Non-string research headers must fail closed");
+  console.log("04.7 outbound credential and routing header rejection: SUCCESS");
+
   const successful =
     await valid.execute(
       request({
