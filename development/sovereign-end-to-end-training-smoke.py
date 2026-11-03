@@ -127,8 +127,9 @@ def main():
             "--preference-package", str(preferences),
             "--benchmark-manifest", str(evaluation),
             "--model-artifact", str(artifact),
-            "--epochs", "1",
-            "--preference-epochs", "1",
+            # Exercise actual triple-pass defaults (3 supervised epochs,
+            # 3 preference epochs) plus the independently optimized third
+            # retention stage, not just an abbreviated one-pass path.
             "--retention-epochs", "1",
             "--batch-size", "16",
             "--grad-accum", "2",
@@ -166,10 +167,12 @@ def main():
         assert metadata["trainingStages"] == expected_stages, metadata
         assert metadata["exampleCount"] == 140, "source-example count must not be inflated by segmentation"
         assert metadata["supervisedSegmentCount"] >= 140
+        assert metadata["epochs"] == 3, "default supervised program must train three full epochs"
         assert metadata["optimizationSteps"] >= 1
         assert metadata["trainableParametersChanged"] is True
         assert metadata["preferenceStage"]["pairCount"] == 140
-        assert metadata["preferenceStage"]["optimizationSteps"] >= 140
+        assert metadata["preferenceStage"]["epochs"] == 3
+        assert metadata["preferenceStage"]["optimizationSteps"] == 420
         assert metadata["retentionStage"]["exampleCount"] == 140
         assert metadata["retentionStage"]["optimizationSteps"] >= 140
         assert metadata["retentionStage"]["domainLossRegressionGuard"]["status"] == "passed"
