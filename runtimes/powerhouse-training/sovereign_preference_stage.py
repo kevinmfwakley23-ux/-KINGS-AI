@@ -241,6 +241,79 @@ def train_preference_stage(
     }
 
 
+
+def measure_in_sample_preference_alignment(
+    model, tokenizer, pairs: list[dict], *, max_length: int,
+    max_pairs_per_domain: int = 20,
+) -> dict:
+    """Measure training-pair preference drift without modifying model weights.
+
+    Compare this diagnostic immediately before/after retention to see whether
+    rehearsing earlier skills weakened DPO's chosen-vs-rejected preference.
+    Scores are response-token-normalized log probabilities, *not* independent
+    benchmarks and not the summed-logprob DPO optimization objective.
+    Deterministic per-domain sampling bounds work even for very large corpora.
+    """
+    from sovereign_lora_trainer import supervised_answer_segments
+    import torch
+
+    if (not isinstance(max_pairs_per_domain, int) or
+            max_pairs_per_domain < 1 or max_pairs_per_domain > 100):
+        raise ValueError("Preference-drift sampling must use 1 to 100 pairs per domain")
+    if not pairs:
+        raise ValueError("Preference-drift measurement requires licensed preference pairs")
+    sample = defaultdict(list)
+    for pair in sorted(pairs, key=lambda item: (item["domain"], item["id"])):
+        if len(sample[pair["domain"]]) < max_pairs_per_domain:
+            sample[pair["domain"]].append(pair)
+
+    def response_mean_logprob(prompt: str, response: str) -> float:
+        segments = supervised_answer_segments(
+            tokenizer, {"prompt": prompt, "targetResponse": response}, max_length
+        )
+        if len(segments) > 16:
+            raise ValueError("Preference-drift answer exceeds the 16-segment DPO budget")
+        total, count = 0.0, 0
+        device = next(model.parameters()).device
+        for segment in segments:
+            ids = torch.tensor([segment["input_ids"]], dtype=torch.long, device=device)
+            labels = torch.tensor([segment["labels"]], dtype=torch.long, device=device)
+            logits = model(input_ids=ids, attention_mask=torch.ones_like(ids)).logits[:, :-1, :].float()
+            selected = torch.log_softmax(logits, -1).gather(-1, ids[:, 1:].unsqueeze(-1)).squeeze(-1)
+            active = labels[:, 1:] != -100
+            total += float(selected.masked_select(active).sum().cpu())
+            count += int(active.sum().item())
+        if count < 1 or not math.isfinite(total):
+            raise RuntimeError("Preference-drift measurement returned invalid token scores")
+        return total / count
+
+    was_training = model.training
+    model.eval()
+    try:
+        with torch.no_grad():
+            scores = {
+                domain: [
+                    response_mean_logprob(pair["prompt"], pair["chosenResponse"]) -
+                    response_mean_logprob(pair["prompt"], pair["rejectedResponse"])
+                    for pair in examples
+                ]
+                for domain, examples in sorted(sample.items())
+            }
+    finally:
+        model.train(was_training)
+    if not scores or any(not all(math.isfinite(value) for value in values) for values in scores.values()):
+        raise RuntimeError("Non-finite in-sample preference alignment evidence")
+    return {
+        "meanChosenMinusRejectedLogprobPerTokenByDomain": {
+            domain: sum(values) / len(values)
+            for domain, values in scores.items()
+        },
+        "evaluatedPairsByDomain": {domain: len(values) for domain, values in scores.items()},
+        "sampling": "first-identifiers-sorted-per-domain",
+        "maxPairsPerDomain": max_pairs_per_domain,
+        "scope": "in-sample-training-pairs-only-not-held-out-model-quality",
+    }
+
 def verify_retention_domain_losses(
     records: list[dict], before_losses: list[float], after_losses: list[float],
     maximum_regression_fraction: float = 0.05,
