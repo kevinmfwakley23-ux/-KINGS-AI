@@ -353,7 +353,28 @@ independent preference, catastrophic-forgetting and seven-domain evaluations.
 Owner-approved bounded overrides include `--epochs`,
 `--preference-epochs`, `--retention-epochs` (0–5;
 0 **explicitly disables** rehearsal), `--retention-learning-rate`,
-and `--retention-anchor-strength`. By default rehearsal is active only
+and `--retention-anchor-strength`.
+
+**Optional double-intensity training profile:** A separately authorized
+`--training-profile double` runs **six SFT epochs, six DPO epochs, and two
+anchored retention epochs**. This doubles the optimizer passes in each
+existing stage; it does **not** double the independent training examples,
+create new training algorithms, or prove new model capabilities. It requires
+the separate rights-attested DPO package and **at least 20 evaluation-only,
+disjoint held-out references for every specialty**, rejecting conflicts with
+per-stage epoch overrides. Its preflight reports `trainingProfile: "double"`
+and the expanded epoch counts, without creating any trained weights. The
+normal `standard` profile remains three, three, one. Only the owner-signed
+training launcher should execute actual high-intensity training on authorized
+hardware; doubling passes can *worsen* held-out capability through overfitting.
+Compare complete unseen evidence and specialist benchmarks before any release.
+
+Example guarded preflight (append these flags to the training command above
+along with a separately authorized `--preference-package`):
+
+```bash
+--training-profile double --validate-only
+``` By default rehearsal is active only
 when a valid preference package is supplied. `--validate-only` reports
 the exact three-stage plan without loading training weights or writing
 a fabricated adapter. Real activation of the third stage requires actual
@@ -415,9 +436,12 @@ The production trainer evaluates the **same held-out references** before the
 first gradient update and after supervised LoRA, DPO, and retention. It scores
 response-only **teacher-forced negative log-likelihood per target token**,
 without using any held-out response in training, gradient computation, a
-model judge, or prompts used for model training. To bound compute, scoring
-selects the first 20 reference identifiers in sorted order per domain,
-and records scored sample/token counts. It serializes
+model judge, or prompts used for model training. To bound compute without silently discarding difficult later examples,
+scoring now uses **all authorized held-out references**, up to **200 per
+specialty**; more than 200 triggers an explicit validation error rather than
+truncation. It records the exact scored sample and target-token counts and
+refuses to compare runs with different counts. This still measures a proxy,
+not independent generated-answer quality. It serializes
 `heldOutReferenceEvaluation` into the signed adapter metadata: initial/final
 losses, reductions by specialty, which domains improved, and whether each
 specialty had 20 evaluated references. The complete benchmark file is hashed;
