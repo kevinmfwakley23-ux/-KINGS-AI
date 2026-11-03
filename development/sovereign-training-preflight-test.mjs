@@ -112,6 +112,53 @@ try {
   assert.equal(JSON.parse(dual.stdout).supervisedEpochs, 3);
   assert.equal(JSON.parse(dual.stdout).preferenceEpochs, 3);
   assert.equal(JSON.parse(dual.stdout).retentionEpochs, 1);
+  assert.equal(JSON.parse(dual.stdout).trainingProfile, "standard");
+
+  // Owner-controlled double-intensity training must fail closed unless a
+  // separate licensed DPO package and 20 unseen reference answers per office
+  // are available. This preflight never pretends to train the base model.
+  const noDpoDouble = run([...args, "--training-profile", "double"]);
+  assert.notEqual(noDpoDouble.status, 0);
+  assert.match(noDpoDouble.stderr, /separately authorized preference package/);
+  const noEvidenceDouble = run([...dualArgs, "--training-profile", "double"]);
+  assert.notEqual(noEvidenceDouble.status, 0);
+  assert.match(noEvidenceDouble.stderr, /at least 20 evaluation-only held-out references/);
+  const conflictingDouble = run([...dualArgs, "--training-profile", "double", "--epochs", "4"]);
+  assert.notEqual(conflictingDouble.status, 0);
+  assert.match(conflictingDouble.stderr, /cannot combine with stage-specific epoch overrides/);
+  const extendedHeldout = domains.flatMap((domain) => Array.from({ length: 20 }, (_, index) => ({
+    id: domain + "-eval-" + index,
+    domain,
+    sourceGroupId: domain + "-eval-source-" + index,
+    split: "held-out",
+    prompt: "Separate unseen evaluation question " + domain + " " + index,
+    targetResponse: "Authorized evaluation target " + domain + " " + index,
+    rights: {
+      licenseId: "synthetic-evaluation-only",
+      sourceReference: "synthetic-evaluation-test",
+      permissionReference: "synthetic-evaluation-generator",
+      permissionEvidenceSha256: "c".repeat(64),
+      attestedBy: "unit-test-author",
+      evaluationAllowed: true,
+      trainingAllowed: false,
+    },
+  })));
+  writeFileSync(benchmark, JSON.stringify({ items: extendedHeldout }));
+  const doubled = run([...dualArgs, "--training-profile", "double"]);
+  assert.equal(doubled.status, 0, doubled.stderr);
+  const doublePlan = JSON.parse(doubled.stdout);
+  assert.equal(doublePlan.trainingProfile, "double");
+  assert.equal(doublePlan.supervisedEpochs, 6);
+  assert.equal(doublePlan.preferenceEpochs, 6);
+  assert.equal(doublePlan.retentionEpochs, 2);
+  assert.equal(doublePlan.heldOutReferenceCount, 140);
+  assert.equal(doublePlan.trained, false);
+  assert.equal(existsSync(artifact), false, "double preflight must not invent trained weights");
+  writeFileSync(benchmark, JSON.stringify({
+    items: [{ id: "held-out", split: "held-out", sourceGroupId: "held-out-source",
+      prompt: "Unseen private benchmark content" }],
+  }));
+
   const explicitPasses = run([...dualArgs, "--epochs", "2", "--preference-epochs", "4"]);
   assert.equal(explicitPasses.status, 0, explicitPasses.stderr);
   assert.equal(JSON.parse(explicitPasses.stdout).supervisedEpochs, 2);
