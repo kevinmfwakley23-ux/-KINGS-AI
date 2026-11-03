@@ -124,9 +124,19 @@ def run():
         rejected([{**rows[0], "rights": {**rows[0]["rights"], "permissionEvidenceSha256": "x"}}] + rows[1:],
                  "SHA-256")
         rejected([{**rows[0], "sourceGroupId": rows[1]["sourceGroupId"]}] + rows[1:],
-                 "separate source groups")
+                 "cannot reuse source groups")
         rejected([{**rows[0], "prompt": rows[1]["prompt"]}] + rows[1:],
-                 "prompts must be unique")
+                 "cannot reuse source groups")
+        rejected(rows + [{
+            "id": "benchmark-train-same-source", "split": "train",
+            "sourceGroupId": rows[0]["sourceGroupId"],
+            "prompt": "Different prompt from the same benchmark source.",
+        }], "cannot reuse source groups")
+        rejected(rows + [{
+            "id": "benchmark-validation-same-prompt", "split": "validation",
+            "sourceGroupId": "totally-different-validation-source",
+            "prompt": rows[0]["prompt"],
+        }], "cannot reuse source groups")
         assert parse([{
             "id": "legacy-benchmark", "split": "held-out",
             "sourceGroupId": "legacy-group", "prompt": "no reference answer",
