@@ -191,10 +191,10 @@ def parse_args() -> argparse.Namespace:
                         help="Absolute local directory of approved, licensed model weights")
     parser.add_argument("--preference-package", type=Path,
                         help="Optional second-stage, independent rights-cleared preference pairs")
-    parser.add_argument("--preference-epochs", type=int, default=2)
+    parser.add_argument("--preference-epochs", type=int, default=3)
     parser.add_argument("--preference-beta", type=float, default=0.1)
     parser.add_argument("--preference-learning-rate", type=float, default=0.00002)
-    parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--grad-accum", type=int, default=4)
     parser.add_argument("--max-length", type=int, default=2048)
