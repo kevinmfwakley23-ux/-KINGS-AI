@@ -241,6 +241,55 @@ def train_preference_stage(
     }
 
 
+def verify_retention_domain_losses(
+    records: list[dict], before_losses: list[float], after_losses: list[float],
+    maximum_regression_fraction: float = 0.05,
+) -> dict:
+    """Fail closed if stage-three rehearsal damages any supervised specialty.
+
+    Guard is deliberately *in-sample only*. Passing it cannot qualify a model
+    as an expert or replace independent held-out and post-DPO evaluation.
+    """
+    if (len(records) == 0 or len(records) != len(before_losses) or
+            len(records) != len(after_losses) or
+            not math.isfinite(maximum_regression_fraction) or
+            maximum_regression_fraction < 0 or maximum_regression_fraction > 0.25):
+        raise ValueError("Invalid retention domain-loss regression guard inputs")
+    grouped_before, grouped_after = defaultdict(list), defaultdict(list)
+    for row, before, after in zip(records, before_losses, after_losses):
+        domain = row.get("domain")
+        if (not isinstance(domain, str) or not domain or
+                not math.isfinite(before) or not math.isfinite(after) or
+                before < 0 or after < 0):
+            raise ValueError("Retention domain-loss evidence must be finite and attributed")
+        grouped_before[domain].append(before)
+        grouped_after[domain].append(after)
+    initial = {
+        domain: sum(values) / len(values)
+        for domain, values in sorted(grouped_before.items())
+    }
+    final = {
+        domain: sum(values) / len(values)
+        for domain, values in sorted(grouped_after.items())
+    }
+    failed = [
+        domain for domain in initial
+        if final[domain] > initial[domain] * (1 + maximum_regression_fraction) + 1e-7
+    ]
+    if failed:
+        raise RuntimeError(
+            "Retention rehearsal increased in-sample supervised loss beyond "
+            "the per-domain regression budget for: " + ", ".join(failed)
+        )
+    return {
+        "status": "passed",
+        "scope": "in-sample-supervised-loss-only-not-held-out-or-preference-quality",
+        "maximumDomainRegressionFraction": maximum_regression_fraction,
+        "initialLossByDomain": initial,
+        "finalLossByDomain": final,
+    }
+
+
 def train_retention_stage(
     model, tokenizer, supervised: list[dict], *, max_length: int,
     epochs: int, learning_rate: float, seed: int,
@@ -332,6 +381,11 @@ def train_retention_stage(
         final = [float(response_loss(row).detach().cpu()) for row in records]
     if not all(math.isfinite(value) for value in final):
         raise RuntimeError("Retention stage produced non-finite supervised losses")
+    # Fail rather than publishing an adapter that damages any of the seven
+    # supervised skill domains beyond a conservative 5% loss tolerance.
+    # This does NOT assess held-out generalization or preserve DPO preferences;
+    # those are separate hard release gates.
+    domain_loss_guard = verify_retention_domain_losses(records, initial, final)
     return {
         "algorithm": "anchored-response-only-retention-rehearsal",
         "trainingData": "previously-rights-cleared-supervised-only",
@@ -345,6 +399,7 @@ def train_retention_stage(
         "optimizationSteps": steps,
         "initialTrainingLoss": sum(initial) / len(initial),
         "finalTrainingLoss": sum(final) / len(final),
+        "domainLossRegressionGuard": domain_loss_guard,
         "meanOptimizationLoss": sum(losses) / len(losses),
         "trainableParametersChanged": True,
         "evidenceScope": "in-sample-only-not-independent-model-quality",
