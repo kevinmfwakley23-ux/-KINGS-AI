@@ -194,6 +194,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--preference-epochs", type=int, default=3)
     parser.add_argument("--preference-beta", type=float, default=0.1)
     parser.add_argument("--preference-learning-rate", type=float, default=0.00002)
+    parser.add_argument("--retention-epochs", type=int, default=1,
+                        help="Third-stage licensed SFT rehearsal after DPO; 0 explicitly disables")
+    parser.add_argument("--retention-learning-rate", type=float, default=0.00001)
+    parser.add_argument("--retention-anchor-strength", type=float, default=0.01)
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--grad-accum", type=int, default=4)
@@ -218,8 +222,11 @@ def main() -> None:
         args.lora_rank not in (4, 8, 16, 32, 64, 128) or
         not (0 < args.learning_rate <= 0.01) or args.seed < 0 or
         args.preference_epochs < 1 or args.preference_epochs > 10 or
+        args.retention_epochs < 0 or args.retention_epochs > 5 or
         not (0.01 <= args.preference_beta <= 1) or
-        not (0 < args.preference_learning_rate <= 0.001)):
+        not (0 < args.preference_learning_rate <= 0.001) or
+        not (0 < args.retention_learning_rate <= 0.001) or
+        not (0 <= args.retention_anchor_strength <= 1)):
         raise ValueError("Invalid bounded training hyperparameters")
     examples = validate_training_inputs(args.training_package, args.benchmark_manifest)
     preferences = None
@@ -235,9 +242,12 @@ def main() -> None:
                           "validatedPreferencePairs": len(preferences) if preferences is not None else 0,
                           "supervisedEpochs": args.epochs,
                           "preferenceEpochs": args.preference_epochs if preferences is not None else 0,
+                          "retentionEpochs": args.retention_epochs if preferences is not None else 0,
                           "domainSampling": "seeded-round-robin-without-replacement",
                           "trainingStages": ["supervised-lora"] + (
-                              ["preference-dpo"] if preferences is not None else []
+                              ["preference-dpo"] + (
+                                  ["anchored-retention-rehearsal"] if args.retention_epochs else []
+                              ) if preferences is not None else []
                           ),
                           "baseModel": args.base_model.name, "trained": False}))
         return
@@ -356,14 +366,15 @@ def main() -> None:
         if result.global_step < 1 or not math.isfinite(result.training_loss):
             raise RuntimeError("Training did not complete a valid gradient optimization step")
         after = {
-            name: value.detach().cpu()
+            name: value.detach().cpu().clone()
             for name, value in model.named_parameters() if value.requires_grad
         }
         if not any(not torch.equal(before[name], value) for name, value in after.items()):
             raise RuntimeError("Training completed without changing any trainable LoRA weights")
         preference_evidence = None
+        retention_evidence = None
         if preferences is not None:
-            from sovereign_preference_stage import train_preference_stage
+            from sovereign_preference_stage import train_preference_stage, train_retention_stage
             preference_evidence = train_preference_stage(
                 model, tokenizer, preferences,
                 max_length=args.max_length,
@@ -372,6 +383,14 @@ def main() -> None:
                 learning_rate=args.preference_learning_rate,
                 seed=args.seed,
             )
+            if args.retention_epochs:
+                retention_evidence = train_retention_stage(
+                    model, tokenizer, examples, max_length=args.max_length,
+                    epochs=args.retention_epochs,
+                    learning_rate=args.retention_learning_rate,
+                    anchor_strength=args.retention_anchor_strength,
+                    seed=args.seed, sft_reference_weights=after,
+                )
         adapter = root / "adapter"
         model.save_pretrained(str(adapter), safe_serialization=True)
         tokenizer.save_pretrained(str(adapter))
@@ -401,12 +420,15 @@ def main() -> None:
             "targetResponseTruncations": 0,
             "trainableParametersChanged": True,
             "trainingStages": ["supervised-lora"] + (
-                ["preference-dpo"] if preference_evidence is not None else []
+                ["preference-dpo"] + (
+                    ["anchored-retention-rehearsal"] if retention_evidence is not None else []
+                ) if preference_evidence is not None else []
             ),
             "preferencePackageSha256": (
                 sha256(args.preference_package) if preference_evidence is not None else None
             ),
             "preferenceStage": preference_evidence,
+            "retentionStage": retention_evidence,
             "notes": "Real fine-tuned adapter, not a claim of top-tier capability or a merged deployable model.",
         }
         (adapter / "kings-training-metadata.json").write_text(
