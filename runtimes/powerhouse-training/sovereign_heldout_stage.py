@@ -12,6 +12,9 @@ import math
 from pathlib import Path
 
 
+MAX_HELDOUT_REFERENCES_PER_DOMAIN = 200
+
+
 def validate_heldout_references(path: Path) -> list[dict]:
     """Accept optional held-out reference answers, or return [] for legacy manifests.
 
@@ -80,6 +83,9 @@ def validate_heldout_references(path: Path) -> list[dict]:
             references.append(item)
     if references and set(item["domain"] for item in references) != DOMAINS:
         raise ValueError("Held-out reference measurement requires all seven specialties")
+    domain_counts = Counter(row["domain"] for row in references)
+    if any(count > MAX_HELDOUT_REFERENCES_PER_DOMAIN for count in domain_counts.values()):
+        raise ValueError("Held-out references exceed maximum 200 per specialty; split the evaluation into separately authorized benchmark runs")
     return references
 
 
@@ -97,12 +103,14 @@ def measure_heldout_reference_loss(model, tokenizer, references: list[dict], *, 
     if max_length < 128 or max_length > 32768:
         raise ValueError("Held-out model context length is outside trainer bounds")
 
-    # Stable, bounded sample per domain: same exact examples before and after
-    # the optimizer, independent of JSON insertion order.
+    # Evaluate *every* authorized reference, never silently take only the
+    # lowest IDs. The bounded cap prevents accidental unbounded GPU work.
+    domain_counts = Counter(row["domain"] for row in references)
+    if any(count > MAX_HELDOUT_REFERENCES_PER_DOMAIN for count in domain_counts.values()):
+        raise ValueError("Held-out references exceed maximum 200 per specialty")
     selected = defaultdict(list)
     for row in sorted(references, key=lambda x: (x["domain"], x["id"])):
-        if len(selected[row["domain"]]) < 20:
-            selected[row["domain"]].append(row)
+        selected[row["domain"]].append(row)
 
     by_domain = defaultdict(lambda: [0.0, 0, 0])
     device = next(model.parameters()).device
@@ -145,7 +153,7 @@ def measure_heldout_reference_loss(model, tokenizer, references: list[dict], *, 
         "negativeLogLikelihoodPerTokenByDomain": losses,
         "evaluatedExamplesByDomain": sample_counts,
         "evaluatedTokensByDomain": token_counts,
-        "sampling": "lowest-20-identifiers-per-domain",
+        "sampling": "all-authorized-references-max-200-per-domain",
         "scope": "held-out-teacher-forced-reference-loss-not-expert-qualification",
     }
 
@@ -158,8 +166,9 @@ def compare_heldout_reference_loss(before: dict, after: dict) -> dict:
     b = after["negativeLogLikelihoodPerTokenByDomain"]
     if set(a) != DOMAINS or set(b) != DOMAINS:
         raise ValueError("Seven domains required for held-out comparison")
-    if before["evaluatedExamplesByDomain"] != after["evaluatedExamplesByDomain"]:
-        raise ValueError("Held-out evaluation sample changed between checkpoints")
+    if (before["evaluatedExamplesByDomain"] != after["evaluatedExamplesByDomain"] or
+            before["evaluatedTokensByDomain"] != after["evaluatedTokensByDomain"]):
+        raise ValueError("Held-out evaluation samples or target token counts changed between checkpoints")
     gains = {d: a[d] - b[d] for d in sorted(DOMAINS)}
     if not all(math.isfinite(v) for v in gains.values()):
         raise ValueError("Held-out delta must be finite")
