@@ -6,12 +6,14 @@ on:
     paths:
       - "runtimes/powerhouse-training/**"
       - "development/sovereign-preference-gradient-smoke.py"
+      - "development/sovereign-heldout-evaluation-test.py"
       - ".github/workflows/sovereign-training-gradient-smoke.yml"
   push:
     branches: [main]
     paths:
       - "runtimes/powerhouse-training/**"
       - "development/sovereign-preference-gradient-smoke.py"
+      - "development/sovereign-heldout-evaluation-test.py"
       - ".github/workflows/sovereign-training-gradient-smoke.yml"
   workflow_dispatch:
 
@@ -43,6 +45,10 @@ jobs:
       - name: Run real DPO adapter gradient and frozen-base assertions
         run: |
           python development/sovereign-preference-gradient-smoke.py
+
+      - name: Verify real held-out scoring and seven-specialty evaluation isolation
+        run: |
+          python development/sovereign-heldout-evaluation-test.py
 
       - name: Verify supervised curriculum and long-form segment coverage
         run: |
