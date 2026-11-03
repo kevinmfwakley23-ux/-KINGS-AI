@@ -141,13 +141,20 @@ An interrupted/error run must not yield a valid trained model artifact.
 
 ## Strengthened training passes and seven-domain sampling
 
-The offline supervised LoRA trainer now defaults to **two full supervised
-epochs**, rather than one. When the separately authorized DPO preference
-dataset is supplied, the preference optimizer also defaults to **two full
-epochs**. Each stage still uses real gradient updates and checks that the
-trainable weights changed. These are additional passes over existing licensed
-data, **not** double the number of independent examples and **not** evidence
-of better generalization. More epochs can overfit small datasets.
+The offline supervised LoRA trainer now defaults to **three full supervised
+epochs**. When the separately authorized DPO preference dataset is supplied,
+the preference optimizer also defaults to **three full epochs**. Each stage
+still uses real gradient updates and checks that the trainable weights changed.
+This is the owner's triple-pass training schedule across **two different
+gradient-training programs**, not three independently trained foundation models
+or a third separate learning algorithm. The two-stage run performs up to six
+epoch passes (three SFT and three DPO) on separate rights-cleared datasets,
+**not** six times as many independent examples. The previous default was two
+epochs per stage. More epochs can overfit small datasets and can reduce
+held-out performance; compare held-out results against the previous checkpoint
+and reduce `--epochs` or `--preference-epochs` if quality regresses.
+The owner must still supply real licensed weights, data, compute, and evaluation
+before claiming improved expertise.
 
 Supervised examples are shuffled deterministically by the owner-approved seed
 within each specialist domain, then interleaved round-robin without replacement.
