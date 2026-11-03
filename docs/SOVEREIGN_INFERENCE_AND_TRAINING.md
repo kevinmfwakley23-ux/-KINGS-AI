@@ -80,6 +80,19 @@ returns `NO_QUALIFIED_LOCAL_MODEL` (503) rather than substituting an unrelated
 model or a fabricated answer. Declared capabilities are owner configuration,
 **not** verification that the model performs at a professional level.
 
+**Owner token budgets:** The maximum API-requested completion length is now
+16,384 tokens (up from 8,192); the default stays conservative at 1,536.
+Higher output limits are usable only when the actual locally deployed model
+declares a large enough context window. The owner-chat service adds the
+UTF-8 message byte budget, explicit message/framing reserves, and requested
+output before routing. The general K.I.N.G.S. router then filters out models
+whose declared context is smaller, even during permitted local failover.
+Undersized requests fail with `INSUFFICIENT_LOCAL_CONTEXT` (422), not a
+provider substitution. The byte-based check is conservative and **not** an
+exact tokenizer, hardware, VRAM or throughput guarantee. Do not increase
+`KINGS_SELF_HOSTED_CONTEXT_TOKENS` or `KINGS_OLLAMA_CONTEXT_TOKENS` past
+what the loaded model and inference server can actually sustain.
+
 ## On-demand web research without outside AI inference
 
 The owner console provides a first-party internet research panel backed by
