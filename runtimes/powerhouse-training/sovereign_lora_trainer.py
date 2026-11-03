@@ -403,7 +403,10 @@ def main() -> None:
             "baseConfigSha256": sha256(args.base_model / "config.json"),
             "trainingPackageSha256": sha256(args.training_package),
             "benchmarkManifestSha256": sha256(args.benchmark_manifest),
-            "exampleCount": len(records),
+            # Licensed examples and derived context segments are different counts.
+            # Never inflate independent training-example evidence by counting
+            # multiple segments of one long authorized book/chapter response.
+            "exampleCount": len(examples),
             "domainSampling": "seeded-round-robin-without-replacement",
             "trainingPasses": args.epochs,
             "optimizerSampler": "sequential-interleaved",
@@ -442,7 +445,8 @@ def main() -> None:
         if temporary.stat().st_size == 0:
             raise RuntimeError("Empty adapter archive")
         os.replace(temporary, artifact)
-    print(json.dumps({"ok": True, "trained": True, "examples": len(records),
+    print(json.dumps({"ok": True, "trained": True, "examples": len(examples),
+                      "supervisedSegments": len(records),
                       "preferencePairs": len(preferences) if preferences is not None else 0,
                       "trainingStages": metadata["trainingStages"],
                       "artifactSha256": sha256(artifact), "format": metadata["format"]}))
