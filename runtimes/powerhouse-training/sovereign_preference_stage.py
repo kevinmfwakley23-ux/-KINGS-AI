@@ -64,6 +64,36 @@ def validate_preference_inputs(path: Path, benchmark_path: Path, supervised: lis
     return package["pairs"]
 
 
+def backward_segmented_dpo_loss(chosen, rejected, reference_margin, beta, score_segment) -> float:
+    """Backpropagate the exact DPO objective one bounded segment at a time.
+
+    Recompute the scalar margin without a graph, then apply its chain-rule
+    coefficients to individual token-score segment graphs. Gradients add up
+    to the same result as a monolithic DPO loss, without retaining every
+    long-answer activation graph in memory. The score callback must be
+    deterministic (disable dropout) throughout each DPO step.
+    """
+    import torch
+    import torch.nn.functional as functional
+
+    if not chosen or not rejected:
+        raise ValueError("DPO requires nonempty chosen and rejected segments")
+
+    with torch.no_grad():
+        good = sum((score_segment(*part) for part in chosen))
+        bad = sum((score_segment(*part) for part in rejected))
+        delta = (good - bad) - reference_margin.to(good.device)
+        loss = -functional.logsigmoid(beta * delta).mean()
+        coefficient = (beta * torch.sigmoid(-beta * delta)).detach()
+    if not bool(torch.isfinite(loss)):
+        raise RuntimeError("Non-finite preference loss")
+    for part in chosen:
+        (-coefficient * score_segment(*part)).mean().backward()
+    for part in rejected:
+        (coefficient * score_segment(*part)).mean().backward()
+    return float(loss.detach().cpu())
+
+
 def train_preference_stage(
     model, tokenizer, pairs: list[dict], *,
     max_length: int, epochs: int, beta: float,
@@ -145,27 +175,16 @@ def train_preference_stage(
                 _, chosen, rejected = records[index]
                 ref_good, ref_bad = frozen_reference[index]
                 optimizer.zero_grad(set_to_none=True)
-                # Compute the current DPO margin without retaining a graph for
-                # every segment. Differentiate that same scalar exactly using
-                # dL/d(good)=-beta*sigmoid(-beta*delta), dL/d(bad)=-dL/d(good).
-                # The next loops release each segment graph immediately; peak
-                # activation memory stays bounded for long-form writing pairs.
-                with torch.no_grad():
-                    good = log_probability(chosen)
-                    bad = log_probability(rejected)
-                    delta = (good - bad) - (ref_good - ref_bad).to(good.device)
-                    loss = -functional.logsigmoid(beta * delta).mean()
-                    weight = (beta * torch.sigmoid(-beta * delta)).detach()
-                if not bool(torch.isfinite(loss)):
-                    raise RuntimeError("Non-finite preference loss")
-                for segment in chosen:
-                    (-weight * segment_log_probability(*segment)).mean().backward()
-                for segment in rejected:
-                    (weight * segment_log_probability(*segment)).mean().backward()
+                # Invoke the same backward primitive directly checked against
+                # a full-graph autograd reference in CI. It applies the exact
+                # DPO gradient while keeping only one segment graph alive.
+                loss_value = backward_segmented_dpo_loss(
+                    chosen, rejected, ref_good - ref_bad, beta, segment_log_probability
+                )
                 torch.nn.utils.clip_grad_norm_(list(trainable.values()), 1.0)
                 optimizer.step()
                 steps += 1
-                losses.append(float(loss.detach().cpu()))
+                losses.append(loss_value)
     if steps < len(records) or not all(math.isfinite(x) for x in losses):
         raise RuntimeError("Preference optimizer did not complete all gradient steps")
     if not any(not torch.equal(before[name], p.detach().cpu()) for name, p in trainable.items()):
