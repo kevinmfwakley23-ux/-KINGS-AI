@@ -18,6 +18,7 @@ async function main(): Promise<void> {
     (error: unknown) => error instanceof OwnerChatError && error.code === "INVALID_CHAT_HISTORY");
 
   let requests = 0;
+  const observedOutputLimits: number[] = [];
   const server = createServer(async (req, res) => {
     requests++;
     assert.equal(req.url, "/v1/chat/completions");
@@ -25,8 +26,9 @@ async function main(): Promise<void> {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
-      model: string; messages: Array<{ role: string; content: string }>;
+      model: string; messages: Array<{ role: string; content: string }>; max_tokens?: number;
     };
+    observedOutputLimits.push(body.max_tokens ?? 0);
     assert.equal(body.model, "kings-test-local");
     assert.equal(body.messages.at(-1)?.content, "Say hello.");
     res.writeHead(200, { "content-type": "application/json" });
@@ -57,6 +59,38 @@ async function main(): Promise<void> {
     assert.equal(result.modelQualityVerified, false);
     assert.equal(requests, 1);
     assert.equal(service.discover().activeRequests, 0);
+    assert.equal(service.discover().maxOutputTokens, 16_384);
+
+    // Owner-requested output may scale up when a real local model declares
+    // sufficient context capacity; this is a budget, not synthetic output.
+    const expanded = await service.respond({
+      domain: "chat", messages: [{ role: "user", content: "Say hello." }],
+      maxOutputTokens: 12_288,
+    });
+    assert.equal(expanded.ok, true);
+    assert.deepEqual(observedOutputLimits, [1_536, 12_288]);
+    assert.equal(requests, 2);
+
+    // An 8k local model must never be routed a 12k answer request, nor
+    // quietly fall back to an outside AI provider.
+    const constrained = new OwnerChatService({
+      KINGS_INTELLIGENCE_MODE: "sovereign",
+      KINGS_SELF_HOSTED_BASE_URL: `http://127.0.0.1:${port}/v1`,
+      KINGS_SELF_HOSTED_MODEL: "kings-test-local",
+      KINGS_SELF_HOSTED_CAPABILITIES: "reasoning",
+      KINGS_SELF_HOSTED_CONTEXT_TOKENS: "8192",
+    });
+    await assert.rejects(constrained.respond({
+      domain: "chat", messages: [{ role: "user", content: "Say hello." }],
+      maxOutputTokens: 12_288,
+    }), (error: unknown) =>
+      error instanceof OwnerChatError && error.code === "INSUFFICIENT_LOCAL_CONTEXT");
+    await assert.rejects(service.respond({
+      domain: "chat", messages: [{ role: "user", content: "Say hello." }],
+      maxOutputTokens: 16_385,
+    }), (error: unknown) =>
+      error instanceof OwnerChatError && error.code === "INVALID_CHAT_TOKEN_LIMIT");
+    assert.equal(requests, 2, "rejected oversized-context requests must not reach inference");
   } finally {
     await new Promise<void>((resolve, reject) => server.close((err) => err ? reject(err) : resolve()));
   }
