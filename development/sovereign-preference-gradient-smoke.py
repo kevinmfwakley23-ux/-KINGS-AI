@@ -18,6 +18,7 @@ from torch.nn import functional
 from sovereign_lora_trainer import supervised_answer_segments
 from sovereign_preference_stage import (
     backward_segmented_dpo_loss, train_preference_stage, train_retention_stage,
+    verify_retention_domain_losses,
 )
 
 
@@ -214,10 +215,37 @@ def main() -> None:
     assert rehearsal["trainableParametersChanged"], rehearsal
     assert rehearsal["trainingDataIndependent"] is False, rehearsal
     assert rehearsal["evidenceScope"] == "in-sample-only-not-independent-model-quality", rehearsal
+    guard = rehearsal["domainLossRegressionGuard"]
+    assert guard["status"] == "passed", guard
+    assert guard["scope"] == "in-sample-supervised-loss-only-not-held-out-or-preference-quality"
+    assert guard["maximumDomainRegressionFraction"] == 0.05
+    assert set(guard["initialLossByDomain"]) == {row["domain"] for row in supervised}
+    assert set(guard["finalLossByDomain"]) == {row["domain"] for row in supervised}
     assert torch.isfinite(torch.tensor(rehearsal["initialTrainingLoss"]))
     assert torch.isfinite(torch.tensor(rehearsal["finalTrainingLoss"]))
     assert all(torch.equal(frozen_before[name], p.detach()) for name, p in model.named_parameters()
                if not p.requires_grad), "Frozen base-model weights must remain unchanged after retention"
+    # Independent negative-path assertions: a third-stage run that harms any
+    # particular specialty may not quietly publish an allegedly improved model.
+    guard_rows = [{"domain": "coding"}, {"domain": "storytelling"}]
+    accepted = verify_retention_domain_losses(guard_rows, [2.0, 3.0], [2.05, 3.10])
+    assert accepted["status"] == "passed", accepted
+    for worsening, expected in [
+        ([2.2, 3.0], "coding"), ([2.0, 3.5], "storytelling"),
+    ]:
+        try:
+            verify_retention_domain_losses(guard_rows, [2.0, 3.0], worsening)
+        except RuntimeError as error:
+            assert expected in str(error), error
+        else:
+            raise AssertionError("Retention regression guard must refuse damaged specialty loss")
+    try:
+        verify_retention_domain_losses(guard_rows, [2.0, float("nan")], [2.0, 3.0])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Non-finite domain loss must fail closed")
+
     try:
         train_retention_stage(
             model, TestTokenizer(), supervised, max_length=128,
