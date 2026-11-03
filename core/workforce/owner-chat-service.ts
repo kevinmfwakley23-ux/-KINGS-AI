@@ -17,7 +17,9 @@ import {
 const CHAT_MAX_MESSAGES = 24;
 const CHAT_MAX_MESSAGE_CHARACTERS = 12_000;
 const CHAT_MAX_TOTAL_CHARACTERS = 48_000;
-const CHAT_MAX_OUTPUT_TOKENS = 8_192;
+const CHAT_MAX_OUTPUT_TOKENS = 16_384;
+const CHAT_CONTEXT_RESERVED_TOKENS = 512;
+const CHAT_CONTEXT_MESSAGE_OVERHEAD_TOKENS = 64;
 const CHAT_MAX_CONCURRENT_REQUESTS = 2;
 
 export class OwnerChatError extends Error {
@@ -68,6 +70,7 @@ export class OwnerChatService {
         })),
       ),
       activeRequests: this.activeRequests,
+      maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
       maxConcurrentRequests: CHAT_MAX_CONCURRENT_REQUESTS,
     };
   }
@@ -122,11 +125,35 @@ export class OwnerChatService {
       throw new OwnerChatError("INVALID_CHAT_TOKEN_LIMIT", 400,
         `maxOutputTokens must be between 1 and ${CHAT_MAX_OUTPUT_TOKENS}.`);
     }
-    if (!this.discover().models.some((model) =>
-      domain.requiredCapabilities.every((capability) => model.declaredCapabilities.includes(capability)))) {
+    const qualifiedModels = this.discover().models.filter((model) =>
+      domain.requiredCapabilities.every((capability) => model.declaredCapabilities.includes(capability)));
+    if (qualifiedModels.length === 0) {
       throw new OwnerChatError("NO_QUALIFIED_LOCAL_MODEL", 503,
         `No configured owner-hosted model declares all required capabilities for ${domain.label}. ` +
         "Load and independently verify a suitable model; K.I.N.G.S. will not invent an expert answer.");
+    }
+    const request = applyPowerhouseServiceDomain({
+      appId: "kings.ai",
+      messages,
+      maxOutputTokens: Number(maxOutputTokens),
+      allowToolProposals: false,
+    }, domain);
+    // UTF-8 bytes are deliberately conservative for most common model
+    // tokenizers; reserve additional context for conversation framing and
+    // runtime-specific tokens. This is a planning estimate, not a guarantee
+    // of exact tokenizer use or actual model quality.
+    const estimatedPromptTokens = request.messages.reduce(
+      (total, message) =>
+        total + Buffer.byteLength(message.content, "utf8") + CHAT_CONTEXT_MESSAGE_OVERHEAD_TOKENS,
+      CHAT_CONTEXT_RESERVED_TOKENS,
+    );
+    const requiredContextWindowTokens = estimatedPromptTokens + Number(maxOutputTokens);
+    if (!qualifiedModels.some((model) =>
+      model.declaredContextWindowTokens >= requiredContextWindowTokens)) {
+      throw new OwnerChatError("INSUFFICIENT_LOCAL_CONTEXT", 422,
+        `No qualified owner-operated model declares ${requiredContextWindowTokens} context tokens ` +
+        "for this history and output budget. Shorten history, lower output tokens, " +
+        "or load a legitimately larger-context model.");
     }
     if (this.activeRequests >= CHAT_MAX_CONCURRENT_REQUESTS) {
       throw new OwnerChatError("CHAT_AT_CAPACITY", 429,
@@ -134,13 +161,12 @@ export class OwnerChatService {
     }
     this.activeRequests += 1;
     try {
-      const request = applyPowerhouseServiceDomain({
-        appId: "kings.ai",
-        messages,
-        maxOutputTokens: Number(maxOutputTokens),
-        allowToolProposals: false,
-      }, domain);
-      const result = await this.router.route(request);
+      // Preserve local-provider failover, but never allow fallback to a model
+      // whose declared context is smaller than the requested token budget.
+      const result = await this.router.route({
+        ...request,
+        minContextWindowTokens: requiredContextWindowTokens,
+      });
       if (!result.success) {
         throw new OwnerChatError(result.code, result.code === "NO_ROUTABLE_MODEL" ? 503 : 502,
           `K.I.N.G.S. local inference failed: ${result.message}`);
