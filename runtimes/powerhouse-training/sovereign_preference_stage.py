@@ -225,3 +225,113 @@ def train_preference_stage(
         "targetResponseTruncations": 0,
         "gradientMemory": "single-bounded-segment",
     }
+
+
+def train_retention_stage(
+    model, tokenizer, supervised: list[dict], *, max_length: int,
+    epochs: int, learning_rate: float, seed: int,
+    sft_reference_weights: dict, anchor_strength: float = 0.01,
+) -> dict:
+    """Stage 3: supervised skill-rehearsal with post-SFT adapter anchoring.
+
+    Reuses ONLY examples already checked for owner training rights and evaluation
+    isolation in stage 1. No external teacher, scraping, new rights claim, or
+    fabricated training data. The objective is response-only cross-entropy plus
+    a mild L2 anchor to the adapter immediately after stage 1, before DPO.
+    A real optimizer must change at least one trainable adapter parameter.
+    In-sample loss is diagnostic only; hold-out qualification is still required.
+    """
+    import torch
+    import torch.nn.functional as functional
+    from sovereign_lora_trainer import interleave_training_examples, supervised_answer_segments
+
+    if (not isinstance(epochs, int) or epochs < 1 or epochs > 5 or
+            not math.isfinite(learning_rate) or not 0 < learning_rate <= 0.001 or
+            not math.isfinite(anchor_strength) or not 0 <= anchor_strength <= 1):
+        raise ValueError("Retention-stage hyperparameters exceed authorized bounds")
+    if not supervised:
+        raise ValueError("Retention stage requires owner-licensed supervised examples")
+
+    trainable = {name: p for name, p in model.named_parameters() if p.requires_grad}
+    if not trainable or set(trainable) != set(sft_reference_weights):
+        raise ValueError("Retention stage requires exact post-SFT trainable adapter anchors")
+    reference = {}
+    before = {}
+    for name, parameter in trainable.items():
+        weights = sft_reference_weights[name]
+        if weights.shape != parameter.shape or not bool(torch.isfinite(weights).all()):
+            raise ValueError("Post-SFT reference weights are invalid")
+        reference[name] = weights.detach().to(device=parameter.device, dtype=parameter.dtype).clone()
+        before[name] = parameter.detach().cpu().clone()
+
+    records = []
+    for item in supervised:
+        for segment in supervised_answer_segments(tokenizer, item, max_length):
+            records.append({**segment, "domain": item["domain"]})
+            if len(records) > 200000:
+                raise ValueError("Retention rehearsal exceeded 200000 bounded training segments")
+    records = interleave_training_examples(records, seed + 2)
+    optimizer = torch.optim.AdamW(list(trainable.values()), lr=learning_rate, weight_decay=0.0)
+
+    def response_loss(segment):
+        ids = torch.tensor([segment["input_ids"]], dtype=torch.long,
+                           device=next(model.parameters()).device)
+        labels = torch.tensor([segment["labels"]], dtype=torch.long, device=ids.device)
+        logits = model(input_ids=ids, attention_mask=torch.ones_like(ids)).logits[:, :-1, :].float()
+        return functional.cross_entropy(
+            logits.reshape(-1, logits.shape[-1]),
+            labels[:, 1:].reshape(-1), ignore_index=-100,
+        )
+
+    # Inference-deterministic scoring for meaningful before/after diagnostics
+    # and low-variance gradients. eval() still permits adapter optimization.
+    model.eval()
+    with torch.no_grad():
+        initial = [float(response_loss(row).detach().cpu()) for row in records]
+    if not all(math.isfinite(value) for value in initial):
+        raise RuntimeError("Retention training started with non-finite supervised losses")
+
+    steps = 0
+    losses = []
+    for _ in range(epochs):
+        for row in records:
+            optimizer.zero_grad(set_to_none=True)
+            task_loss = response_loss(row)
+            penalty = sum(
+                (p.float() - reference[name].float()).square().mean()
+                for name, p in trainable.items()
+            ) / len(trainable)
+            loss = task_loss + anchor_strength * penalty
+            if not bool(torch.isfinite(loss)):
+                raise RuntimeError("Non-finite retention training loss")
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(list(trainable.values()), 1.0)
+            optimizer.step()
+            steps += 1
+            losses.append(float(loss.detach().cpu()))
+
+    if steps != len(records) * epochs or not all(math.isfinite(value) for value in losses):
+        raise RuntimeError("Retention optimizer did not execute all expected steps")
+    if not any(not torch.equal(before[name], p.detach().cpu()) for name, p in trainable.items()):
+        raise RuntimeError("Retention stage completed without changing trainable adapter weights")
+    with torch.no_grad():
+        final = [float(response_loss(row).detach().cpu()) for row in records]
+    if not all(math.isfinite(value) for value in final):
+        raise RuntimeError("Retention stage produced non-finite supervised losses")
+    return {
+        "algorithm": "anchored-response-only-retention-rehearsal",
+        "trainingData": "previously-rights-cleared-supervised-only",
+        "trainingDataIndependent": False,
+        "source": "post-preference-stage-three",
+        "epochs": epochs,
+        "learningRate": learning_rate,
+        "anchorStrength": anchor_strength,
+        "exampleCount": len(supervised),
+        "segmentCount": len(records),
+        "optimizationSteps": steps,
+        "initialTrainingLoss": sum(initial) / len(initial),
+        "finalTrainingLoss": sum(final) / len(final),
+        "meanOptimizationLoss": sum(losses) / len(losses),
+        "trainableParametersChanged": True,
+        "evidenceScope": "in-sample-only-not-independent-model-quality",
+    }
