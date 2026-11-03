@@ -120,6 +120,16 @@ async function assertLoopbackRemainsLocalAndUsable() {
   try {
     await waitForHealth(port, run.child, run.output);
     const base = `http://127.0.0.1:${port}`;
+    const ownerUi = await fetch(`${base}/`);
+    assert.equal(ownerUi.status, 200);
+    const ownerHtml = await ownerUi.text();
+    assert.match(ownerHtml, /id="owner-chat-output-tokens"/,
+      "mobile owner console must expose the configured local completion budget");
+    assert.match(ownerHtml, /<option value="16384">Extended/,
+      "extended 16k output budget must be selectable in owner chat");
+    assert.match(ownerHtml, /maxOutputTokens:Number\(document\.getElementById\('owner-chat-output-tokens'\)\.value\)/,
+      "owner chat must send the chosen bounded token limit rather than a fixed 1536");
+
     const unapprovedResearch = await fetch(`${base}/api/owner-research`, {
       method: "POST",
       headers: { "content-type": "application/json" },
