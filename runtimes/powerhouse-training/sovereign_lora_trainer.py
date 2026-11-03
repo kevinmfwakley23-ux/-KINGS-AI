@@ -235,11 +235,17 @@ def main() -> None:
         preferences = validate_preference_inputs(
             args.preference_package, args.benchmark_manifest, examples
         )
+    # Opt-in reference answers in the sealed held-out benchmark are rights-
+    # checked before allocating model weights. Unlabeled legacy manifests
+    # continue to work, but cannot claim any held-out quality evidence.
+    from sovereign_heldout_stage import validate_heldout_references
+    heldout_references = validate_heldout_references(args.benchmark_manifest)
     if args.model_artifact.exists():
         raise FileExistsError("Refusing to overwrite an existing trained model artifact")
     if args.validate_only:
         print(json.dumps({"ok": True, "validatedExamples": len(examples),
                           "validatedPreferencePairs": len(preferences) if preferences is not None else 0,
+                          "heldOutReferenceCount": len(heldout_references),
                           "supervisedEpochs": args.epochs,
                           "preferenceEpochs": args.preference_epochs if preferences is not None else 0,
                           "retentionEpochs": args.retention_epochs if preferences is not None else 0,
@@ -335,6 +341,12 @@ def main() -> None:
         lora_dropout=0.05, bias="none",
         target_modules="all-linear", task_type=TaskType.CAUSAL_LM,
     ))
+    # Never put held-out references in the optimizer's train_dataset.
+    # Evaluate the same fixed unseen subset before any gradient update.
+    from sovereign_heldout_stage import measure_heldout_reference_loss, compare_heldout_reference_loss
+    baseline_heldout = measure_heldout_reference_loss(
+        model, tokenizer, heldout_references, max_length=args.max_length
+    ) if heldout_references else None
     artifact = args.model_artifact.resolve()
     if artifact.exists():
         raise FileExistsError("Refusing to overwrite an existing trained model artifact")
@@ -419,6 +431,14 @@ def main() -> None:
                     ],
                     "scope": "in-sample-training-pairs-only-not-held-out-model-quality",
                 }
+        # This proxy is distinct from training-pair DPO and rehearsal loss.
+        # A worse held-out result is recorded, never silently omitted.
+        final_heldout = measure_heldout_reference_loss(
+            model, tokenizer, heldout_references, max_length=args.max_length
+        ) if heldout_references else None
+        heldout_evidence = compare_heldout_reference_loss(
+            baseline_heldout, final_heldout
+        ) if final_heldout is not None else None
         adapter = root / "adapter"
         model.save_pretrained(str(adapter), safe_serialization=True)
         tokenizer.save_pretrained(str(adapter))
@@ -460,6 +480,9 @@ def main() -> None:
             ),
             "preferenceStage": preference_evidence,
             "retentionStage": retention_evidence,
+            "heldOutReferenceEvaluation": heldout_evidence,
+            "heldOutReferenceCount": len(heldout_references),
+            "independentSpecialistQualification": False,
             "notes": "Real fine-tuned adapter, not a claim of top-tier capability or a merged deployable model.",
         }
         (adapter / "kings-training-metadata.json").write_text(
