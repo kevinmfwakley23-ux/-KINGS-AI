@@ -237,6 +237,7 @@ Standalone collector application with its own K.I.N.G.S.-derived brain. It speci
 
 - [`KINGS-V1-MASTER-CURRENT-REFERENCE.md`](./KINGS-V1-MASTER-CURRENT-REFERENCE.md) — detailed V1 architecture, verified historical implementation, and governing build structure.
 - [`APP_ROUTER.md`](./APP_ROUTER.md) — current app-facing AI router/runtime documentation.
+- [`POWERHOUSE_TRAINING_EVALUATION.md`](./POWERHOUSE_TRAINING_EVALUATION.md) — rights-cleared corpus, held-out benchmark, and evidence-artifact contract.
 - [`PRODUCTION_READINESS.md`](./PRODUCTION_READINESS.md) — production-readiness evidence and remaining gates.
 - [`PRODUCTION_HARDENING_REPORT.md`](./PRODUCTION_HARDENING_REPORT.md) — hardening findings and validated corrections.
 - [`.env.example`](./.env.example) — runtime/provider configuration surface. Never commit real credentials.

@@ -22,23 +22,36 @@ assert.equal(android.bundle?.android?.minSdkVersion, 24, "Android package must r
 for (const csp of [config.app?.security?.csp, android.app?.security?.csp]) {
   assert.equal(typeof csp, "string");
   assert.match(csp, /connect-src[^;]*https:/, "native shell may connect to trusted HTTPS owner hosts");
+  assert.match(csp, /form-action\s+https:/, "native owner-token form may only POST to HTTPS");
+  assert.doesNotMatch(csp, /form-action[^;]*http:/, "native owner-token form must reject plain HTTP");
   assert.match(csp, /navigate-to\s+https:/, "native navigation must remain HTTPS-only");
   assert.doesNotMatch(csp, /navigate-to[^;]*http:/, "plain HTTP remote navigation must stay forbidden");
 }
 
 assert.match(cargo, /tauri-build\s*=\s*\{\s*version\s*=\s*"=2\.6\.3"/);
 assert.match(cargo, /tauri\s*=\s*\{\s*version\s*=\s*"=2\.11\.5"/);
+assert.match(cargo, /tauri-runtime\s*=\s*\{\s*version\s*=\s*"=2\.11\.3"/, "Tauri runtime must stay in the compatible 2.11 family");
+assert.match(cargo, /tauri-runtime-wry\s*=\s*\{\s*version\s*=\s*"=2\.11\.4"/, "Tauri Wry runtime must stay in the compatible 2.11 family");
+assert.match(cargo, /tauri-utils\s*=\s*\{\s*version\s*=\s*"=2\.9\.3"/, "Tauri utilities must stay in the compatible 2.11 dependency family");
 assert.match(cargo, /crate-type\s*=\s*\["staticlib",\s*"cdylib",\s*"rlib"\]/, "mobile-compatible library crate types must remain enabled");
 
 assertOfficialKingsLogo(officialLogo);
 assert.match(shell, /kings-ai-official-logo\.png/, "native shell must display the official K.I.N.G.S. AI crest");
 assert.match(shell, /alt="K\.I\.N\.G\.S\. AI official crowned lion crest"/, "official crest must have accessible text");
+for (const focus of ["Coding", "Collectibles", "Sports Cards", "Writing"]) {
+  assert.match(shell, new RegExp(`>${focus}<`), `Android owner gateway must identify the ${focus} service focus`);
+}
+assert.match(shell, /This APK is the secure native client/, "Android shell must accurately explain the client/runtime boundary");
+assert.match(shell, /intelligence, provider routing, governed coding tools, collectibles research/, "Android shell must name the owner-runtime responsibilities");
 
 assert.match(app, /const STORAGE_KEY = "kings-owner-origin";/);
 assert.match(app, /parsed\.protocol !== "https:"/, "owner host normalization must reject non-HTTPS URLs");
 assert.match(app, /value\.length < 24/, "native bootstrap must enforce the owner-token floor");
-assert.match(app, /bootstrap\.searchParams\.set\("access", token\)/, "native client must use the one-time server bootstrap contract");
-assert.match(app, /tokenInput\.value = "";\s*navigate\(bootstrap\.href\)/s, "token input must be erased before leaving the gateway shell");
+assert.match(app, /bootstrapForm\.method = "POST"/, "native bootstrap must submit token via POST");
+assert.match(app, /bootstrapForm\.action = \x60\$\{origin\}\/session\/bootstrap\x60/, "native bootstrap must target the owner HTTPS endpoint");
+assert.match(app, /secretField\.name = "access"/, "native bootstrap must supply the expected credential field");
+assert.match(app, /tokenInput\.value = "";\s*bootstrapForm\.submit\(\)/s, "token input must be erased before POSTing");
+assert.doesNotMatch(app, /searchParams\.set\("access"/, "native bootstrap must not put owner credentials in a URL");
 assert.doesNotMatch(app, /localStorage\.setItem\([^\n]*(?:token|access)/i, "the reusable owner token must never be persisted to localStorage");
 assert.match(shell, /autocomplete="current-password"|autocomplete="off"|autocomplete="new-password"/, "token entry must declare browser autofill behavior explicitly");
 
@@ -54,6 +67,9 @@ assert.match(workflow, /cargo tauri android init --ci --skip-targets-install/);
 assert.match(workflow, /cargo tauri android build --debug --apk --ci/);
 assert.match(workflow, /apksigner/);
 assert.match(workflow, /sha256sum/);
+assert.match(workflow, /apk_name="\$\(basename "\$apk"\)"/, "APK checksum entries must name files inside the exported artifact");
+assert.match(workflow, /\(cd android-artifacts && sha256sum "\$apk_name"\)/, "APK sums must use extracted archive-relative filenames");
+assert.match(workflow, /\(cd android-artifacts && sha256sum --check SHA256SUMS\)/, "Android packaging must verify the published checksums before upload");
 assert.match(workflow, /actions\/upload-artifact@v4/);
 assert.match(workflow, /if-no-files-found:\s*error/);
 assert.match(workflow, /development\/android-native-package-test\.mjs/, "the workflow must execute this packaging contract before native build work");

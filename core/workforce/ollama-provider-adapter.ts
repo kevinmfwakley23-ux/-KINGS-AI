@@ -38,6 +38,7 @@ export interface OllamaProviderConfig {
   models: readonly string[];
   capabilities?: readonly IntelligenceCapability[];
   timeoutMs?: number;
+  contextWindowTokens?: number;
 }
 
 function normalizeBaseUrl(value: string): string {
@@ -130,14 +131,20 @@ export class OllamaProviderAdapter implements ProviderAdapter {
       throw new Error("K.I.N.G.S. Ollama Provider: timeoutMs must be an integer from 1000 to 600000");
     }
     const capabilities = validateCapabilities(config.capabilities ?? DEFAULT_CAPABILITIES);
+    const contextWindowTokens = config.contextWindowTokens;
+    if (contextWindowTokens !== undefined &&
+        (!Number.isInteger(contextWindowTokens) || contextWindowTokens < 1024 || contextWindowTokens > 131072)) {
+      throw new Error("K.I.N.G.S. Ollama Provider: context window must be 1024 to 131072 tokens");
+    }
     const client = new HttpOllamaExecutionClient(
       new FetchOllamaTransport(baseUrl, timeoutMs),
+      contextWindowTokens,
     );
 
     for (const modelId of uniqueModels(config.models)) {
       this.models.set(
         modelId,
-        new OllamaIntelligenceModel(client, modelId, capabilities, this.descriptor.id),
+        new OllamaIntelligenceModel(client, modelId, capabilities, this.descriptor.id, contextWindowTokens ?? 32768),
       );
     }
   }
@@ -195,6 +202,15 @@ function configuredTimeout(value: string | undefined): number | undefined {
   return parsed;
 }
 
+function configuredContextTokens(value: string | undefined): number | undefined {
+  if (!value?.trim()) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1024 || parsed > 131072) {
+    throw new Error("KINGS_OLLAMA_CONTEXT_TOKENS must be an integer from 1024 to 131072");
+  }
+  return parsed;
+}
+
 export function createConfiguredOllamaAdapter(
   env: NodeJS.ProcessEnv = process.env,
 ): OllamaProviderAdapter | undefined {
@@ -216,5 +232,6 @@ export function createConfiguredOllamaAdapter(
     models,
     capabilities: configuredCapabilities(env.KINGS_OLLAMA_CAPABILITIES),
     timeoutMs: configuredTimeout(env.KINGS_OLLAMA_TIMEOUT_MS),
+    contextWindowTokens: configuredContextTokens(env.KINGS_OLLAMA_CONTEXT_TOKENS),
   });
 }

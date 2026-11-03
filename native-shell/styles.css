@@ -38,6 +38,22 @@ button { min-height: 48px; }
 .eyebrow { margin: 10px auto 6px; max-width: 620px; font-size: .72rem; font-weight: 800; letter-spacing: .18em; color: #665d4d; }
 h1 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(2.25rem, 10vw, 4.4rem); letter-spacing: .04em; }
 .lead { margin: 8px 0 0; color: #5c554a; }
+.focus-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+  margin: 16px auto 2px;
+  max-width: 560px;
+}
+.focus-grid span {
+  padding: 8px 6px;
+  border: 1px solid rgba(116, 83, 28, .28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .7);
+  color: var(--gold-deep);
+  font-size: .76rem;
+  font-weight: 850;
+}
 .card {
   margin-top: 18px;
   padding: 22px;
@@ -82,6 +98,7 @@ ul { margin-bottom: 0; padding-left: 1.25rem; }
 
 @media (max-width: 480px) {
   .official-logo { width: min(100%, 330px); border-radius: 16px; }
+  .focus-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (min-width: 720px) {

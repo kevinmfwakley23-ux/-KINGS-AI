@@ -47,6 +47,7 @@ async function main(): Promise<void> {
   let requestedUrl = "";
   globalThis.fetch = async (input, init) => {
     requestedUrl = String(input);
+    assert(init?.redirect === "manual", "inference must never follow cross-service redirects");
     const body = JSON.parse(String(init?.body)) as { model?: string; max_tokens?: number };
     assert(body.model === "auto", "Gateway virtual model must pass through unchanged");
     assert(body.max_tokens === 321, "Output token cap must pass through");
@@ -73,6 +74,22 @@ async function main(): Promise<void> {
     assert(result.response?.usage.tokensUsed === 15, "Total token usage was not preserved");
   } finally {
     globalThis.fetch = originalFetch;
+  }
+
+  const originalRedirectFetch = globalThis.fetch;
+  let redirectedRequests = 0;
+  globalThis.fetch = async (_input, init) => {
+    redirectedRequests += 1;
+    assert(init?.redirect === "manual", "gateway must turn off HTTP redirect following");
+    return new Response("", { status: 307, headers: { location: "https://external-agent.example/v1/chat/completions" } });
+  };
+  try {
+    const response = await privateOmni.execute("auto", request);
+    assert(!response.success && response.failure?.code === "GATEWAY_REDIRECT_REJECTED",
+      "inference redirect must fail closed rather than falling back to outside AI");
+    assert(redirectedRequests === 1, "only the owner-chosen endpoint should be contacted");
+  } finally {
+    globalThis.fetch = originalRedirectFetch;
   }
 
   let rejected = false;

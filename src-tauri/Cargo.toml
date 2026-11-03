@@ -19,3 +19,9 @@ tauri-build = { version = "=2.6.3", features = [] }
 
 [dependencies]
 tauri = { version = "=2.11.5", features = [] }
+# Tauri 2.11.5 declares caret ranges for these crates. The 2.12 runtime
+# changed monitor APIs incompatibly, so pin the coherent 2.11 family until the
+# application intentionally upgrades the complete Tauri stack together.
+tauri-runtime = { version = "=2.11.3", default-features = false }
+tauri-runtime-wry = { version = "=2.11.4", default-features = false }
+tauri-utils = { version = "=2.9.3", default-features = false, features = ["resources"] }

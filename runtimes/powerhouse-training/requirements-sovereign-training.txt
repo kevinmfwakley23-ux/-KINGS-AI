@@ -1,0 +1,7 @@
+# Optional LOCAL-GPU training dependencies. Not installed by core npm runtime.
+# Install into a dedicated trusted Python environment before an approved training run.
+torch>=2.4,<3
+transformers>=4.46,<5
+peft>=0.13,<1
+accelerate>=1,<2
+safetensors>=0.4,<1

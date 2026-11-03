@@ -31,6 +31,7 @@ export class HttpOllamaExecutionClient
   constructor(
     private readonly transport:
       OllamaHttpTransport,
+    private readonly contextWindowTokens?: number,
   ) {}
 
   async execute(
@@ -48,6 +49,7 @@ export class HttpOllamaExecutionClient
     try {
       const options: Record<string, number> = {};
       if (request.maxOutputTokens !== undefined) options.num_predict = request.maxOutputTokens;
+      if (this.contextWindowTokens !== undefined) options.num_ctx = this.contextWindowTokens;
       if (request.temperature !== undefined) options.temperature = request.temperature;
 
       const response =

@@ -400,6 +400,40 @@ async function runTest(): Promise<void> {
   console.log(
     "04.7 private-network SSRF boundary: SUCCESS",
   );
+  // A DNS answer can encode a private IPv4 address as IPv6. The
+  // fetcher must not receive the request after any such resolution.
+  for (const unsafeAddress of [
+    "::ffff:127.0.0.1",
+    "::ffff:c0a8:101",
+    "0:0:0:0:0:ffff:0a00:0001",
+    "fe90::1",
+    "fea0::1",
+    "100.100.100.100",
+    "192.0.2.10",
+    "198.18.0.1",
+    "198.51.100.4",
+    "203.0.113.9",
+  ]) {
+    let fetched = false;
+    const unsafeNetwork = new WebAccessAdapter(
+      policy(),
+      new TestResolver({ "example.com": [unsafeAddress] }),
+      async () => {
+        fetched = true;
+        return createResponse("should never reach a blocked endpoint");
+      },
+    );
+    let blocked = false;
+    try {
+      await unsafeNetwork.execute(request({ url: "https://example.com/" }));
+    } catch (error: unknown) {
+      blocked = error instanceof Error && error.message.includes("blocked network");
+    }
+    assert(blocked, `Reserved or IPv4-mapped destination was allowed: ${unsafeAddress}`);
+    assert(!fetched, `Network fetch ran for rejected address: ${unsafeAddress}`);
+  }
+
+  console.log("04.7 mapped IPv6 and reserved-network SSRF boundary: SUCCESS");
 
   let methodRejected =
     false;

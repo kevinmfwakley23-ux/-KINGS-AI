@@ -1,7 +1,7 @@
 # K.I.N.G.S. V1 MASTER CURRENT REFERENCE
 
 **Status:** Canonical current build reference
-**Updated:** 2026-08-13
+**Updated:** 2026-10-24
 **Base repository:** `main`
 
 ## Purpose
@@ -130,6 +130,58 @@ These additions directly address the locked requirement for extensible programmi
 - Existing recovery authority selects retry/repair decisions.
 - Existing repair planning and repair editing can fix a real failed artifact.
 - Retest and verification complete the loop.
+
+**Owner mission autonomous validation repair — current checkpoint**
+- The production `OwnerProductBuildWorker` now routes a failed repository-native build/test report through the existing `LocalEngineeringRecoveryBridge` instead of immediately failing the entire owner mission.
+- The rejected proposal is fully rolled back before a corrected complete proposal is requested against the original repository state.
+- The repair request receives bounded real command, exit-code, stdout/stderr, recovery, and rejected-proposal evidence; repository content in that evidence remains explicitly untrusted.
+- Every repaired proposal still passes the existing strict JSON parser, mission/task identity checks, repository-relative path authority, controlled editor, and real build/test gate.
+- A successful repaired attempt preserves the failed validation, rollback, recovery decision, provider/model route, governed writes, and green retest references in the durable workforce result.
+- Recovery is bounded to three total coding attempts. A persistent failure stops, marks the task/mission failed, and leaves the repository restored rather than looping or promoting unverified work.
+- The integration proof exercises a real failing generated JavaScript file, rollback, second model proposal, repository-native green retest, durable mission completion, and the three-attempt exhaustion path.
+
+**Seven-domain Powerhouse service routing — current checkpoint**
+- The authenticated Responses API recognizes explicit `chat`, `coding`, `collectibles`, `sports-cards`, `book-editing`, `publishing`, and `storytelling` service domains.
+- Each domain supplies a versioned server-owned contract, capability requirements, and a maximum generation temperature; callers cannot weaken those requirements with a generic request.
+- Coding requires reasoning, coding, debugging, verification, and recovery; fact-sensitive collectibles, sports-card, and publishing requests require research and verification; long-form editing and storytelling require long-context memory capability.
+- Collectibles/card contracts prohibit invented official grades, certifications, population counts, sales, and guarantees. Editing/story contracts preserve author intent, voice, and locked canon. Publishing distinguishes guidance from actual account or submission actions.
+- Unknown domains fail closed, tool authority remains disabled at the Responses boundary, and API results preserve the applied domain/policy/capability evidence.
+- Domain discovery explicitly states that routing policy is not proof of expertise; competitive quality remains gated on separate measured domain evaluation.
+
+**Seven-domain evidence qualification — current checkpoint**
+- `PowerhouseQualificationAuthority` evaluates a registered model against every Powerhouse domain and returns an explicit `unqualified`, `production-qualified`, or `top-tier-proven` claim.
+- Production qualification requires at least 20 rights-cleared, held-out, training-disjoint tasks in every domain, an 85% pass rate, zero critical failures, benchmark evidence, and every domain prerequisite capability verified at strength 70 or higher with evidence.
+- Missing domains, insufficient task counts, training leakage, absent evidence, unavailable/unregistered models, weak prerequisite capabilities, and any critical failure block production promotion with attributable reasons.
+- An internal seven-domain pass does not prove competitive quality. `top-tier-proven` additionally requires independently scored evidence for every domain at or above the 90th percentile against at least five peer models.
+- The authenticated Powerhouse domain discovery response publishes these thresholds so clients can distinguish active routing, production qualification, and independently demonstrated top-tier performance.
+
+**Rights-cleared benchmark execution — current checkpoint**
+- `PowerhouseBenchmarkRunner` converts a versioned seven-domain corpus manifest plus actual model responses into qualification-compatible domain benchmark results.
+- Corpus manifests require owner-approved license/source/permission references, an identified rights attester, and a SHA-256-bound permission evidence artifact for every training and evaluation item.
+- Exact normalized prompt duplication and any source group crossing training, validation, or held-out splits fail closed. Each domain requires training material plus at least 20 held-out tasks.
+- Missing answers remain in the denominator and critical omissions become critical failures. Deterministic criteria and evidence-attested rubric review are supported; the evaluated model cannot approve its own rubric score.
+- Manifest, complete run, output, and per-domain hashes preserve reproducible evidence without embedding raw model output in the resulting artifact.
+- The `evaluate:powerhouse` CLI consumes private JSON manifests/responses and atomically writes a report that can feed `PowerhouseQualificationAuthority`. The repository does not ship invented production results or claim that a candidate has passed before real data is executed.
+
+**Provider-connected benchmark execution — current checkpoint**
+- `PowerhouseBenchmarkExecutor` routes every private held-out prompt through the existing `AppAiRouter` and the matching server-owned service-domain policy; it does not introduce a parallel model stack.
+- Each run locks an exact provider and model, disables model fallback and tool proposals, uses bounded retry only for retryable failures, and records terminal provider failures as unanswered benchmark tasks.
+- Atomic owner-only checkpoints store hashed route evidence, usage, response/failure state, and immutable run identity. Restart resumes missing tasks only; completed success and failure records are not selectively rerun.
+- Checkpoint evidence is re-hashed on load, altered records fail closed, and a process lock prevents concurrent writers from corrupting one run.
+- `evaluate:powerhouse:live` preflights all seven-domain capabilities, requires the existing owner token before any provider request, executes configured OmniRoute/9Router/Ollama adapters, and produces a qualification-ready evidence artifact without exposing private prompts or raw outputs in that artifact.
+- Subjective rubric tasks remain failed until a distinct authorized reviewer attaches evidence; the evaluated model cannot self-approve. No current model is claimed qualified merely because this execution path now exists.
+
+**Owner-authorized rubric review and corrective training — current checkpoint**
+- `authorizePowerhouseRubricReviews` binds an approved human score to the exact run, manifest hash, provider, model, task, rubric, evidence SHA-256, and model-output SHA-256 using an owner-token HMAC.
+- `applyAuthorizedPowerhouseRubricReviews` verifies artifact integrity, checkpoint integrity, output identity, and authorization in constant time before attaching review evidence to model responses.
+- `validatePowerhouseTrainingPackage` requires 20 rights-cleared corrective examples in every domain and rejects id, normalized-prompt, and source-group overlap with validation or held-out evaluation data.
+- `PowerhouseModelTrainingExecutor` records a trained build only after a real trainer process exits zero and creates a nonempty artifact; it binds artifact bytes to a fresh benchmark-run identity.
+- `train:powerhouse` uses the existing no-shell execution sandbox, checks the approved trainer artifact digest, forbids trainer network access, and writes an owner-HMAC-authorized model-build record without persisting the owner token.
+- The Tauri Android workflow produces verified debug APKs, `SHA256SUMS`, and install directions. The APK is the secure client for an owner-controlled HTTPS runtime rather than a container for provider secrets or the training toolchain.
+- Wrong owner tokens, modified review artifacts, changed outputs, duplicate reviews, model self-review, failed model tasks, and attempts to review deterministic tasks fail closed.
+- Owner authorization proves approval but does not override rubric thresholds; below-threshold or missing reviews remain benchmark failures.
+- `review:powerhouse` performs the complete private file workflow under the execution checkpoint lock, writes owner-only signed-review/evidence artifacts, and makes zero additional provider requests.
+- Review evidence and held-out tasks cannot become corrective training examples. Only new rights-cleared, source-disjoint material may train a revised candidate, which must receive a new immutable evaluation run.
 
 **Real local model availability — verified working capability**
 - Ollama `0.32.6` is installed and running on the Chromebook.

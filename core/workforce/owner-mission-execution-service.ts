@@ -1,6 +1,5 @@
 import { AppAiRouter } from "./app-ai-router";
-import { createConfiguredGatewayAdapters } from "./openai-compatible-gateway";
-import { createConfiguredOllamaAdapter } from "./ollama-provider-adapter";
+import { registerConfiguredKingsInference, resolveKingsIntelligenceMode, resolveKingsProviderOrder } from "./inference-sovereignty";
 import { OwnerMissionExecutionRuntime } from "./owner-mission-execution-runtime";
 import { OwnerMissionRuntime } from "./owner-mission-runtime";
 import { OwnerProductBuildWorker } from "./owner-product-build-worker";
@@ -32,20 +31,10 @@ export function createOwnerMissionExecutionService(
     throw new Error("K.I.N.G.S. Owner Mission Execution Service: workspace root is required.");
   }
 
+  const mode = resolveKingsIntelligenceMode(env);
+  const providerOrder = resolveKingsProviderOrder(env, mode);
   const providers = new ProviderAdapterRegistry();
-  for (const adapter of createConfiguredGatewayAdapters(env)) providers.register(adapter);
-  const ollama = createConfiguredOllamaAdapter(env);
-  if (ollama) providers.register(ollama);
-
-  const configuredOrder = String(
-    env.KINGS_APP_ROUTER_PROVIDER_ORDER ?? "omniroute,9router,ollama-internal",
-  )
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  const providerOrder = configuredOrder.length
-    ? [...new Set(configuredOrder)]
-    : ["omniroute", "9router", "ollama-internal"];
+  registerConfiguredKingsInference(providers, env, mode);
 
   const router = new AppAiRouter(providers, providerOrder);
   const worker = new OwnerProductBuildWorker(missions, router, workspaceRoot);
