@@ -397,3 +397,41 @@ supervised domain-loss regression guards remain separate.
 deployments, but it is **not** compliant with the owner's independent-model
 goal. The architecture change from the previous cloud-first default is a
 deliberate owner instruction and requires owner PR review before merging.
+
+## Rights-checked held-out scoring for the three-stage trainer
+
+A benchmark manifest may optionally supply **evaluation-only** reference
+answers for each of the seven specialty domains. For every such entry use
+`split: "held-out"`, a unique `id`, `sourceGroupId`, `prompt`,
+`domain`, non-empty `targetResponse`, and a rights attestation containing
+`evaluationAllowed: true`, `trainingAllowed: false`, `licenseId`,
+`sourceReference`, `permissionReference`, `permissionEvidenceSha256`
+(a 64-character lowercase hexadecimal SHA-256), and `attestedBy`.
+The existing benchmark/source-group/prompt isolation checks remain mandatory.
+If any reference answers are included, all seven domains must be represented;
+an invalid or unauthorized reference fails before loading model weights.
+
+The production trainer evaluates the **same held-out references** before the
+first gradient update and after supervised LoRA, DPO, and retention. It scores
+response-only **teacher-forced negative log-likelihood per target token**,
+without using any held-out response in training, gradient computation, a
+model judge, or prompts used for model training. To bound compute, scoring
+selects the first 20 reference identifiers in sorted order per domain,
+and records scored sample/token counts. It serializes
+`heldOutReferenceEvaluation` into the signed adapter metadata: initial/final
+losses, reductions by specialty, which domains improved, and whether each
+specialty had 20 evaluated references. The complete benchmark file is hashed;
+the metadata does not contain private reference answers.
+
+**Interpretation:** lower unseen reference loss can be useful independent
+evidence for one *surrogate metric*, but it cannot verify reliable generated
+code, collectible grading, sports facts, books, narrative quality, refusal
+quality, or autonomous task success. The evaluator sets
+`independentExpertQualification: false` even if all seven losses improve.
+A real product release still requires independently scored generation tasks,
+specialty rubrics, executable coding benchmarks, safety and security tests,
+licensed production model weights, owner-operated deployment, and physical
+Android/Mac/Windows device acceptance. Benchmarks without reference answers
+remain supported and produce `heldOutReferenceEvaluation: null`; that is
+**unverified**, never a pass. Tests and CI use synthetic reference answers and
+random local weights, not actual owner-licensed production training.
