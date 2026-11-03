@@ -109,7 +109,60 @@ def verify_dpo_backward_against_full_autograd() -> None:
         raise AssertionError("DPO must reject empty chosen answer segments")
 
 
+def verify_supervised_response_only_learning() -> None:
+    """Prove response-only SFT can reduce loss using local frozen base weights.
+
+    Synthetic small model, not a claim about a trained K.I.N.G.S. model.
+    All segment token labels come from the real supervised data prep.
+    """
+    torch.manual_seed(23)
+    model = TestPolicy()
+    tokenizer = TestTokenizer()
+    item = {
+        "prompt": "Copyedit this sentence.",
+        "targetResponse": "A carefully corrected sentence.",
+    }
+    segments = supervised_answer_segments(tokenizer, item, max_length=128)
+    assert len(segments) == 1
+    data = segments[0]
+    ids = torch.tensor([data["input_ids"]], dtype=torch.long)
+    labels = torch.tensor([data["labels"]], dtype=torch.long)
+    assert sum(label == -100 for label in data["labels"]) > 0, "user text must be masked"
+    assert sum(label != -100 for label in data["labels"]) == (
+        len(tokenizer.encode(item["targetResponse"])) + 1
+    ), "every target token and EOS must be supervised"
+
+    frozen = {name: value.detach().clone() for name, value in model.named_parameters()
+              if not value.requires_grad}
+    old_adapter = model.adapter_head.weight.detach().clone()
+    optimizer = torch.optim.AdamW(
+        [p for p in model.parameters() if p.requires_grad], lr=0.015, weight_decay=0
+    )
+
+    def supervised_loss():
+        logits = model(input_ids=ids, attention_mask=torch.ones_like(ids)).logits[:, :-1, :]
+        targets = labels[:, 1:]
+        return functional.cross_entropy(
+            logits.reshape(-1, logits.shape[-1]), targets.reshape(-1), ignore_index=-100
+        )
+
+    baseline = float(supervised_loss().detach())
+    for _ in range(12):
+        optimizer.zero_grad(set_to_none=True)
+        loss = supervised_loss()
+        assert bool(torch.isfinite(loss))
+        loss.backward()
+        optimizer.step()
+    improved = float(supervised_loss().detach())
+    assert improved < baseline, (baseline, improved)
+    assert not torch.equal(old_adapter, model.adapter_head.weight.detach())
+    assert all(torch.equal(frozen[name], value.detach())
+               for name, value in model.named_parameters()
+               if not value.requires_grad), "SFT must not update frozen base weights"
+
+
 def main() -> None:
+    verify_supervised_response_only_learning()
     verify_dpo_backward_against_full_autograd()
     torch.manual_seed(13)
     model = TestPolicy()
@@ -136,7 +189,7 @@ def main() -> None:
                for score in result["trainingPairMeanMarginImprovementByDomain"].values()), result
     assert all(torch.equal(frozen_before[name], p.detach()) for name, p in model.named_parameters()
                if not p.requires_grad), "Frozen base-model weights must not change in preference training"
-    print("K.I.N.G.S. preference DPO: exact segmented-vs-full gradient, real optimizer and frozen-base smoke PASS; synthetic quality claims: NONE")
+    print("K.I.N.G.S. SFT + DPO: response-only loss reduction, exact segmented-vs-full gradients, frozen-base smoke PASS; synthetic quality claims: NONE")
 
 
 if __name__ == "__main__":
