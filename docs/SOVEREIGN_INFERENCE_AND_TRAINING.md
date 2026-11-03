@@ -336,6 +336,20 @@ The third stage records real optimization steps, loss and adapter-update
 evidence in `retentionStage` of the model archive metadata. That training
 loss is **in-sample evidence only**, not proof of generalization.
 
+**Added specialty regression gate:** Post-rehearsal response-only loss is
+measured independently for every supervised office and compared with the
+loss from immediately before stage three. If any office's in-sample mean
+loss exceeds its own baseline by more than the **5% conservative budget**,
+the trainer fails and publishes no final adapter. Non-finite, missing or
+unattributed evidence also fails closed. Successful archives include the
+per-office before/after loss values and guard status under
+`retentionStage.domainLossRegressionGuard`. The same guard is subjected
+to positive and deliberate regression tests in the real PyTorch smoke
+workflow. This only reduces the risk of hiding supervised regressions;
+it does **not** establish that the preference stage was preserved or
+that held-out expert capability improved. Owner approval still requires
+independent preference, catastrophic-forgetting and seven-domain evaluations.
+
 Owner-approved bounded overrides include `--epochs`,
 `--preference-epochs`, `--retention-epochs` (0–5;
 0 **explicitly disables** rehearsal), `--retention-learning-rate`,
