@@ -451,6 +451,26 @@ export class WebAccessAdapter
       );
     }
 
+    // Owner research must not forward application credentials or caller-selected
+    // routing headers to an arbitrary public research destination.
+    const forbiddenHeaders = new Set([
+      "authorization", "proxy-authorization", "cookie", "cookie2",
+      "host", "forwarded", "x-forwarded-for", "x-forwarded-host",
+      "x-forwarded-proto", "proxy-connection",
+    ]);
+    for (const [name, value] of Object.entries(input.headers ?? {})) {
+      if (forbiddenHeaders.has(name.toLowerCase())) {
+        throw new WebAccessPolicyError(
+          `request header "${name}" is not permitted for public research`,
+        );
+      }
+      if (typeof value !== "string") {
+        throw new WebAccessPolicyError(
+          `request header "${name}" must be a string`,
+        );
+      }
+    }
+
     const response =
       await this.fetcher(
         url.toString(),
