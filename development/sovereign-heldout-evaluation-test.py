@@ -92,6 +92,21 @@ def run():
         assert set(before["negativeLogLikelihoodPerTokenByDomain"]) == set(DOMAINS)
         assert all(v == 1 for v in before["evaluatedExamplesByDomain"].values())
         assert all(n > 0 for n in before["evaluatedTokensByDomain"].values())
+        assert before["sampling"] == "all-authorized-references-max-200-per-domain"
+        # More than 20 eligible references must never be silently discarded.
+        extra_chat = [{
+            **rows[0],
+            "id": f"additional-chat-{i:03d}",
+            "sourceGroupId": f"additional-source-chat-{i:03d}",
+            "prompt": f"Additional unseen chat question number {i}.",
+            "targetResponse": f"Additional independent chat reference answer {i}.",
+        } for i in range(20)]
+        expanded = parse(rows + extra_chat)
+        expanded_score = measure_heldout_reference_loss(
+            model, TestTokenizer(), expanded, max_length=128
+        )
+        assert expanded_score["evaluatedExamplesByDomain"]["chat"] == 21
+        assert expanded_score["evaluatedTokensByDomain"]["chat"] > before["evaluatedTokensByDomain"]["chat"]
         assert before["scope"] == "held-out-teacher-forced-reference-loss-not-expert-qualification"
         assert all(torch.equal(initial_weights[name], p.detach())
                    for name, p in model.named_parameters()), "evaluation must not change weights"
@@ -106,6 +121,19 @@ def run():
         assert comparison["hasAtLeast20ReferencesPerDomain"] is False
         assert set(comparison["negativeLogLikelihoodReductionByDomain"]) == set(DOMAINS)
         assert all(math.isfinite(v) for v in comparison["negativeLogLikelihoodReductionByDomain"].values())
+        changed_token_count = {
+            **after,
+            "evaluatedTokensByDomain": {
+                **after["evaluatedTokensByDomain"],
+                "chat": after["evaluatedTokensByDomain"]["chat"] + 1,
+            },
+        }
+        try:
+            compare_heldout_reference_loss(before, changed_token_count)
+        except ValueError as exc:
+            assert "target token counts" in str(exc), str(exc)
+        else:
+            raise AssertionError("Changed held-out token populations must fail comparison")
 
         def rejected(candidate, expected):
             try:
@@ -116,6 +144,19 @@ def run():
                 raise AssertionError("Unsafe evaluation manifest must fail: " + expected)
 
         rejected(rows[:-1], "all seven specialties")
+        oversized_chat = [{
+            **rows[0],
+            "id": f"overflow-chat-{i:03d}",
+            "sourceGroupId": f"overflow-source-chat-{i:03d}",
+            "prompt": f"Excess unseen chat prompt {i}.",
+        } for i in range(200)]
+        rejected(rows + oversized_chat, "maximum 200 per specialty")
+        try:
+            measure_heldout_reference_loss(model, TestTokenizer(), rows + oversized_chat, max_length=128)
+        except ValueError as exc:
+            assert "maximum 200 per specialty" in str(exc), str(exc)
+        else:
+            raise AssertionError("Direct held-out scoring must reject oversized domains")
         rejected([{**rows[0], "domain": "unknown"}] + rows[1:], "known specialty")
         rejected([{**rows[0], "rights": {**rows[0]["rights"], "evaluationAllowed": False}}] + rows[1:],
                  "evaluation-only permission")
