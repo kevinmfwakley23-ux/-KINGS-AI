@@ -140,12 +140,21 @@ def train_preference_stage(
             total = value if total is None else total + value
         return total
 
-    records = [(pair["domain"], encode(pair["prompt"], pair["chosenResponse"]),
-                encode(pair["prompt"], pair["rejectedResponse"])) for pair in pairs]
+    # Keep rights-checked source strings, not millions of materialized token
+    # tensors. Tokenize one pair at a time during frozen-reference collection
+    # and each gradient step. This is necessary for larger licensed corpora:
+    # previous eager encoding could consume unbounded RAM even though the
+    # input JSON file is capped at 32 MiB.
+    records = [
+        (pair["domain"], pair["prompt"], pair["chosenResponse"], pair["rejectedResponse"])
+        for pair in pairs
+    ]
     model.eval()
     frozen_reference = []
     with torch.no_grad():
-        for _, chosen, rejected in records:
+        for _, prompt, chosen_text, rejected_text in records:
+            chosen = encode(prompt, chosen_text)
+            rejected = encode(prompt, rejected_text)
             frozen_reference.append((
                 log_probability(chosen).detach().cpu(),
                 log_probability(rejected).detach().cpu(),
@@ -172,7 +181,9 @@ def train_preference_stage(
                 if not pending[domain]:
                     continue
                 index = pending[domain].pop()
-                _, chosen, rejected = records[index]
+                _, prompt, chosen_text, rejected_text = records[index]
+                chosen = encode(prompt, chosen_text)
+                rejected = encode(prompt, rejected_text)
                 ref_good, ref_bad = frozen_reference[index]
                 optimizer.zero_grad(set_to_none=True)
                 # Invoke the same backward primitive directly checked against
@@ -195,7 +206,9 @@ def train_preference_stage(
     # log-odds. This is diagnostic, NOT held-out or expert qualification.
     improvements = defaultdict(list)
     with torch.no_grad():
-        for index, (domain, chosen, rejected) in enumerate(records):
+        for index, (domain, prompt, chosen_text, rejected_text) in enumerate(records):
+            chosen = encode(prompt, chosen_text)
+            rejected = encode(prompt, rejected_text)
             updated_margin = log_probability(chosen) - log_probability(rejected)
             baseline_margin = frozen_reference[index][0] - frozen_reference[index][1]
             movement = float((updated_margin.cpu() - baseline_margin).item())
@@ -224,6 +237,7 @@ def train_preference_stage(
         "outcomeEvidenceScope": "in-sample-training-pairs-only-not-held-out-quality",
         "targetResponseTruncations": 0,
         "gradientMemory": "single-bounded-segment",
+        "preferenceTokenization": "on-demand-per-pair-no-eager-tensor-corpus",
     }
 
 
