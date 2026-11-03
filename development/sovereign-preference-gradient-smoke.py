@@ -16,7 +16,9 @@ import torch
 from torch import nn
 from torch.nn import functional
 from sovereign_lora_trainer import supervised_answer_segments
-from sovereign_preference_stage import backward_segmented_dpo_loss, train_preference_stage
+from sovereign_preference_stage import (
+    backward_segmented_dpo_loss, train_preference_stage, train_retention_stage,
+)
 
 
 class TestTokenizer:
@@ -168,6 +170,8 @@ def main() -> None:
     model = TestPolicy()
     frozen_before = {name: value.detach().clone() for name, value in model.named_parameters()
                      if not value.requires_grad}
+    sft_reference = {name: p.detach().cpu().clone()
+                     for name, p in model.named_parameters() if p.requires_grad}
     result = train_preference_stage(
         model, TestTokenizer(), [
             {"domain": "chat", "prompt": "Explain tokens.",
@@ -189,7 +193,41 @@ def main() -> None:
                for score in result["trainingPairMeanMarginImprovementByDomain"].values()), result
     assert all(torch.equal(frozen_before[name], p.detach()) for name, p in model.named_parameters()
                if not p.requires_grad), "Frozen base-model weights must not change in preference training"
-    print("K.I.N.G.S. SFT + DPO: response-only loss reduction, exact segmented-vs-full gradients, frozen-base smoke PASS; synthetic quality claims: NONE")
+
+    # Third real optimizer: anchored rehearsal on rights-vetted SFT examples,
+    # following DPO. Tiny synthetic prompts intentionally DO NOT create data
+    # rights for production or prove model expertise.
+    supervised = [
+        {"domain": domain, "prompt": f"Explain {domain}.",
+         "targetResponse": f"A grounded answer about {domain}."}
+        for domain in ("chat", "coding", "collectibles", "sports-cards",
+                       "book-editing", "publishing", "storytelling")
+    ]
+    rehearsal = train_retention_stage(
+        model, TestTokenizer(), supervised, max_length=128,
+        epochs=1, learning_rate=0.0005, seed=13,
+        sft_reference_weights=sft_reference, anchor_strength=0.01,
+    )
+    assert rehearsal["exampleCount"] == 7, rehearsal
+    assert rehearsal["optimizationSteps"] == rehearsal["segmentCount"], rehearsal
+    assert rehearsal["trainableParametersChanged"], rehearsal
+    assert rehearsal["trainingDataIndependent"] is False, rehearsal
+    assert rehearsal["evidenceScope"] == "in-sample-only-not-independent-model-quality", rehearsal
+    assert torch.isfinite(torch.tensor(rehearsal["initialTrainingLoss"]))
+    assert torch.isfinite(torch.tensor(rehearsal["finalTrainingLoss"]))
+    assert all(torch.equal(frozen_before[name], p.detach()) for name, p in model.named_parameters()
+               if not p.requires_grad), "Frozen base-model weights must remain unchanged after retention"
+    try:
+        train_retention_stage(
+            model, TestTokenizer(), supervised, max_length=128,
+            epochs=1, learning_rate=0.0005, seed=13,
+            sft_reference_weights={}, anchor_strength=0.01,
+        )
+    except ValueError as error:
+        assert "anchors" in str(error), error
+    else:
+        raise AssertionError("Third-stage rehearsal must reject missing SFT reference weights")
+    print("K.I.N.G.S. three-stage SFT + DPO + retention: true gradient updates, bounded losses and frozen-base smoke PASS; synthetic quality claims: NONE")
 
 
 if __name__ == "__main__":
