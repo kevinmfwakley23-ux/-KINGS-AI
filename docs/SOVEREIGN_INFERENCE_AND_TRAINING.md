@@ -173,9 +173,26 @@ content. Over-budget answers fail closed rather than being mislabeled trained.
 Run the optional local PyTorch smoke check with
 `python3 development/sovereign-preference-gradient-smoke.py`
 to verify that the preference adapter changes while base weights stay frozen.
- Owners can override the epoch
-counts with `--epochs` and `--preference-epochs` after reviewing validation
-loss and held-out regressions. No model weights or GPU were available to run
+
+**Measured learning, not assumed learning:** After DPO optimization, K.I.N.G.S.
+recomputes the chosen-versus-rejected log-probability margins against the
+frozen post-SFT reference. Its adapter metadata includes
+`trainingPairMeanMarginImprovement`,
+`trainingPairImprovedFraction` and
+`trainingPairMeanMarginImprovementByDomain` for the specialist offices.
+These metrics explicitly carry
+`outcomeEvidenceScope: in-sample-training-pairs-only-not-held-out-quality`.
+They can detect ineffective or harmful updates on the examples actually
+trained, but **cannot** establish generalization, accuracy, collecting
+expertise or safety. Keep the independent held-out suite as a hard release
+gate. The DPO micro-segment gradient is also compared numerically against
+full-graph autograd in the CPU PyTorch smoke test; that same test verifies
+response-only supervised loss decreases on a synthetic trainable adapter
+while base weights remain frozen.
+
+Owners can override the epoch counts with `--epochs` and
+`--preference-epochs` after reviewing validation loss and held-out
+regressions. No model weights or GPU were available to run
 the new passes in GitHub CI; preflight verification must not be confused with
 a completed training run.
 
