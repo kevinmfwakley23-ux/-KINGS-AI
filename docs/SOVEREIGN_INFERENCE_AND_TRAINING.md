@@ -363,6 +363,24 @@ GitHub CPU PyTorch smoke tests execute genuine gradient updates on a tiny
 randomly initialized local test model, including the third retention optimizer
 and frozen-base assertions. They do not train the production foundation model.
 
+**Scalable DPO inputs:** Preference responses are now tokenized one pair at a
+time for both frozen-reference scoring and gradient updates. The trainer does
+not eagerly retain token tensors for every preference pair in RAM. Each answer
+is still limited to 16 bounded contextual segments and each example must carry
+training-rights evidence. The optimizer's per-pair reference and gradients are
+real PyTorch calculations, not simulated scores.
+
+**Retention preference-drift evidence:** After stage-two DPO and before
+stage-three rehearsal, K.I.N.G.S. measures a deterministic sample of at most
+20 chosen/rejected pairs per specialist domain. It scores the same sample again
+after stage three, recording per-domain response-token-normalized preference
+margins, their changes and any domains whose in-sample margin fell, under
+`retentionStage.preferenceDrift`. This makes potential DPO preference
+regressions visible even when supervised rehearsal loss improves. It is
+explicitly **training-pair evidence**, not an independent evaluation, proof of
+accuracy or a guarantee that earlier abilities were retained. Stage-three
+supervised domain-loss regression guards remain separate.
+
 ## Release gates
 
 1. Confirm local model ownership, license, source, actual weights, and hardware.
