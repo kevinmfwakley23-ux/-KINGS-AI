@@ -6,6 +6,7 @@ on:
     paths:
       - "runtimes/powerhouse-training/sovereign_lora_trainer.py"
       - "runtimes/powerhouse-training/sovereign_preference_stage.py"
+      - "runtimes/powerhouse-training/sovereign_heldout_stage.py"
       - "development/sovereign-end-to-end-training-smoke.py"
       - ".github/workflows/sovereign-training-end-to-end.yml"
   workflow_dispatch:
