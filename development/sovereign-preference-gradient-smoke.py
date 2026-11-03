@@ -14,7 +14,9 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "runtimes" / "powerhouse-training"))
 import torch
 from torch import nn
-from sovereign_preference_stage import train_preference_stage
+from torch.nn import functional
+from sovereign_lora_trainer import supervised_answer_segments
+from sovereign_preference_stage import backward_segmented_dpo_loss, train_preference_stage
 
 
 class TestTokenizer:
@@ -38,7 +40,77 @@ class TestPolicy(nn.Module):
         return SimpleNamespace(logits=self.base_head(hidden) + self.adapter_head(hidden))
 
 
+def verify_dpo_backward_against_full_autograd() -> None:
+    """Compare the exact production micro-segment DPO derivative to autograd.
+
+    Synthetic local model only. Critically, this exercises the same backward
+    function used by real preference training, not copied test math.
+    """
+    torch.manual_seed(17)
+    model = TestPolicy()
+    model.eval()
+    tokenizer = TestTokenizer()
+    prompt = "Which collectibles description is more evidence-based?"
+    chosen_text = "Identify uncertainty and explain verified condition. " * 7
+    rejected_text = "State an unsupported price as certain. " * 6
+
+    def segments(response):
+        encoded = supervised_answer_segments(
+            tokenizer, {"prompt": prompt, "targetResponse": response}, 128
+        )
+        return [
+            (torch.tensor([row["input_ids"]], dtype=torch.long),
+             torch.tensor([row["labels"]], dtype=torch.long))
+            for row in encoded
+        ]
+
+    chosen = segments(chosen_text)
+    rejected = segments(rejected_text)
+    assert len(chosen) > 1 and len(rejected) > 1, "test must span multiple bounded contexts"
+
+    def score(ids, labels):
+        logits = model(input_ids=ids, attention_mask=torch.ones_like(ids)).logits[:, :-1].float()
+        selected = torch.log_softmax(logits, dim=-1).gather(
+            -1, ids[:, 1:].unsqueeze(-1)
+        ).squeeze(-1)
+        return (selected * (labels[:, 1:] != -100)).sum(-1)
+
+    def total(parts):
+        return sum(score(*part) for part in parts)
+
+    # Deliberately use a nonzero reference margin so this tests the complete
+    # shifted DPO objective, not only its symmetric, zero-margin special case.
+    beta = 0.17
+    reference_margin = torch.tensor([-0.75])
+    loss = -functional.logsigmoid(
+        beta * (total(chosen) - total(rejected) - reference_margin)
+    ).mean()
+    loss.backward()
+    exact_gradient = model.adapter_head.weight.grad.detach().clone()
+    assert torch.count_nonzero(exact_gradient) > 0
+
+    model.zero_grad(set_to_none=True)
+    bounded_loss = backward_segmented_dpo_loss(
+        chosen, rejected, reference_margin, beta, score
+    )
+    assert abs(float(loss.detach()) - bounded_loss) < 1e-4
+    torch.testing.assert_close(
+        model.adapter_head.weight.grad, exact_gradient, atol=2e-4, rtol=2e-4,
+        msg="production bounded DPO derivative must equal full-graph autograd",
+    )
+    assert model.base_head.weight.grad is None
+    assert model.embedding.weight.grad is None
+
+    try:
+        backward_segmented_dpo_loss([], rejected, reference_margin, beta, score)
+    except ValueError as exc:
+        assert "nonempty" in str(exc)
+    else:
+        raise AssertionError("DPO must reject empty chosen answer segments")
+
+
 def main() -> None:
+    verify_dpo_backward_against_full_autograd()
     torch.manual_seed(13)
     model = TestPolicy()
     frozen_before = {name: value.detach().clone() for name, value in model.named_parameters()
@@ -64,7 +136,7 @@ def main() -> None:
                for score in result["trainingPairMeanMarginImprovementByDomain"].values()), result
     assert all(torch.equal(frozen_before[name], p.detach()) for name, p in model.named_parameters()
                if not p.requires_grad), "Frozen base-model weights must not change in preference training"
-    print("K.I.N.G.S. preference DPO: real gradient smoke PASS; synthetic quality claims: NONE")
+    print("K.I.N.G.S. preference DPO: exact segmented-vs-full gradient, real optimizer and frozen-base smoke PASS; synthetic quality claims: NONE")
 
 
 if __name__ == "__main__":
