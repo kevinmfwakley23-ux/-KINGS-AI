@@ -56,6 +56,12 @@ def main() -> None:
     assert result["trainableParametersChanged"], result
     assert result["targetResponseTruncations"] == 0, result
     assert result["gradientMemory"] == "single-bounded-segment", result
+    assert result["outcomeEvidenceScope"] == "in-sample-training-pairs-only-not-held-out-quality", result
+    assert set(result["trainingPairMeanMarginImprovementByDomain"]) == {"chat", "coding"}, result
+    assert 0 <= result["trainingPairImprovedFraction"] <= 1, result
+    assert torch.isfinite(torch.tensor(result["trainingPairMeanMarginImprovement"])), result
+    assert all(torch.isfinite(torch.tensor(score))
+               for score in result["trainingPairMeanMarginImprovementByDomain"].values()), result
     assert all(torch.equal(frozen_before[name], p.detach()) for name, p in model.named_parameters()
                if not p.requires_grad), "Frozen base-model weights must not change in preference training"
     print("K.I.N.G.S. preference DPO: real gradient smoke PASS; synthetic quality claims: NONE")
