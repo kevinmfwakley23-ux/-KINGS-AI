@@ -271,8 +271,8 @@ async function runTest(): Promise<void> {
   assert(invalidHeaderRejected, "Non-string research headers must fail closed");
   for (const [name, value] of [
     ["Bad Header", "value"],
-    ["X-Research-Tag", "line\\r\\ninjected"],
-    ["X-Research-Tag", "null\\0byte"],
+    ["X-Research-Tag", "line\r\ninjected"],
+    ["X-Research-Tag", "null\0byte"],
   ]) {
     let outboundCalled = false;
     const guarded = new WebAccessAdapter(
