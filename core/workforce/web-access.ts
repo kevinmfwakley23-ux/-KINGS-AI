@@ -457,6 +457,10 @@ export class WebAccessAdapter
       "authorization", "proxy-authorization", "cookie", "cookie2",
       "host", "forwarded", "x-forwarded-for", "x-forwarded-host",
       "x-forwarded-proto", "proxy-connection",
+      // Caller-supplied transport framing/hop-by-hop headers must never
+      // control the pinned HTTP client's connection or request boundaries.
+      "connection", "keep-alive", "te", "trailer", "transfer-encoding",
+      "upgrade", "content-length", "expect", "via", "proxy-authenticate",
     ]);
     for (const [name, value] of Object.entries(input.headers ?? {})) {
       if (forbiddenHeaders.has(name.toLowerCase())) {
@@ -467,6 +471,11 @@ export class WebAccessAdapter
       if (typeof value !== "string") {
         throw new WebAccessPolicyError(
           `request header "${name}" must be a string`,
+        );
+      }
+      if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || /[\\r\\n\\0]/.test(value)) {
+        throw new WebAccessPolicyError(
+          `request header "${name}" has an invalid name or value`,
         );
       }
     }
