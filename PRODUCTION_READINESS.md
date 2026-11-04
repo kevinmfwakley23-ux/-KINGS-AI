@@ -72,3 +72,30 @@ console `/api/status` page to verify local reachability of Ollama, OmniRoute
 and 9Router.
 
 Never commit API keys or owner access tokens. `.env` files are ignored.
+
+
+## Owner-requested public research network boundary
+
+The existing governed `WebAccessAdapter` is the integration point for
+owner-requested research; this is not a new browser, provider, or AI agent.
+For the owner console, the policy remains HTTPS-only, GET-only, with private
+networks blocked, automatic redirects disabled, a 10-second timeout and a
+256 KiB response limit. Explicit owner-action confirmation is still required.
+
+A DNS preflight check alone is not sufficient to prevent server-side request
+forgery: an attacker-controlled hostname can resolve to a public IP during
+validation and to a private IP during a second lookup by the HTTP client.
+The default Node HTTP/HTTPS research transport therefore connects **directly
+to a DNS address that passed policy**, while preserving the original Host
+header, HTTPS SNI and certificate hostname verification. It does not use
+the shared HTTP connection pool. If any resolver answer is private, reserved,
+invalid, translated IPv4, or otherwise non-global, the request fails closed.
+
+`core/workforce/web-access-test.ts` verifies the DNS-pinned transport using
+a deliberately unresolvable hostname with a synthetic loopback resolver;
+the test's temporary allowance of loopback is **not** the production policy.
+Additional tests reject mapped IPv6, NAT64, link-local, Teredo, 6to4,
+carrier-grade NAT and reserved IPv4 responses. A passing CI test does not
+prove live external research availability or a deployed HTTPS service.
+Live testing must use owner-approved public sources and a real deployment;
+never provide private owner credentials or internal URLs as research targets.
