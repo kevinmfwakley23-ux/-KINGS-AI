@@ -239,6 +239,8 @@ async function runTest(): Promise<void> {
   for (const name of [
     "Authorization", "authorization", "Cookie", "Proxy-Authorization",
     "Host", "Forwarded", "X-Forwarded-For",
+    "Connection", "Transfer-Encoding", "Content-Length", "Upgrade",
+    "Expect", "TE", "Trailer", "Via", "Keep-Alive", "Proxy-Authenticate",
   ]) {
     let outboundCalled = false;
     const guarded = new WebAccessAdapter(
@@ -267,7 +269,26 @@ async function runTest(): Promise<void> {
     invalidHeaderRejected = error instanceof Error && error.message.includes("must be a string");
   }
   assert(invalidHeaderRejected, "Non-string research headers must fail closed");
-  console.log("04.7 outbound credential and routing header rejection: SUCCESS");
+  for (const [name, value] of [
+    ["Bad Header", "value"],
+    ["X-Research-Tag", "line\\r\\ninjected"],
+    ["X-Research-Tag", "null\\0byte"],
+  ]) {
+    let outboundCalled = false;
+    const guarded = new WebAccessAdapter(
+      policy(),
+      new TestResolver({ "example.com": ["93.184.216.34"] }),
+      async () => { outboundCalled = true; return createResponse("unexpected"); },
+    );
+    let rejected = false;
+    try {
+      await guarded.execute(request({ url: "https://example.com/", headers: { [name]: value } }));
+    } catch (error: unknown) {
+      rejected = error instanceof Error && error.message.includes("invalid name or value");
+    }
+    assert(rejected && !outboundCalled, "Malformed research header must fail before fetch");
+  }
+    console.log("04.7 outbound credential and routing header rejection: SUCCESS");
 
   const successful =
     await valid.execute(
