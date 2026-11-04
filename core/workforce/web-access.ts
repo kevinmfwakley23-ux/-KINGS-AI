@@ -473,7 +473,7 @@ export class WebAccessAdapter
           `request header "${name}" must be a string`,
         );
       }
-      if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || /[\\r\\n\\0]/.test(value)) {
+      if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || /[\r\n\0]/.test(value)) {
         throw new WebAccessPolicyError(
           `request header "${name}" has an invalid name or value`,
         );
