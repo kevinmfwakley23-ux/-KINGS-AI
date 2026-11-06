@@ -1,11 +1,12 @@
 import http from "node:http";
 import os from "node:os";
 import { spawn } from "node:child_process";
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { URL } from "node:url";
+import { ownerSessionSetCookie, verifyOwnerSession } from "./owner-session.mjs";
 
 const require = createRequire(import.meta.url);
 const { OwnerMissionRuntime } = require("../../build/core/workforce/owner-mission-runtime.js");
@@ -30,9 +31,6 @@ const intelligenceMode = resolveKingsIntelligenceMode(process.env);
 // forward public traffic to 127.0.0.1. An explicitly configured owner token
 // therefore enables authentication regardless of the listening interface.
 const ownerAuthRequired = remoteMode || ownerToken.length > 0;
-const ownerSessionToken = ownerToken
-  ? createHash("sha256").update(`kings-owner-session:${ownerToken}`).digest("hex")
-  : "";
 const engineeringWorkspace = resolve(
   String(process.env.KINGS_CODING_MACHINE_WORKSPACE ?? process.cwd()).trim() || process.cwd(),
 );
@@ -198,7 +196,7 @@ function authorizeOwnerRequest(req, url) {
     return { allowed: true, bootstrap: false };
   }
   const cookies = parseCookies(req.headers.cookie);
-  if (tokenMatches(cookies[ownerCookieName], ownerSessionToken)) {
+  if (verifyOwnerSession(cookies[ownerCookieName], ownerToken)) {
     return { allowed: true, bootstrap: false };
   }
   return { allowed: false, bootstrap: false };
@@ -491,7 +489,7 @@ function html(res, body) {
 function establishOwnerSession(res) {
   res.writeHead(303, {
     location: "/",
-    "set-cookie": `${ownerCookieName}=${encodeURIComponent(ownerSessionToken)}; Path=/; HttpOnly; Secure; SameSite=Strict`,
+    "set-cookie": ownerSessionSetCookie(ownerCookieName, ownerToken),
     "cache-control": "no-store",
     "referrer-policy": "no-referrer",
     "x-content-type-options": "nosniff",
@@ -506,7 +504,7 @@ function unauthorized(res) {
     {
       ok: false,
       error: "owner_authentication_required",
-      message: "Authenticate through the secure owner bootstrap URL or a Bearer token.",
+      message: "Authenticate using POST /session/bootstrap or a Bearer token.",
     },
     { "www-authenticate": 'Bearer realm="K.I.N.G.S. Owner Console"' },
   );
