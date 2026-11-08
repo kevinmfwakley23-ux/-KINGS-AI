@@ -102,41 +102,59 @@ K.I.N.G.S. BRAIN CORE
 
 A Brain Core improvement should be reusable across the family without forcing the applications to share one live process or one mandatory remote brain.
 
-## 4. Provider policy: strong routed intelligence first, local fallback last
+## 4. Provider policy: owner-operated inference by default; no outside AI agents for sovereign missions
 
-K.I.N.G.S. is a **multi-provider system**.
+**Owner-directed architecture amendment (November 7, 2026):** The owner explicitly
+superseded the earlier cloud-first provider precedence. K.I.N.G.S. AI POWERHOUSE
+must use **owner-operated model inference by default**, including autonomous
+coding missions, the application-facing AI API, and live evaluations. Neither
+OmniRoute nor 9Router nor an external AI gateway is a mandatory upstream
+intelligence dependency for this default path.
 
-The normal intelligence path must favor the configured high-capability routing pipeline rather than hard-wire one small local model as the primary brain.
-
-The intended default policy is:
+The governed sovereign path is:
 
 ```text
-Mission / AI request
+Owner mission / application AI request / evaluation
         ↓
-K.I.N.G.S. routing + governance
+K.I.N.G.S. Brain Core + owner authorization + tool governance
         ↓
-OmniRoute
+Owner-operated model runtime and owner-controlled weights
         ↓
-9Router
+Local K.I.N.G.S. planning, execution, memory and verification
         ↓
-other authorized/configured providers or direct models
-        ↓
-local/self-hosted fallback when appropriate
-        ↓
-Ollama/local small model as last-resort or offline fallback
+Auditable outcome / failure evidence
 ```
 
-Exact provider ordering may be changed by owner policy, cost constraints, capability requirements, availability, reliability, privacy requirements, or mission-specific routing rules.
+- **No outside AI agents:** Sovereign missions must not secretly delegate
+  autonomous reasoning, repository writes, training, or evaluation decisions to
+  third-party AI agents. K.I.N.G.S. may use owner-approved deterministic tools
+  and ordinary internet retrieval with provenance and security controls; those
+  are not substitutes for an owner-operated inference model.
+- **No silent external fallback:** An unavailable owner runtime must fail
+  visibly instead of quietly switching autonomous coding, app AI, or live
+  evaluations to a remote model provider or aggregator.
+- **Optional provider adapters:** Existing OmniRoute, 9Router, and configured
+  provider integrations remain modular compatibility interfaces, not the
+  sovereign default. Any non-sovereign external model request requires an
+  explicit owner-approved policy change and an unmistakable runtime mode.
+  Compatibility must never be advertised as independent sovereign inference.
+- **Cross-device does not require phone-hosted weights:** Android, tablet,
+  macOS, Windows, and browser clients may connect over authenticated TLS to
+  owner-operated inference servers. A native client or APK build alone is not
+  evidence that the phone independently hosts the foundation-model weights.
+- **Evidence before quality claims:** Training pipelines, local gradient
+  checks, and test adapters are engineering progress, not proof of an
+  independently trained top-tier foundation model. Actual authorized weights,
+  datasets, adequate compute, completed training, specialist evaluations, and
+  physical-device acceptance remain release gates.
 
-### Ollama rule
+### Local model runtime rule
 
-**Ollama is not the architectural center of K.I.N.G.S.**
-
-Ollama is a useful local/self-hosted execution option and resilience fallback. It may support offline work, zero-provider-cost work, privacy-sensitive work, development, testing, or emergency degradation.
-
-An Ollama-only acceptance test may prove a local-fallback capability, but **failure of an Ollama-only path must not be treated as proof that the normal routed K.I.N.G.S. architecture is broken.**
-
-No production architecture should be redesigned around a small Ollama model merely because an old test directly instantiated `OllamaIntelligenceModel`.
+Ollama and other self-hosted engines may execute owner-controlled models, but
+no one small local-model implementation is the architectural center. Model
+selection must be governed by demonstrated capability, hardware, privacy,
+latency, and test evidence. A fallback cannot be silently presented as
+high-caliber specialist intelligence.
 
 ## 5. K.I.N.G.S. AI may build Forge and Kingdom without becoming their runtime dependency
 
