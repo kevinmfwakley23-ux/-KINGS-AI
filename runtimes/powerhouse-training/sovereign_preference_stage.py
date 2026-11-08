@@ -318,33 +318,46 @@ def verify_retention_domain_losses(
     records: list[dict], before_losses: list[float], after_losses: list[float],
     maximum_regression_fraction: float = 0.05,
 ) -> dict:
-    """Fail closed if stage-three rehearsal damages any supervised specialty.
+    """Fail closed on per-specialty regressions using response-token-weighted loss.
 
-    Guard is deliberately *in-sample only*. Passing it cannot qualify a model
-    as an expert or replace independent held-out and post-DPO evaluation.
+    Each record's cross entropy is a mean over its active response tokens.
+    Weighting those means by the *actual supervised target-token count* avoids
+    short final segments contributing as much as whole chapters. This is
+    in-sample loss only, never independent evidence of expert capability.
     """
-    if (len(records) == 0 or len(records) != len(before_losses) or
+    if (not records or len(records) != len(before_losses) or
             len(records) != len(after_losses) or
             not math.isfinite(maximum_regression_fraction) or
             maximum_regression_fraction < 0 or maximum_regression_fraction > 0.25):
         raise ValueError("Invalid retention domain-loss regression guard inputs")
-    grouped_before, grouped_after = defaultdict(list), defaultdict(list)
+    weighted_before, weighted_after = defaultdict(float), defaultdict(float)
+    target_tokens = defaultdict(int)
     for row, before, after in zip(records, before_losses, after_losses):
         domain = row.get("domain")
+        labels = row.get("labels")
         if (not isinstance(domain, str) or not domain or
+                not isinstance(labels, list) or not labels or
+                any(type(token) is not int or token < -100 or
+                    (-100 < token < 0) for token in labels) or
                 not math.isfinite(before) or not math.isfinite(after) or
                 before < 0 or after < 0):
-            raise ValueError("Retention domain-loss evidence must be finite and attributed")
-        grouped_before[domain].append(before)
-        grouped_after[domain].append(after)
+            raise ValueError("Retention domain-loss evidence must be finite, token-labeled and attributed")
+        count = sum(token != -100 for token in labels)
+        if count < 1:
+            raise ValueError("Retention domain-loss evidence needs supervised response target tokens")
+        weighted_before[domain] += before * count
+        weighted_after[domain] += after * count
+        target_tokens[domain] += count
     initial = {
-        domain: sum(values) / len(values)
-        for domain, values in sorted(grouped_before.items())
+        domain: weighted_before[domain] / target_tokens[domain]
+        for domain in sorted(target_tokens)
     }
     final = {
-        domain: sum(values) / len(values)
-        for domain, values in sorted(grouped_after.items())
+        domain: weighted_after[domain] / target_tokens[domain]
+        for domain in sorted(target_tokens)
     }
+    if not all(math.isfinite(value) for value in (*initial.values(), *final.values())):
+        raise ValueError("Retention token-weighted domain losses must be finite")
     failed = [
         domain for domain in initial
         if final[domain] > initial[domain] * (1 + maximum_regression_fraction) + 1e-7
@@ -354,12 +367,18 @@ def verify_retention_domain_losses(
             "Retention rehearsal increased in-sample supervised loss beyond "
             "the per-domain regression budget for: " + ", ".join(failed)
         )
+    total_tokens = sum(target_tokens.values())
     return {
         "status": "passed",
         "scope": "in-sample-supervised-loss-only-not-held-out-or-preference-quality",
+        "lossWeighting": "response-target-token-count",
         "maximumDomainRegressionFraction": maximum_regression_fraction,
+        "supervisedTargetTokens": total_tokens,
+        "supervisedTargetTokensByDomain": dict(sorted(target_tokens.items())),
         "initialLossByDomain": initial,
         "finalLossByDomain": final,
+        "initialGlobalTokenWeightedLoss": sum(weighted_before.values()) / total_tokens,
+        "finalGlobalTokenWeightedLoss": sum(weighted_after.values()) / total_tokens,
     }
 
 
@@ -470,8 +489,8 @@ def train_retention_stage(
         "exampleCount": len(supervised),
         "segmentCount": len(records),
         "optimizationSteps": steps,
-        "initialTrainingLoss": sum(initial) / len(initial),
-        "finalTrainingLoss": sum(final) / len(final),
+        "initialTrainingLoss": domain_loss_guard["initialGlobalTokenWeightedLoss"],
+        "finalTrainingLoss": domain_loss_guard["finalGlobalTokenWeightedLoss"],
         "domainLossRegressionGuard": domain_loss_guard,
         "meanOptimizationLoss": sum(losses) / len(losses),
         "trainableParametersChanged": True,
