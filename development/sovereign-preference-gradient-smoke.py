@@ -239,6 +239,10 @@ def main() -> None:
     assert guard["status"] == "passed", guard
     assert guard["scope"] == "in-sample-supervised-loss-only-not-held-out-or-preference-quality"
     assert guard["maximumDomainRegressionFraction"] == 0.05
+    assert guard["lossWeighting"] == "response-target-token-count", guard
+    assert guard["supervisedTargetTokens"] >= rehearsal["segmentCount"], guard
+    assert abs(rehearsal["initialTrainingLoss"] - guard["initialGlobalTokenWeightedLoss"]) < 1e-8
+    assert abs(rehearsal["finalTrainingLoss"] - guard["finalGlobalTokenWeightedLoss"]) < 1e-8
     assert set(guard["initialLossByDomain"]) == {row["domain"] for row in supervised}
     assert set(guard["finalLossByDomain"]) == {row["domain"] for row in supervised}
     assert torch.isfinite(torch.tensor(rehearsal["initialTrainingLoss"]))
@@ -247,8 +251,44 @@ def main() -> None:
                if not p.requires_grad), "Frozen base-model weights must remain unchanged after retention"
     # Independent negative-path assertions: a third-stage run that harms any
     # particular specialty may not quietly publish an allegedly improved model.
-    guard_rows = [{"domain": "coding"}, {"domain": "storytelling"}]
+    guard_rows = [
+        {"domain": "coding", "labels": [-100, 2]},
+        {"domain": "storytelling", "labels": [-100, 3]},
+    ]
     accepted = verify_retention_domain_losses(guard_rows, [2.0, 3.0], [2.05, 3.10])
+    assert accepted["supervisedTargetTokensByDomain"] == {"coding": 1, "storytelling": 1}
+    # Without token weighting the coding averages (1.9 + 2.2) / 2 = 2.05,
+    # only 2.5% above baseline. The long 100-token segment actually regresses
+    # almost 10%; this must fail closed rather than hiding chapter damage.
+    variable_length_rows = [
+        {"domain": "coding", "labels": [-100, 4]},
+        {"domain": "coding", "labels": [-100] + [5] * 100},
+        {"domain": "storytelling", "labels": [-100, 6]},
+    ]
+    try:
+        verify_retention_domain_losses(
+            variable_length_rows, [2.0, 2.0, 3.0], [1.9, 2.2, 3.0]
+        )
+    except RuntimeError as error:
+        assert "coding" in str(error), error
+    else:
+        raise AssertionError("Long-form token-weighted retention regression must fail")
+    safe_weighted = verify_retention_domain_losses(
+        variable_length_rows, [2.0, 2.0, 3.0], [1.9, 2.03, 3.0]
+    )
+    assert safe_weighted["supervisedTargetTokensByDomain"]["coding"] == 101
+    assert safe_weighted["initialLossByDomain"]["coding"] == 2.0
+    for malformed in (
+        [{"domain": "coding"}],
+        [{"domain": "coding", "labels": [-100, -100]}],
+        [{"domain": "coding", "labels": [-100, -7]}],
+    ):
+        try:
+            verify_retention_domain_losses(malformed, [1.0], [1.0])
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Retention regression guard must reject missing or invalid token labels")
     assert accepted["status"] == "passed", accepted
     for worsening, expected in [
         ([2.2, 3.0], "coding"), ([2.0, 3.5], "storytelling"),
