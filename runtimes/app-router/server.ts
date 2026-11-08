@@ -298,6 +298,9 @@ export function createAppRouterRuntime(
   if (config.usageAccountsFile && (!config.accessToken || config.accessToken.length < 24)) {
     throw new Error("K.I.N.G.S. Usage: a private owner router token of at least 24 characters is required");
   }
+  if (config.familyInvitationsFile && (!config.accessToken || config.accessToken.length < 24)) {
+    throw new Error("K.I.N.G.S. Family: private owner token of at least 24 characters required");
+  }
   const usageAuthority = config.usageAccountsFile && config.usageLedgerFile
     ? new MonthlyUsageAuthority(config.usageAccountsFile, config.usageLedgerFile)
     : undefined;
