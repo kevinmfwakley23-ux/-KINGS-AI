@@ -8,6 +8,7 @@ no teacher, no pretrained intelligence, no production quality claims.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
@@ -98,6 +99,14 @@ def write_local_random_model(directory: Path, examples: list[dict], pairs: list[
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Run real offline training stages on disposable random test weights")
+    parser.add_argument("--training-profile", choices=("standard", "double"), default="standard")
+    args = parser.parse_args()
+    doubled = args.training_profile == "double"
+    expected_supervised_epochs = 6 if doubled else 3
+    expected_preference_epochs = 6 if doubled else 3
+    expected_retention_epochs = 2 if doubled else 1
+    heldout_per_domain = 20 if doubled else 1
     examples, pairs = create_corpus()
     assert len(examples) == len(pairs) == 7 * 20
     with tempfile.TemporaryDirectory(prefix="kings-three-stage-e2e-") as temp:
@@ -123,14 +132,14 @@ def main():
             "evaluationAllowed": True,
         }
         heldout = [{
-            "id": f"unseen-ci-{domain}",
+            "id": f"unseen-ci-{domain}-{index}",
             "domain": domain,
             "split": "held-out",
-            "sourceGroupId": f"private-ci-evaluation-{domain}",
-            "prompt": f"Unique unseen evaluation prompt about {domain} never used for training.",
-            "targetResponse": f"Carefully check evidence and cite uncertainty in {domain} answers.",
+            "sourceGroupId": f"private-ci-evaluation-{domain}-{index}",
+            "prompt": f"Unique unseen evaluation prompt about {domain} case {index}, never used for training.",
+            "targetResponse": f"Carefully check evidence and cite uncertainty in {domain} case {index} answers.",
             "rights": dict(heldout_rights),
-        } for domain in DOMAINS]
+        } for domain in DOMAINS for index in range(heldout_per_domain)]
         evaluation.write_text(json.dumps({"items": heldout}), encoding="utf8")
         script = Path(__file__).resolve().parents[1] / (
             "runtimes/powerhouse-training/sovereign_lora_trainer.py"
@@ -142,9 +151,10 @@ def main():
             "--preference-package", str(preferences),
             "--benchmark-manifest", str(evaluation),
             "--model-artifact", str(artifact),
-            # Exercise actual triple-pass defaults (3 supervised epochs,
-            # 3 preference epochs) plus the independently optimized third
-            # retention stage, not just an abbreviated one-pass path.
+            # Standard exercises 3/3/1; guarded double exercises the full
+            # 6/6/2 optimizer schedule with 20 isolated held-out references
+            # per domain. Neither uses real licensed owner model weights.
+            "--training-profile", args.training_profile,
             "--retention-epochs", "1",
             "--batch-size", "16",
             "--grad-accum", "2",
@@ -182,22 +192,24 @@ def main():
         assert metadata["trainingStages"] == expected_stages, metadata
         assert metadata["exampleCount"] == 140, "source-example count must not be inflated by segmentation"
         assert metadata["supervisedSegmentCount"] >= 140
-        assert metadata["epochs"] == 3, "default supervised program must train three full epochs"
-        assert metadata["heldOutReferenceCount"] == 7
+        assert metadata["trainingProfile"] == args.training_profile
+        assert metadata["epochs"] == expected_supervised_epochs, "incorrect number of real supervised epochs"
+        assert metadata["heldOutReferenceCount"] == len(DOMAINS) * heldout_per_domain
         heldout_evidence = metadata["heldOutReferenceEvaluation"]
         assert heldout_evidence["independentExpertQualification"] is False
-        assert heldout_evidence["hasAtLeast20ReferencesPerDomain"] is False
+        assert heldout_evidence["hasAtLeast20ReferencesPerDomain"] is doubled
         assert set(heldout_evidence["baseline"]["evaluatedExamplesByDomain"]) == set(DOMAINS)
         assert set(heldout_evidence["final"]["evaluatedTokensByDomain"]) == set(DOMAINS)
-        assert all(count == 1 for count in heldout_evidence["final"]["evaluatedExamplesByDomain"].values())
+        assert all(count == heldout_per_domain for count in heldout_evidence["final"]["evaluatedExamplesByDomain"].values())
         assert heldout_evidence["scope"] == "held-out-reference-loss-proxy-only-separate-specialist-evaluations-required"
         assert metadata["optimizationSteps"] >= 1
         assert metadata["trainableParametersChanged"] is True
         assert metadata["preferenceStage"]["pairCount"] == 140
-        assert metadata["preferenceStage"]["epochs"] == 3
-        assert metadata["preferenceStage"]["optimizationSteps"] == 420
+        assert metadata["preferenceStage"]["epochs"] == expected_preference_epochs
+        assert metadata["preferenceStage"]["optimizationSteps"] == 140 * expected_preference_epochs
         assert metadata["retentionStage"]["exampleCount"] == 140
-        assert metadata["retentionStage"]["optimizationSteps"] >= 140
+        assert metadata["retentionStage"]["epochs"] == expected_retention_epochs
+        assert metadata["retentionStage"]["optimizationSteps"] >= 140 * expected_retention_epochs
         assert metadata["retentionStage"]["domainLossRegressionGuard"]["status"] == "passed"
         drift = metadata["retentionStage"]["preferenceDrift"]
         assert set(drift["deltaByDomain"]) == set(DOMAINS), drift
@@ -205,6 +217,11 @@ def main():
         print(json.dumps({
             "ok": True,
             "realGradientStages": expected_stages,
+            "trainingProfile": args.training_profile,
+            "supervisedEpochs": expected_supervised_epochs,
+            "preferenceEpochs": expected_preference_epochs,
+            "retentionEpochs": expected_retention_epochs,
+            "evaluationOnlyReferenceCount": len(heldout),
             "syntheticLicensedExampleCount": len(examples),
             "syntheticPreferencePairCount": len(pairs),
             "adapterSha256": evidence["artifactSha256"],
