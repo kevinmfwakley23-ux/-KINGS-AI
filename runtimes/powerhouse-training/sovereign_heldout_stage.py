@@ -172,10 +172,19 @@ def compare_heldout_reference_loss(before: dict, after: dict) -> dict:
     gains = {d: a[d] - b[d] for d in sorted(DOMAINS)}
     if not all(math.isfinite(v) for v in gains.values()):
         raise ValueError("Held-out delta must be finite")
+    if any(not math.isfinite(a[d]) or a[d] <= 0 or not math.isfinite(b[d]) or b[d] < 0
+           for d in DOMAINS):
+        raise ValueError("Held-out reference losses must be finite and nonnegative with positive baselines")
+    regression_fraction = {
+        d: max(0.0, (b[d] - a[d]) / a[d]) for d in sorted(DOMAINS)
+    }
     return {
         "baseline": before,
         "final": after,
         "negativeLogLikelihoodReductionByDomain": gains,
+        "regressionFractionByDomain": regression_fraction,
+        "regressedDomains": [d for d in sorted(gains) if gains[d] < 0],
+        "anyDomainRegressedOverFivePercent": any(v > 0.05 for v in regression_fraction.values()),
         "improvedDomains": [d for d in sorted(gains) if gains[d] > 0],
         "allSevenDomainsImproved": all(v > 0 for v in gains.values()),
         "hasAtLeast20ReferencesPerDomain": all(
