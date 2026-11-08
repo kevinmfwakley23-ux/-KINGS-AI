@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
+import { readFileSync } from "node:fs";
 
 import { AppAiRouter, AppAiRouterError, type AppAiRouteRequest } from "../../core/workforce/app-ai-router";
 import {
@@ -23,6 +24,7 @@ import {
 import { ProviderAdapterRegistry } from "../../core/workforce/provider-adapters";
 import { WebAccessAdapter } from "../../core/workforce/web-access";
 import { MonthlyUsageAuthority, UsageAccessError } from "../../core/workforce/monthly-usage-authority";
+import { redeemFamilyPasscode, validateFamilyInvitations, type FamilyInvitation } from "../../core/workforce/family-passcode";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const DEFAULT_PORT = 8790;
@@ -44,6 +46,7 @@ export interface RouterRuntimeConfig {
   researchAllowedHosts?: string[];
   usageAccountsFile?: string;
   usageLedgerFile?: string;
+  familyInvitationsFile?: string;
 }
 
 type ResponsesRole = "system" | "user" | "assistant" | "tool";
@@ -89,6 +92,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RouterRuntimeC
   if (!["127.0.0.1", "::1", "localhost"].includes(host) && !accessToken) {
     throw new Error("KINGS_APP_ROUTER_TOKEN is required when the app router binds beyond loopback");
   }
+  const familyInvitationsFile = env.KINGS_APP_FAMILY_INVITATIONS_FILE?.trim() || undefined;
+  if (familyInvitationsFile && (!accessToken || accessToken.length < 24)) {
+    throw new Error("Family access requires a private owner router token of at least 24 characters");
+  }
   const usageAccountsFile = env.KINGS_APP_USAGE_ACCOUNTS_FILE?.trim() || undefined;
   const usageLedgerFile = env.KINGS_APP_USAGE_LEDGER_FILE?.trim() || undefined;
   if (Boolean(usageAccountsFile) !== Boolean(usageLedgerFile)) {
@@ -107,6 +114,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RouterRuntimeC
     port: parsePort(env.KINGS_APP_ROUTER_PORT),
     accessToken,
     ...(usageAccountsFile ? { usageAccountsFile, usageLedgerFile } : {}),
+    ...(familyInvitationsFile ? { familyInvitationsFile } : {}),
     providerOrder,
     researchMaxSources: parsePositiveInteger(
       env.KINGS_APP_RESEARCH_MAX_SOURCES,
@@ -294,6 +302,17 @@ export function createAppRouterRuntime(
     ? new MonthlyUsageAuthority(config.usageAccountsFile, config.usageLedgerFile)
     : undefined;
 
+  const readFamilyInvitations = (): FamilyInvitation[] => {
+    if (!config.familyInvitationsFile) return [];
+    const data: unknown = JSON.parse(readFileSync(config.familyInvitationsFile, "utf8"));
+    if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid family manifest");
+    const manifest = data as { version?: unknown; invitations?: unknown };
+    if (manifest.version !== 1 || !Array.isArray(manifest.invitations)) throw new Error("Invalid family manifest");
+    validateFamilyInvitations(manifest.invitations as FamilyInvitation[]);
+    return manifest.invitations as FamilyInvitation[];
+  };
+  // Fail closed at startup, then reload per request for immediate owner revocation.
+  readFamilyInvitations();
   const server = http.createServer(async (request, response) => {
     const startedAt = Date.now();
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
@@ -310,11 +329,13 @@ export function createAppRouterRuntime(
       const bearer = typeof request.headers.authorization === "string" &&
         request.headers.authorization.startsWith("Bearer ")
         ? request.headers.authorization.slice("Bearer ".length) : "";
-      const subscriber = isOwner || bearer.length < 24 ? undefined : usageAuthority?.accountForToken(bearer);
-      if (!isOwner && !subscriber) {
+      const familyId = !isOwner && config.familyInvitationsFile && bearer.startsWith("kings_family_")
+        ? redeemFamilyPasscode(bearer, readFamilyInvitations()) : undefined;
+      const subscriber = isOwner || familyId || bearer.length < 24 ? undefined : usageAuthority?.accountForToken(bearer);
+      if (!isOwner && !subscriber && !familyId) {
         return sendJson(response, 401, { ok: false, error: "unauthorized" });
       }
-      if (subscriber && ![
+      if (!isOwner && (subscriber || familyId) && ![
         "/v1/models", "/v1/powerhouse/domains", "/v1/usage",
         "/responses", "/v1/responses", "/v1/route",
       ].includes(url.pathname)) {
@@ -335,6 +356,7 @@ export function createAppRouterRuntime(
 
       if (request.method === "GET" && url.pathname === "/v1/usage") {
         if (isOwner) return sendJson(response, 200, { ok: true, role: "owner", unlimitedSubscription: true });
+        if (familyId) return sendJson(response, 200, { ok: true, role: "family", unlimitedSubscription: true });
         return sendJson(response, 200, { ok: true, role: "subscriber",
           usage: usageAuthority!.snapshot(subscriber!) });
       }
