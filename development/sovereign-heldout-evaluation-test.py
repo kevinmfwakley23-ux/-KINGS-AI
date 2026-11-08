@@ -121,6 +121,24 @@ def run():
         assert comparison["hasAtLeast20ReferencesPerDomain"] is False
         assert set(comparison["negativeLogLikelihoodReductionByDomain"]) == set(DOMAINS)
         assert all(math.isfinite(v) for v in comparison["negativeLogLikelihoodReductionByDomain"].values())
+        assert set(comparison["regressionFractionByDomain"]) == set(DOMAINS)
+        assert all(math.isfinite(v) and v >= 0 for v in comparison["regressionFractionByDomain"].values())
+        assert comparison["regressedDomains"] == sorted(
+            d for d, gain in comparison["negativeLogLikelihoodReductionByDomain"].items() if gain < 0
+        )
+        assert comparison["anyDomainRegressedOverFivePercent"] == any(
+            value > 0.05 for value in comparison["regressionFractionByDomain"].values()
+        )
+        # A synthetic seven-domain regression must be visible even if the
+        # aggregate loss looks better; no specialty may disappear in averaging.
+        regressed = {**before, "negativeLogLikelihoodPerTokenByDomain": {
+            **before["negativeLogLikelihoodPerTokenByDomain"],
+            "chat": before["negativeLogLikelihoodPerTokenByDomain"]["chat"] * 1.10,
+        }}
+        flagged = compare_heldout_reference_loss(before, regressed)
+        assert "chat" in flagged["regressedDomains"]
+        assert flagged["regressionFractionByDomain"]["chat"] > 0.09
+        assert flagged["anyDomainRegressedOverFivePercent"] is True
         changed_token_count = {
             **after,
             "evaluatedTokensByDomain": {
