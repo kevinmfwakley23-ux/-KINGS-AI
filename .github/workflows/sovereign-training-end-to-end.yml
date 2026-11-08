@@ -50,6 +50,16 @@ jobs:
         run: |
           python development/sovereign-end-to-end-training-smoke.py
 
+      - name: Execute owner-authorized double-intensity 6/6/2 gradient training with full held-out coverage
+        env:
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+          HF_DATASETS_OFFLINE: "1"
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          TOKENIZERS_PARALLELISM: "false"
+        run: |
+          python development/sovereign-end-to-end-training-smoke.py --training-profile double
+
 # Test-only randomly initialized tiny weights and synthetic data are generated
 # in an ephemeral runner and destroyed; never publish the test model as a
 # production AI, upload sensitive owner material, or claim specialist quality.
