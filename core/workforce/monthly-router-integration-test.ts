@@ -7,12 +7,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ModelIdentity } from "./model-interface";
 import { MonthlyUsageAuthority } from "./monthly-usage-authority";
+import { digestFamilyPasscode, issueFamilyPasscode } from "./family-passcode";
 import { ProviderAdapterRegistry } from "./provider-adapters";
 import { createAppRouterRuntime, type RouterRuntimeConfig } from "../../runtimes/app-router/server";
 
 const root = mkdtempSync(join(tmpdir(), "kings-paid-http-"));
 const accounts = join(root, "accounts.json");
 const ledger = join(root, "ledger.json");
+const familyManifest = join(root, "family.json");
+const familyPasscode = issueFamilyPasscode();
+const familyAccount = { id: "family_alpha", digest: digestFamilyPasscode(familyPasscode), status: "active", expiresAt: "2099-12-31T23:59:59Z" };
 const ownerToken = randomBytes(32).toString("hex");
 const paidToken = randomBytes(32).toString("hex");
 const identity: ModelIdentity = {
@@ -53,6 +57,7 @@ const config: RouterRuntimeConfig = {
   providerOrder: ["test-provider"], researchMaxSources: 3,
   researchMaxResponseBytes: 1024, researchTimeoutMs: 1000,
   usageAccountsFile: accounts, usageLedgerFile: ledger,
+  familyInvitationsFile: familyManifest,
 };
 const responseBody = { model: "auto", input: "Identify the collectible accurately.", service_domain: "chat" };
 const headers = (token: string) => ({ authorization: "Bearer " + token, "content-type": "application/json" });
@@ -60,6 +65,7 @@ const sleep = (ms: number) => new Promise<void>(done => setTimeout(done, ms));
 
 async function main(): Promise<void> {
   writeFileSync(accounts, JSON.stringify({ version: 1, accounts: [account] }));
+  writeFileSync(familyManifest, JSON.stringify({ version: 1, invitations: [familyAccount] }));
   const server = createAppRouterRuntime(config, providers);
   try {
     await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -77,6 +83,16 @@ async function main(): Promise<void> {
     const ownerStatus = await fetch(url + "/v1/usage", { headers: headers(ownerToken) });
     assert.equal((await ownerStatus.json()).unlimitedSubscription, true);
 
+    const familyUsage = await fetch(url + "/v1/usage", { headers: headers(familyPasscode) });
+    assert.equal(familyUsage.status, 200);
+    assert.deepEqual(await familyUsage.json(), { ok: true, role: "family", unlimitedSubscription: true });
+    assert.equal((await fetch(url + "/v1/brain/research/retrieve", {
+      method: "POST", headers: headers(familyPasscode), body: "{}",
+    })).status, 403, "family credential cannot perform owner-only research");
+    assert.equal((await send(familyPasscode)).status, 200);
+    writeFileSync(familyManifest, JSON.stringify({ version: 1, invitations: [{ ...familyAccount, status: "revoked" }] }));
+    assert.equal((await send(familyPasscode)).status, 401, "owner revocation must take effect on next request");
+    writeFileSync(familyManifest, JSON.stringify({ version: 1, invitations: [familyAccount] }));
     const first = await send(paidToken);
     assert.equal(first.status, 200);
     const payload = await first.json() as { usage: { total_tokens: number } };
@@ -89,25 +105,25 @@ async function main(): Promise<void> {
     assert.equal((await send(paidToken)).status, 200);
     const denied = await send(paidToken);
     assert.equal(denied.status, 429, "exhausted monthly request allowance must block model invocation");
-    assert.equal(modelRequests, 2);
+    assert.equal(modelRequests, 3);
 
     assert.equal((await send(ownerToken)).status, 200, "owner token bypasses subscriber quota only");
-    assert.equal(modelRequests, 3);
+    assert.equal(modelRequests, 4);
 
     const oversized = await send(paidToken, { ...responseBody, max_output_tokens: 1000 });
     assert.equal(oversized.status, 403, "subscriber cannot raise model output cap through a request");
-    assert.equal(modelRequests, 3);
+    assert.equal(modelRequests, 4);
 
     writeFileSync(accounts, JSON.stringify({ version: 1, accounts: [{
       ...account, planId: "pro", monthlyRequests: 4, maxOutputTokens: 300,
     }] }));
     await sleep(5);
     assert.equal((await send(paidToken)).status, 200, "owner-approved plan increase takes effect");
-    assert.equal(modelRequests, 4);
+    assert.equal(modelRequests, 5);
 
     writeFileSync(accounts, JSON.stringify({ version: 1, accounts: [{ ...account, status: "suspended" }] }));
     assert.equal((await send(paidToken)).status, 403, "subscription revocation takes effect immediately");
-    assert.equal(modelRequests, 4);
+    assert.equal(modelRequests, 5);
   } finally {
     await new Promise<void>(done => server.close(() => done()));
     rmSync(root, { recursive: true, force: true });
