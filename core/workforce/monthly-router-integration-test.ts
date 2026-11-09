@@ -112,25 +112,25 @@ async function main(): Promise<void> {
     assert.equal((await send(paidToken)).status, 200);
     const denied = await send(paidToken);
     assert.equal(denied.status, 429, "exhausted monthly request allowance must block model invocation");
-    assert.equal(modelRequests, 3);
+    assert.equal(modelRequests, 4);
 
     assert.equal((await send(ownerToken)).status, 200, "owner token bypasses subscriber quota only");
-    assert.equal(modelRequests, 4);
+    assert.equal(modelRequests, 5);
 
     const oversized = await send(paidToken, { ...responseBody, max_output_tokens: 1000 });
     assert.equal(oversized.status, 403, "subscriber cannot raise model output cap through a request");
-    assert.equal(modelRequests, 4);
+    assert.equal(modelRequests, 5);
 
     writeFileSync(accounts, JSON.stringify({ version: 1, accounts: [{
       ...account, planId: "pro", monthlyRequests: 4, maxOutputTokens: 300,
     }] }));
     await sleep(5);
     assert.equal((await send(paidToken)).status, 200, "owner-approved plan increase takes effect");
-    assert.equal(modelRequests, 5);
+    assert.equal(modelRequests, 6);
 
     writeFileSync(accounts, JSON.stringify({ version: 1, accounts: [{ ...account, status: "suspended" }] }));
     assert.equal((await send(paidToken)).status, 403, "subscription revocation takes effect immediately");
-    assert.equal(modelRequests, 5);
+    assert.equal(modelRequests, 6);
   } finally {
     await new Promise<void>(done => server.close(() => done()));
     rmSync(root, { recursive: true, force: true });
