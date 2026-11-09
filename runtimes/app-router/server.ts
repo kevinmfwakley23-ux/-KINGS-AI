@@ -349,6 +349,14 @@ export function createAppRouterRuntime(
         // per-request resource safety limits. Enforce the cap before invoking a provider.
         if (familyId) {
           const familyOutputCap = 4096;
+          // The direct /v1/route endpoint accepts raw messages, unlike the
+          // normalized Responses endpoint. Bound total input before any provider call.
+          const familyInputCap = 120_000;
+          if (!Array.isArray(input.messages) || input.messages.length > 100 ||
+            input.messages.some(message => !message || typeof message.content !== "string") ||
+            input.messages.reduce((total, message) => total + message.content.length, 0) > familyInputCap) {
+            throw new UsageAccessError("FAMILY_INPUT_CAP", 413, "Family request exceeds input resource limit");
+          }
           if (input.maxOutputTokens !== undefined && input.maxOutputTokens > familyOutputCap) {
             throw new UsageAccessError("FAMILY_OUTPUT_CAP", 403, "Family request exceeds per-request output limit");
           }
