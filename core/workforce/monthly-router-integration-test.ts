@@ -28,6 +28,8 @@ const identity: ModelIdentity = {
 };
 let modelRequests = 0;
 let lastOutputCap: number | undefined;
+let familyConcurrencyGate: Promise<void> | undefined;
+let gatedModelStarts = 0;
 const providers = new ProviderAdapterRegistry();
 providers.register({
   descriptor: { id: "test-provider", name: "Test", kind: "internal-self-hosted", available: true },
@@ -36,6 +38,10 @@ providers.register({
   execute: async (_modelId, request) => {
     modelRequests += 1;
     lastOutputCap = request.maxOutputTokens;
+    if (familyConcurrencyGate) {
+      gatedModelStarts += 1;
+      await familyConcurrencyGate;
+    }
     const now = new Date().toISOString();
     return { success: true, response: {
       requestId: request.id, model: identity, content: "Model transport executed.",
@@ -140,6 +146,23 @@ async function main(): Promise<void> {
     writeFileSync(accounts, JSON.stringify({ version: 1, accounts: [{ ...account, status: "suspended" }] }));
     assert.equal((await send(paidToken)).status, 403, "subscription revocation takes effect immediately");
     assert.equal(modelRequests, 6);
+
+    // Two simultaneous family calls may run, but a third must be rejected
+    // before reaching the model transport. Released slots must be reusable.
+    let releaseGate!: () => void;
+    familyConcurrencyGate = new Promise<void>(resolve => { releaseGate = resolve; });
+    const firstFamily = send(familyPasscode);
+    const secondFamily = send(familyPasscode);
+    for (let attempt = 0; attempt < 100 && gatedModelStarts < 2; attempt++) await sleep(10);
+    assert.equal(gatedModelStarts, 2, "two family model requests must reach transport");
+    const rejectedFamily = await send(familyPasscode);
+    assert.equal(rejectedFamily.status, 429, "third simultaneous family request is rejected");
+    assert.equal(gatedModelStarts, 2, "rejected request never reaches provider");
+    releaseGate();
+    assert.equal((await firstFamily).status, 200);
+    assert.equal((await secondFamily).status, 200);
+    familyConcurrencyGate = undefined;
+    assert.equal((await send(familyPasscode)).status, 200, "family slot released after completion");
   } finally {
     await new Promise<void>(done => server.close(() => done()));
     rmSync(root, { recursive: true, force: true });
