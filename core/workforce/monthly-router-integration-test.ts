@@ -95,6 +95,15 @@ async function main(): Promise<void> {
     assert.equal((await send(familyPasscode, { ...responseBody, max_output_tokens: 4097 })).status, 403,
       "family cannot bypass per-request resource cap");
     assert.equal(modelRequests, beforeFamilyOversize, "rejected family request must never invoke a provider");
+    const largeFamilyInput = await fetch(url + "/v1/route", {
+      method: "POST", headers: headers(familyPasscode),
+      body: JSON.stringify({ appId: "authors.forge", messages: [
+        { role: "user", content: "a".repeat(70_000) },
+        { role: "user", content: "b".repeat(70_000) },
+      ] }),
+    });
+    assert.equal(largeFamilyInput.status, 413, "aggregate family input is capped even on raw route endpoint");
+    assert.equal(modelRequests, beforeFamilyOversize, "oversized family input must never invoke a provider");
     assert.equal((await send(familyPasscode, { ...responseBody, max_output_tokens: 1024 })).status, 200);
     assert.equal(lastOutputCap, 1024, "family can request a smaller output cap");
     writeFileSync(familyManifest, JSON.stringify({ version: 1, invitations: [{ ...familyAccount, status: "revoked" }] }));
