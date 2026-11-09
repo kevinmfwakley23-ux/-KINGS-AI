@@ -345,6 +345,15 @@ export function createAppRouterRuntime(
         return sendJson(response, 403, { ok: false, error: "owner_only_operation" });
       }
       const routeWithUsage = async (input: AppAiRouteRequest) => {
+        // Family access is free of monthly subscription quotas, not exempt from
+        // per-request resource safety limits. Enforce the cap before invoking a provider.
+        if (familyId) {
+          const familyOutputCap = 4096;
+          if (input.maxOutputTokens !== undefined && input.maxOutputTokens > familyOutputCap) {
+            throw new UsageAccessError("FAMILY_OUTPUT_CAP", 403, "Family request exceeds per-request output limit");
+          }
+          return router.route({ ...input, maxOutputTokens: input.maxOutputTokens ?? familyOutputCap });
+        }
         if (!subscriber || !usageAuthority) return router.route(input);
         // Apply a real provider-side output cap even if a subscriber omits it.
         const bounded = { ...input,
