@@ -90,6 +90,13 @@ async function main(): Promise<void> {
       method: "POST", headers: headers(familyPasscode), body: "{}",
     })).status, 403, "family credential cannot perform owner-only research");
     assert.equal((await send(familyPasscode)).status, 200);
+    assert.equal(lastOutputCap, 4096, "family receives bounded per-request output without monthly subscription quotas");
+    const beforeFamilyOversize = modelRequests;
+    assert.equal((await send(familyPasscode, { ...responseBody, max_output_tokens: 4097 })).status, 403,
+      "family cannot bypass per-request resource cap");
+    assert.equal(modelRequests, beforeFamilyOversize, "rejected family request must never invoke a provider");
+    assert.equal((await send(familyPasscode, { ...responseBody, max_output_tokens: 1024 })).status, 200);
+    assert.equal(lastOutputCap, 1024, "family can request a smaller output cap");
     writeFileSync(familyManifest, JSON.stringify({ version: 1, invitations: [{ ...familyAccount, status: "revoked" }] }));
     assert.equal((await send(familyPasscode)).status, 401, "owner revocation must take effect on next request");
     writeFileSync(familyManifest, JSON.stringify({ version: 1, invitations: [familyAccount] }));
