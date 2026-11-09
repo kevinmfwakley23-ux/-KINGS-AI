@@ -316,6 +316,11 @@ export function createAppRouterRuntime(
   };
   // Fail closed at startup, then reload per request for immediate owner revocation.
   readFamilyInvitations();
+  // Bound concurrent family model executions independently of subscription quotas.
+  // In-process only: distributed deployments require a shared admission controller.
+  const familyInFlight = new Map<string, number>();
+  const familyConcurrencyCap = 2;
+
   const server = http.createServer(async (request, response) => {
     const startedAt = Date.now();
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
@@ -360,7 +365,18 @@ export function createAppRouterRuntime(
           if (input.maxOutputTokens !== undefined && input.maxOutputTokens > familyOutputCap) {
             throw new UsageAccessError("FAMILY_OUTPUT_CAP", 403, "Family request exceeds per-request output limit");
           }
-          return router.route({ ...input, maxOutputTokens: input.maxOutputTokens ?? familyOutputCap });
+          const inFlight = familyInFlight.get(familyId) ?? 0;
+          if (inFlight >= familyConcurrencyCap) {
+            throw new UsageAccessError("FAMILY_CONCURRENCY_CAP", 429, "Family concurrent request limit reached");
+          }
+          familyInFlight.set(familyId, inFlight + 1);
+          try {
+            return await router.route({ ...input, maxOutputTokens: input.maxOutputTokens ?? familyOutputCap });
+          } finally {
+            const remaining = (familyInFlight.get(familyId) ?? 1) - 1;
+            if (remaining <= 0) familyInFlight.delete(familyId);
+            else familyInFlight.set(familyId, remaining);
+          }
         }
         if (!subscriber || !usageAuthority) return router.route(input);
         // Apply a real provider-side output cap even if a subscriber omits it.
