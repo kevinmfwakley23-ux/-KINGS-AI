@@ -320,6 +320,10 @@ export function createAppRouterRuntime(
   // In-process only: distributed deployments require a shared admission controller.
   const familyInFlight = new Map<string, number>();
   const familyConcurrencyCap = 2;
+  // Bound aggregate family work as well as per-credential work. Without this,
+  // each additional invitation adds two unbounded provider execution slots.
+  const familyGlobalConcurrencyCap = 16;
+  let familyGlobalInFlight = 0;
 
   const server = http.createServer(async (request, response) => {
     const startedAt = Date.now();
@@ -369,10 +373,15 @@ export function createAppRouterRuntime(
           if (inFlight >= familyConcurrencyCap) {
             throw new UsageAccessError("FAMILY_CONCURRENCY_CAP", 429, "Family concurrent request limit reached");
           }
+          if (familyGlobalInFlight >= familyGlobalConcurrencyCap) {
+            throw new UsageAccessError("FAMILY_GLOBAL_CONCURRENCY_CAP", 429, "Family router capacity reached");
+          }
           familyInFlight.set(familyId, inFlight + 1);
+          familyGlobalInFlight += 1;
           try {
             return await router.route({ ...input, maxOutputTokens: input.maxOutputTokens ?? familyOutputCap });
           } finally {
+            familyGlobalInFlight -= 1;
             const remaining = (familyInFlight.get(familyId) ?? 1) - 1;
             if (remaining <= 0) familyInFlight.delete(familyId);
             else familyInFlight.set(familyId, remaining);
