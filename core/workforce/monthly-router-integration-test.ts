@@ -175,6 +175,37 @@ async function main(): Promise<void> {
     assert.equal((await secondFamily).status, 200);
     familyConcurrencyGate = undefined;
     assert.equal((await send(familyPasscode)).status, 200, "family slot released after completion");
+
+    // Multiple family invitations must not multiply total provider concurrency
+    // without bound. Exercise 8 distinct credentials with 2 slots each.
+    const familyTokens = Array.from({ length: 9 }, () => issueFamilyPasscode());
+    writeFileSync(familyManifest, JSON.stringify({ version: 1, invitations: [
+      familyAccount,
+      ...familyTokens.map((token, index) => ({
+        id: "family_extra_" + index, digest: digestFamilyPasscode(token),
+        status: "active", expiresAt: "2099-12-31T23:59:59Z",
+      })),
+    ] }));
+    gatedModelStarts = 0;
+    let releaseGlobalGate!: () => void;
+    familyConcurrencyGate = new Promise<void>(resolve => { releaseGlobalGate = resolve; });
+    const activeFamilyCalls = familyTokens.slice(0, 8).flatMap(token => [
+      send(token), send(token),
+    ]);
+    try {
+      for (let attempt = 0; attempt < 200 && gatedModelStarts < 16; attempt++) await sleep(10);
+      assert.equal(gatedModelStarts, 16, "aggregate cap allows 16 in-flight family calls");
+      assert.equal((await send(familyTokens[8])).status, 429,
+        "seventeenth call from another family account must be rejected");
+      assert.equal(gatedModelStarts, 16, "global rejection must not invoke provider");
+    } finally {
+      releaseGlobalGate();
+      await Promise.all(activeFamilyCalls);
+      familyConcurrencyGate = undefined;
+    }
+    assert.equal((await send(familyTokens[8])).status, 200,
+      "global family slot is reusable after completed requests");
+
   } finally {
     await new Promise<void>(done => server.close(() => done()));
     rmSync(root, { recursive: true, force: true });
