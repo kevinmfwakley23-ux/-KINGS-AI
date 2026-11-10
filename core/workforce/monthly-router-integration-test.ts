@@ -101,6 +101,18 @@ async function main(): Promise<void> {
     assert.equal((await send(familyPasscode, { ...responseBody, max_output_tokens: 4097 })).status, 403,
       "family cannot bypass per-request resource cap");
     assert.equal(modelRequests, beforeFamilyOversize, "rejected family request must never invoke a provider");
+    // Raw route bypasses the Responses parser; malformed output limits must
+    // fail before model execution rather than reaching a provider.
+    for (const invalidCap of [0, -1, 4097, 1.5, "4096", null]) {
+      const rejected = await fetch(url + "/v1/route", {
+        method: "POST", headers: headers(familyPasscode),
+        body: JSON.stringify({ appId: "authors.forge", messages: [
+          { role: "user", content: "Check collectible" },
+        ], maxOutputTokens: invalidCap }),
+      });
+      assert.equal(rejected.status, 403, "invalid family output limit must be rejected: " + String(invalidCap));
+      assert.equal(modelRequests, beforeFamilyOversize, "invalid limit must not invoke provider");
+    }
     const largeFamilyInput = await fetch(url + "/v1/route", {
       method: "POST", headers: headers(familyPasscode),
       body: JSON.stringify({ appId: "authors.forge", messages: [
