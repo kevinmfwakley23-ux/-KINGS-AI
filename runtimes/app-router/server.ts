@@ -362,7 +362,7 @@ export function createAppRouterRuntime(
             input.messages.reduce((total, message) => total + message.content.length, 0) > familyInputCap) {
             throw new UsageAccessError("FAMILY_INPUT_CAP", 413, "Family request exceeds input resource limit");
           }
-          if (input.maxOutputTokens !== undefined && input.maxOutputTokens > familyOutputCap) {
+          if (input.maxOutputTokens !== undefined && (!Number.isSafeInteger(input.maxOutputTokens) || input.maxOutputTokens < 1 || input.maxOutputTokens > familyOutputCap)) {
             throw new UsageAccessError("FAMILY_OUTPUT_CAP", 403, "Family request exceeds per-request output limit");
           }
           const inFlight = familyInFlight.get(familyId) ?? 0;
