@@ -2,7 +2,8 @@ name: K.I.N.G.S. Android Native APK
 
 on:
   pull_request:
-    branches: [main]
+    # Also verify stacked native-client PRs before the parent integration merges.
+    branches: ["**"]
     paths:
       - "src-tauri/**"
       - "native-shell/**"
