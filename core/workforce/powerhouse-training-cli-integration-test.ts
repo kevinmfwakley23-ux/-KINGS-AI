@@ -300,6 +300,42 @@ async function run(): Promise<void> {
     );
     await writeFile(evaluatorPath, evaluatorSource);
 
+
+    // Exercise the post-execution digest check against a real subprocess that
+    // alters imported evaluator source after writing its output model file.
+    const mutatorPath = join(directory, "mutator-trainer.cjs");
+    const mutatorSource = trainerSource +
+      '\nrequire("node:fs").appendFileSync(' +
+      JSON.stringify(evaluatorPath) + ', "# changed while training\\n");\n';
+    await writeFile(mutatorPath, mutatorSource, { mode: 0o700 });
+    const mutatorDigest = createHash("sha256").update(mutatorSource).digest("hex");
+    const mutatedJob: PowerhouseTrainingJob = {
+      ...dualJob,
+      jobId: "training-job-cli-mutate-003",
+      buildId: "model-build-cli-mutate-003",
+      outputModelId: "kings-powerhouse-cli-mutate-003",
+      trainer: { ...dualJob.trainer, immutableDigest: mutatorDigest },
+    };
+    await writeFile(launchManifestPath, JSON.stringify({
+      schemaVersion: "1", job: mutatedJob,
+      runner: {
+        ...dualRunner,
+        trainerArtifactPath: mutatorPath,
+        args: [mutatorPath, ...dualRunner.args.slice(1)],
+        modelArtifactPath: join(directory, "mutated-model.bin"),
+      },
+    }));
+    const mutatedRecordPath = join(directory, "mutated-model-build-record.json");
+    await assert.rejects(
+      runPowerhouseTrainingFiles({
+        ...dualRequest, outputPath: mutatedRecordPath,
+      }, { KINGS_CODING_MACHINE_TOKEN: ownerToken }),
+      /Held-out evaluator changed during training; refusing signed model promotion/u,
+    );
+    await assert.rejects(readFile(mutatedRecordPath), { code: "ENOENT" });
+    await writeFile(evaluatorPath, evaluatorSource);
+    await writeFile(launchManifestPath, JSON.stringify({ schemaVersion: "1", job: dualJob, runner: dualRunner }));
+
     // An altered optimizer module must be rejected before execution.
     await writeFile(preferenceTrainerPath, preferenceTrainerSource + "# modified\n");
     await assert.rejects(
