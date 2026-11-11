@@ -33,8 +33,13 @@ New Android clients bootstrap once using an HTTPS form POST to
 in the request body, not the URL, and the server accepts at most 4 KiB of form
 data. The server checks the credential, returns a redirect to `/`, and issues
 a `Secure`, `HttpOnly`, `SameSite=Strict` host cookie containing a
-hash-derived session value rather than the reusable owner token. Invalid,
-duplicate, or oversized credentials fail closed. The old root GET
+fresh, HMAC-signed random session identifier rather than the reusable owner
+token. Browser sessions expire after 12 hours (`Max-Age=43200`); the server
+rejects expired, future-dated, malformed, and tampered cookies. Rotating the
+owner token invalidates previously issued sessions, and older non-expiring
+session digests are deliberately rejected. The owner must reauthenticate
+through the HTTPS POST form when a session expires. Invalid, duplicate, or
+oversized bootstrap credentials fail closed. The old root GET
 `/?access=<token>` is **disabled by default** because the reusable owner
 secret can leak into access logs, browser history, and intermediary telemetry.
 For a temporary migration of older clients only, the owner may set
