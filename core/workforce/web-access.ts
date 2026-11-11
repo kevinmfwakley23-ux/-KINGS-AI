@@ -190,6 +190,38 @@ function isBlockedIPv4(
       "169.254.0.0",
       "169.254.255.255",
     ) ||
+    // Shared address space, protocol assignments, documentation and
+    // benchmarking networks are not public-research destinations.
+    ipv4InRange(
+      address,
+      "100.64.0.0",
+      "100.127.255.255",
+    ) ||
+    ipv4InRange(
+      address,
+      "192.0.0.0",
+      "192.0.0.255",
+    ) ||
+    ipv4InRange(
+      address,
+      "192.0.2.0",
+      "192.0.2.255",
+    ) ||
+    ipv4InRange(
+      address,
+      "198.18.0.0",
+      "198.19.255.255",
+    ) ||
+    ipv4InRange(
+      address,
+      "198.51.100.0",
+      "198.51.100.255",
+    ) ||
+    ipv4InRange(
+      address,
+      "203.0.113.0",
+      "203.0.113.255",
+    ) ||
     ipv4InRange(
       address,
       "0.0.0.0",
@@ -217,9 +249,12 @@ function isBlockedIPv6(
   return (
     normalized === "::" ||
     normalized === "::1" ||
-    normalized.startsWith(
-      "fe80:",
-    ) ||
+    // Treat IPv4-mapped IPv6 addresses as non-public. Mapping can otherwise
+    // hide loopback/metadata/private addresses from the IPv4 range checks.
+    normalized.startsWith("::ffff:") ||
+    normalized.startsWith("0:0:0:0:0:ffff:") ||
+    // fe80::/10 covers fe80 through febf; fe80-only misses fe90/fea0.
+    /^fe[89ab][0-9a-f]:/u.test(normalized) ||
     normalized.startsWith(
       "fc",
     ) ||

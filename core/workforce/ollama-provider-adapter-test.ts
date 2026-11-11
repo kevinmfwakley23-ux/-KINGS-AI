@@ -77,9 +77,25 @@ async function main(): Promise<void> {
     assert.equal(calledUrl, "http://127.0.0.1:11434/api/generate");
     assert.equal(calledBody?.model, "qwen2.5-coder:0.5b");
     assert.deepEqual(calledBody?.options, { num_predict: 321, temperature: 0.25 });
+    const longContext = createConfiguredOllamaAdapter({
+      KINGS_OLLAMA_BASE_URL: "http://127.0.0.1:11434",
+      KINGS_OLLAMA_MODEL: "local-long-context",
+      KINGS_OLLAMA_CONTEXT_TOKENS: "65536",
+    });
+    assert.equal(longContext?.listModels()[0]?.contextWindowTokens, 65536);
+    const tunedResult = await longContext?.execute("local-long-context", request());
+    assert.equal(tunedResult?.success, true);
+    assert.deepEqual(calledBody?.options, { num_predict: 321, temperature: 0.25, num_ctx: 65536 },
+      "owner context budget must reach the actual local inference request");
   } finally {
     global.fetch = originalFetch;
   }
+
+  assert.throws(() => createConfiguredOllamaAdapter({
+    KINGS_OLLAMA_BASE_URL: "http://127.0.0.1:11434",
+    KINGS_OLLAMA_MODEL: "local",
+    KINGS_OLLAMA_CONTEXT_TOKENS: "999999",
+  }), /KINGS_OLLAMA_CONTEXT_TOKENS/);
 
   const adapter = new OllamaProviderAdapter({
     baseUrl: "http://127.0.0.1:11434",

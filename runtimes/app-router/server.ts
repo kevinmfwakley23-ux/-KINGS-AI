@@ -7,8 +7,18 @@ import {
   type AppBrainMemorySelectionRequest,
   type AppBrainResearchRequest,
 } from "../../core/workforce/app-brain-gateway";
-import { createConfiguredGatewayAdapters } from "../../core/workforce/openai-compatible-gateway";
-import { createConfiguredOllamaAdapter } from "../../core/workforce/ollama-provider-adapter";
+import { assertKingsInferenceSovereignty, registerConfiguredKingsInference, resolveKingsIntelligenceMode, resolveKingsProviderOrder, type KingsIntelligenceMode } from "../../core/workforce/inference-sovereignty";
+import {
+  POWERHOUSE_DOMAIN_POLICY_VERSION,
+  PowerhouseServiceDomainError,
+  applyPowerhouseServiceDomain,
+  listPowerhouseServiceDomains,
+  resolvePowerhouseServiceDomain,
+  type PowerhouseServiceDomainProfile,
+} from "../../core/workforce/powerhouse-service-domain";
+import {
+  getPowerhouseQualificationPolicy,
+} from "../../core/workforce/powerhouse-domain-qualification";
 import { ProviderAdapterRegistry } from "../../core/workforce/provider-adapters";
 import { WebAccessAdapter } from "../../core/workforce/web-access";
 
@@ -26,6 +36,7 @@ export interface RouterRuntimeConfig {
   port: number;
   accessToken?: string;
   providerOrder: string[];
+  intelligenceMode?: KingsIntelligenceMode;
   researchMaxSources: number;
   researchMaxResponseBytes: number;
   researchTimeoutMs: number;
@@ -33,6 +44,11 @@ export interface RouterRuntimeConfig {
 }
 
 type ResponsesRole = "system" | "user" | "assistant" | "tool";
+
+interface ParsedResponsesRequest {
+  routeRequest: AppAiRouteRequest;
+  serviceDomain?: PowerhouseServiceDomainProfile;
+}
 
 function parsePort(raw: string | undefined): number {
   const value = Number.parseInt(raw ?? String(DEFAULT_PORT), 10);
@@ -70,16 +86,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RouterRuntimeC
   if (!["127.0.0.1", "::1", "localhost"].includes(host) && !accessToken) {
     throw new Error("KINGS_APP_ROUTER_TOKEN is required when the app router binds beyond loopback");
   }
-  const providerOrder = (env.KINGS_APP_ROUTER_PROVIDER_ORDER ?? "omniroute,9router,ollama-internal")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  if (providerOrder.length === 0) throw new Error("KINGS_APP_ROUTER_PROVIDER_ORDER must contain at least one provider");
+  const intelligenceMode = resolveKingsIntelligenceMode(env);
+  const providerOrder = resolveKingsProviderOrder(env, intelligenceMode);
   return {
     host,
     port: parsePort(env.KINGS_APP_ROUTER_PORT),
     accessToken,
     providerOrder,
+    intelligenceMode,
     researchMaxSources: parsePositiveInteger(
       env.KINGS_APP_RESEARCH_MAX_SOURCES,
       "KINGS_APP_RESEARCH_MAX_SOURCES",
@@ -197,7 +211,7 @@ function parseResponsesInput(input: unknown): Array<{ role: ResponsesRole; conte
   });
 }
 
-function parseResponsesRequest(body: unknown, appId: string): AppAiRouteRequest {
+function parseResponsesRequest(body: unknown, appId: string): ParsedResponsesRequest {
   const record = requireObject(body);
   const model = record.model;
   if (typeof model !== "string" || !model.trim()) {
@@ -211,7 +225,7 @@ function parseResponsesRequest(body: unknown, appId: string): AppAiRouteRequest 
   if (temperature !== undefined && (typeof temperature !== "number" || !Number.isFinite(temperature) || temperature < 0 || temperature > 2)) {
     throw new AppAiRouterError("INVALID_TEMPERATURE", "temperature must be between 0 and 2.");
   }
-  return {
+  const routeRequest: AppAiRouteRequest = {
     appId,
     messages: parseResponsesInput(record.input),
     ...(model.trim().toLowerCase() === "auto" ? {} : { modelId: model.trim() }),
@@ -220,6 +234,19 @@ function parseResponsesRequest(body: unknown, appId: string): AppAiRouteRequest 
     requiredCapabilities: ["reasoning"],
     allowToolProposals: false,
   };
+  if (record.service_domain === undefined) return { routeRequest };
+  try {
+    const serviceDomain = resolvePowerhouseServiceDomain(record.service_domain);
+    return {
+      routeRequest: applyPowerhouseServiceDomain(routeRequest, serviceDomain),
+      serviceDomain,
+    };
+  } catch (error) {
+    if (error instanceof PowerhouseServiceDomainError) {
+      throw new AppAiRouterError(error.code, error.message);
+    }
+    throw error;
+  }
 }
 
 export function createAppRouterRuntime(
@@ -227,11 +254,9 @@ export function createAppRouterRuntime(
   providers = new ProviderAdapterRegistry(),
   webAccess?: WebAccessAdapter,
 ): http.Server {
-  if (providers.list().length === 0) {
-    for (const provider of createConfiguredGatewayAdapters()) providers.register(provider);
-    const ollama = createConfiguredOllamaAdapter();
-    if (ollama) providers.register(ollama);
-  }
+  const intelligenceMode = config.intelligenceMode ?? "sovereign";
+  if (providers.list().length === 0) registerConfiguredKingsInference(providers, process.env, intelligenceMode);
+  assertKingsInferenceSovereignty(providers, intelligenceMode);
   const router = new AppAiRouter(providers, config.providerOrder);
   const researchWebAccess = webAccess ?? new WebAccessAdapter({
     allowedHosts: config.researchAllowedHosts,
@@ -253,6 +278,7 @@ export function createAppRouterRuntime(
           ok: true,
           service: "kings-ai-app-router",
           providers: providers.listAvailable().map((provider) => provider.id),
+          intelligenceMode,
         });
       }
 
@@ -266,6 +292,21 @@ export function createAppRouterRuntime(
           return adapter?.listModels() ?? [];
         });
         return sendJson(response, 200, { ok: true, models });
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/powerhouse/domains") {
+        return sendJson(response, 200, {
+          ok: true,
+          policy_version: POWERHOUSE_DOMAIN_POLICY_VERSION,
+          qualification_policy: getPowerhouseQualificationPolicy(),
+          domains: listPowerhouseServiceDomains().map((profile) => ({
+            id: profile.id,
+            label: profile.label,
+            required_capabilities: profile.requiredCapabilities,
+            maximum_temperature: profile.maximumTemperature,
+            qualification_note: "Routing policy is active; expert status requires separate measured domain evaluation.",
+          })),
+        });
       }
 
       if (request.method === "POST" && url.pathname === "/v1/brain/memory/select") {
@@ -299,7 +340,8 @@ export function createAppRouterRuntime(
 
       if (request.method === "POST" && (url.pathname === "/responses" || url.pathname === "/v1/responses")) {
         const appId = responsesAppId(request);
-        const result = await router.route(parseResponsesRequest(await readJson(request), appId));
+        const parsed = parseResponsesRequest(await readJson(request), appId);
+        const result = await router.route(parsed.routeRequest);
         console.log(JSON.stringify({
           timestamp: new Date().toISOString(),
           event: "app_ai_responses",
@@ -308,6 +350,7 @@ export function createAppRouterRuntime(
           success: result.success,
           providerId: result.success ? result.providerId : undefined,
           modelId: result.success ? result.modelId : undefined,
+          serviceDomain: parsed.serviceDomain?.id,
           attempts: result.attempts.length,
           durationMs: Date.now() - startedAt,
         }));
@@ -327,6 +370,11 @@ export function createAppRouterRuntime(
           model: result.modelId,
           provider: result.providerId,
           output_text: result.content,
+          ...(parsed.serviceDomain ? {
+            service_domain: parsed.serviceDomain.id,
+            domain_policy_version: POWERHOUSE_DOMAIN_POLICY_VERSION,
+            required_capabilities: [...parsed.serviceDomain.requiredCapabilities],
+          } : {}),
           output: [{
             type: "message",
             role: "assistant",

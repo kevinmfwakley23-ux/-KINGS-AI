@@ -13,8 +13,9 @@ function assert(condition: unknown, message: string): asserts condition {
 
 class DeterministicRouter implements OwnerProductBuildRouter {
   readonly calls: AppAiRouteRequest[] = [];
+  private readonly callsByTask = new Map<string, number>();
 
-  constructor(private readonly breakBackend = false) {}
+  constructor(private readonly backendFailure: "none" | "once" | "always" = "none") {}
 
   async route(request: AppAiRouteRequest): Promise<AppAiRouteResult> {
     this.calls.push(request);
@@ -27,12 +28,18 @@ class DeterministicRouter implements OwnerProductBuildRouter {
       const missionId = system.match(/missionId MUST equal ([^\n]+)/)?.[1]?.trim();
       if (!taskId || !missionId) throw new Error("Deterministic router could not recover task identity from coding prompt.");
       const suffix = taskId.split("-").at(-1);
+      const taskCalls = (this.callsByTask.get(taskId) ?? 0) + 1;
+      this.callsByTask.set(taskId, taskCalls);
       const file = suffix === "backend"
         ? "src/backend.js"
         : suffix === "frontend"
           ? "src/frontend.js"
           : "src/integration.js";
-      const source = this.breakBackend && suffix === "backend"
+      const breakBackend = suffix === "backend" && (
+        this.backendFailure === "always" ||
+        (this.backendFailure === "once" && taskCalls === 1)
+      );
+      const source = breakBackend
         ? "module.exports = ;\n"
         : suffix === "backend"
           ? "export function backendReady(){ return true; }\n"
@@ -176,7 +183,7 @@ async function rollbackMission(root: string): Promise<void> {
     productName: "Rollback Fixture",
     ownerVision: "Attempt a backend change and preserve the repository if validation rejects it.",
   });
-  const router = new DeterministicRouter(true);
+  const router = new DeterministicRouter("always");
   const worker = new OwnerProductBuildWorker(runtime, router, root);
   const executor = new OwnerMissionExecutionRuntime(runtime, worker);
   const result = await executor.run(mission.mission.id, 8);
@@ -184,6 +191,10 @@ async function rollbackMission(root: string): Promise<void> {
   assert(result.stoppedBecause === "failed", "A repository validation failure must fail the active owner task.");
   assert(result.snapshot.mission.status === "failed", "Failed owner task must durably fail the mission until explicit retry.");
   assert(result.snapshot.execution.failedTaskIds.length === 1, "Exactly the rejected task must be marked failed.");
+  const backendCalls = router.calls.filter((call) =>
+    call.messages.some((message) => /taskId MUST equal .*?-backend(?:\n|$)/.test(message.content)),
+  );
+  assert(backendCalls.length === 3, "Persistent validation failure must stop after three bounded coding attempts.");
   let backendExists = true;
   try {
     await readFile(join(root, "src", "backend.js"), "utf8");
@@ -199,18 +210,64 @@ async function rollbackMission(root: string): Promise<void> {
   console.log("08.OWNER-EXECUTION failed validation rollback: SUCCESS");
 }
 
+async function autonomousRepairMission(root: string): Promise<void> {
+  const storePath = join(root, ".state-repair", "missions.json");
+  const runtime = new OwnerMissionRuntime(storePath);
+  await runtime.initialize();
+  const mission = await runtime.createMission({
+    productName: "Autonomous Repair Fixture",
+    ownerVision: "Build every slice and autonomously repair a verified coding failure before completing the mission.",
+  });
+  const router = new DeterministicRouter("once");
+  const worker = new OwnerProductBuildWorker(runtime, router, root);
+  const executor = new OwnerMissionExecutionRuntime(runtime, worker);
+  const result = await executor.run(mission.mission.id, 16);
+
+  assert(result.stoppedBecause === "completed", "A repairable owner mission must continue to verified completion.");
+  assert(result.snapshot.mission.status === "completed", "Successful autonomous repair must allow durable mission completion.");
+  const backendCalls = router.calls.filter((call) =>
+    call.messages.some((message) => /taskId MUST equal .*?-backend(?:\n|$)/.test(message.content)),
+  );
+  assert(backendCalls.length === 2, "One failed backend proposal must cause exactly one bounded repair model call.");
+  const backend = await readFile(join(root, "src", "backend.js"), "utf8");
+  assert(backend.includes("backendReady"), "The corrected backend proposal must replace the rolled-back failing attempt.");
+  const backendResult = result.snapshot.results.find((entry) => entry.taskId.endsWith("-backend"));
+  assert(
+    backendResult?.verificationReferences.includes("governed-write-rollback:attempt-1") === true,
+    "Successful repair evidence must preserve the rejected attempt rollback.",
+  );
+  assert(
+    backendResult?.verificationReferences.includes("recovery-action:attempt-1:repair") === true,
+    "Successful repair evidence must preserve the existing recovery authority decision.",
+  );
+  assert(
+    backendResult?.verificationReferences.includes("autonomous-repair:attempt-2:verified") === true,
+    "Successful repair evidence must identify the verified repaired attempt.",
+  );
+  assert(
+    router.calls.some((call) => call.messages.some((message) => message.content.includes("REAL VALIDATION AND RECOVERY EVIDENCE"))),
+    "The repair call must receive the real failed build evidence.",
+  );
+
+  console.log("08.OWNER-EXECUTION real failure -> rollback -> autonomous repair -> green retest: SUCCESS");
+}
+
 async function main(): Promise<void> {
   const successRoot = await mkdtemp(join(tmpdir(), "kings-owner-execution-success-"));
   const failureRoot = await mkdtemp(join(tmpdir(), "kings-owner-execution-failure-"));
+  const repairRoot = await mkdtemp(join(tmpdir(), "kings-owner-execution-repair-"));
   try {
     await createFixture(successRoot);
     await successfulMission(successRoot);
     await createFixture(failureRoot);
     await rollbackMission(failureRoot);
+    await createFixture(repairRoot);
+    await autonomousRepairMission(repairRoot);
     console.log("TREE-08 REAL OWNER MISSION EXECUTION: SUCCESS");
   } finally {
     await rm(successRoot, { recursive: true, force: true });
     await rm(failureRoot, { recursive: true, force: true });
+    await rm(repairRoot, { recursive: true, force: true });
   }
 }
 

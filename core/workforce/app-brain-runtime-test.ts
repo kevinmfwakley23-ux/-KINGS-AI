@@ -63,6 +63,7 @@ async function runTest(): Promise<void> {
     port: 0,
     accessToken: "brain-test-token",
     providerOrder: ["stub"],
+    intelligenceMode: "hybrid", // Fixture deliberately injects a stub; sovereign mode forbids arbitrary adapters.
     researchMaxSources: 2,
     researchMaxResponseBytes: 4096,
     researchTimeoutMs: 5000,

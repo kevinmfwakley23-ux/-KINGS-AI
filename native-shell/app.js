@@ -86,13 +86,20 @@
       saveOrigin(origin);
       setStatus("Opening the authenticated K.I.N.G.S. owner runtime…", "success");
 
-      // Deliberately do not persist the reusable owner token. The owner server
-      // accepts it once, redirects to a clean URL, and establishes its own
-      // Secure + HttpOnly session cookie that this JavaScript cannot read.
-      const bootstrap = new URL("/", `${origin}/`);
-      bootstrap.searchParams.set("access", token);
+      // Post the credential in the request body, not in navigation history,
+      // analytics, or HTTPS proxy access-log URLs. The owner runtime exchanges
+      // this one-time bootstrap for a Secure + HttpOnly session cookie.
+      const bootstrapForm = document.createElement("form");
+      bootstrapForm.method = "POST";
+      bootstrapForm.action = `${origin}/session/bootstrap`;
+      const secretField = document.createElement("input");
+      secretField.type = "hidden";
+      secretField.name = "access";
+      secretField.value = token;
+      bootstrapForm.appendChild(secretField);
+      document.body.appendChild(bootstrapForm);
       tokenInput.value = "";
-      navigate(bootstrap.href);
+      bootstrapForm.submit();
     } catch (error) {
       tokenInput.value = "";
       setStatus(error instanceof Error ? error.message : String(error), "error");
