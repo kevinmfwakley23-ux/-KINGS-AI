@@ -21,7 +21,8 @@ from torch import nn
 
 from sovereign_heldout_stage import (
     validate_heldout_references, measure_heldout_reference_loss,
-    compare_heldout_reference_loss,
+    compare_heldout_reference_loss, assess_heldout_proxy_review_gate,
+    require_heldout_proxy_review_gate,
 )
 
 DOMAINS = (
@@ -139,6 +140,71 @@ def run():
         assert "chat" in flagged["regressedDomains"]
         assert flagged["regressionFractionByDomain"]["chat"] > 0.09
         assert flagged["anyDomainRegressedOverFivePercent"] is True
+        # Training optimizer results are not release proof: only a sealed,
+        # fully populated proxy comparison can advance to independent review.
+        assert assess_heldout_proxy_review_gate(None)["status"] == "blocked"
+        incomplete = assess_heldout_proxy_review_gate(comparison)
+        assert incomplete["status"] == "blocked"
+        assert any("20 isolated" in reason for reason in incomplete["blockers"])
+        try:
+            require_heldout_proxy_review_gate(incomplete)
+        except RuntimeError as exc:
+            assert "Refusing model artifact export" in str(exc), str(exc)
+        else:
+            raise AssertionError("Insufficient references must prevent strict artifact export")
+
+        qualified_before = {
+            **before,
+            "evaluatedExamplesByDomain": {domain: 20 for domain in DOMAINS},
+        }
+        qualified_after = {
+            **qualified_before,
+            "negativeLogLikelihoodPerTokenByDomain": {
+                domain: qualified_before["negativeLogLikelihoodPerTokenByDomain"][domain] * 0.90
+                for domain in DOMAINS
+            },
+            "referenceNegativeLogLikelihoodPerToken":
+                qualified_before["referenceNegativeLogLikelihoodPerToken"] * 0.90,
+        }
+        eligible = assess_heldout_proxy_review_gate(
+            compare_heldout_reference_loss(qualified_before, qualified_after)
+        )
+        assert eligible["reviewEligible"] is True and eligible["status"] == "review-eligible"
+        assert eligible["productionQualified"] is False
+        assert eligible["independentExpertQualification"] is False
+        require_heldout_proxy_review_gate(eligible)
+
+        regressed_after = {
+            **qualified_after,
+            "negativeLogLikelihoodPerTokenByDomain": {
+                **qualified_after["negativeLogLikelihoodPerTokenByDomain"],
+                "chat": qualified_before["negativeLogLikelihoodPerTokenByDomain"]["chat"] * 1.06,
+            },
+        }
+        regressed_gate = assess_heldout_proxy_review_gate(
+            compare_heldout_reference_loss(qualified_before, regressed_after)
+        )
+        assert regressed_gate["reviewEligible"] is False
+        assert any("chat" in reason and "5%" in reason for reason in regressed_gate["blockers"])
+        try:
+            require_heldout_proxy_review_gate(regressed_gate)
+        except RuntimeError as exc:
+            assert "chat" in str(exc), str(exc)
+        else:
+            raise AssertionError("One degraded specialty must prevent strict artifact export")
+
+        nonimproving_after = {
+            **qualified_before,
+            "referenceNegativeLogLikelihoodPerToken":
+                qualified_before["referenceNegativeLogLikelihoodPerToken"] * 1.01,
+        }
+        no_gain_gate = assess_heldout_proxy_review_gate(
+            compare_heldout_reference_loss(qualified_before, nonimproving_after)
+        )
+        assert not no_gain_gate["reviewEligible"]
+        assert any("Overall" in reason for reason in no_gain_gate["blockers"])
+        assert not assess_heldout_proxy_review_gate({"baseline": qualified_before})["reviewEligible"]
+
         changed_token_count = {
             **after,
             "evaluatedTokensByDomain": {
