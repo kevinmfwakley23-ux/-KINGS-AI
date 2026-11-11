@@ -193,3 +193,57 @@ def compare_heldout_reference_loss(before: dict, after: dict) -> dict:
         "independentExpertQualification": False,
         "scope": "held-out-reference-loss-proxy-only-separate-specialist-evaluations-required",
     }
+
+
+def assess_heldout_proxy_review_gate(comparison: dict | None) -> dict:
+    """Conservatively gate *independent review*, never production deployment.
+
+    A successful three-stage optimizer and improving aggregate loss cannot hide
+    a serious decline in any specialist office. This intentionally uses only
+    sealed teacher-forced references, not claims about generated-answer quality.
+    """
+    from sovereign_lora_trainer import DOMAINS
+
+    blockers = []
+    if comparison is None:
+        blockers.append("No authorized held-out reference comparison is available")
+    else:
+        try:
+            before = comparison["baseline"]
+            after = comparison["final"]
+            verified = compare_heldout_reference_loss(before, after)
+            counts = after["evaluatedExamplesByDomain"]
+            if set(counts) != DOMAINS or any(
+                not isinstance(counts[d], int) or isinstance(counts[d], bool)
+                or counts[d] < 20 for d in DOMAINS
+            ):
+                blockers.append("Each of seven specialties needs at least 20 isolated held-out references")
+            severe = [d for d, fraction in verified["regressionFractionByDomain"].items()
+                      if fraction > 0.05]
+            if severe:
+                blockers.append("Held-out reference loss regressed over 5% for: " + ", ".join(severe))
+            if not verified["improvedDomains"]:
+                blockers.append("No specialty improved its held-out reference loss")
+            baseline_overall = before["referenceNegativeLogLikelihoodPerToken"]
+            final_overall = after["referenceNegativeLogLikelihoodPerToken"]
+            if (not all(isinstance(v, (float, int)) and not isinstance(v, bool)
+                        and math.isfinite(v) and v >= 0
+                        for v in (baseline_overall, final_overall))
+                    or baseline_overall <= 0):
+                blockers.append("Held-out overall reference loss is invalid")
+            elif final_overall >= baseline_overall:
+                blockers.append("Overall held-out reference loss did not improve")
+        except (KeyError, TypeError, ValueError, AttributeError, ZeroDivisionError):
+            blockers.append("Held-out evidence is incomplete or invalid")
+
+    return {
+        "policyVersion": "sovereign-proxy-review-2026-11-10.v1",
+        "status": "blocked" if blockers else "review-eligible",
+        "reviewEligible": not blockers,
+        "blockers": blockers,
+        "minimumHeldOutReferencesPerDomain": 20,
+        "maximumAllowedDomainRegressionFraction": 0.05,
+        "independentExpertQualification": False,
+        "productionQualified": False,
+        "scope": "teacher-forced-held-out-proxy-gate-only-independent-expert-evaluations-still-required",
+    }
