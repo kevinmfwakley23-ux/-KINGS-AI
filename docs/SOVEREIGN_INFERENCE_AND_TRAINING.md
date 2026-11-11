@@ -279,6 +279,19 @@ and `job.hyperparameters.preferenceTrainerSha256`. The launcher verifies
 **both the dataset and the imported optimizer code** before and after the
 run, rejects unbound preference paths or source-code substitution, and
 incorporates both digests in the owner-signed training record.
+**Pinned held-out evaluation code:** For any launch using the production
+`sovereign_lora_trainer.py` script, supply
+`runner.heldoutEvaluatorArtifactPath` pointing to the adjacent
+`sovereign_heldout_stage.py`, and `runner.heldoutEvaluatorSha256`
+equal to both the file's real SHA-256 and
+`job.hyperparameters.heldoutEvaluatorSha256`. The signed launcher
+checks the evaluator's exact filename, location and hash before execution,
+then checks the hash again before authorizing the model-build record.
+Without the evaluator pin, a sovereign training job fails closed. This
+prevents accidental or unauthorized replacement of Python scoring logic;
+it does not establish the quality or independence of the resulting model.
+Approval must cover code and datasets before a real training run.
+
 Never commit training packages, evaluation prompts, model files or
 owner secrets to Git.
 
