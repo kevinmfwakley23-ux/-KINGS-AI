@@ -2,13 +2,15 @@ name: K.I.N.G.S. Android Native APK
 
 on:
   pull_request:
-    branches: [main]
+    # Also verify stacked native-client PRs before the parent integration merges.
+    branches: ["**"]
     paths:
       - "src-tauri/**"
       - "native-shell/**"
       - ".github/workflows/android-native.yml"
       - "development/android-native-package-test.mjs"
       - ".gitignore"
+      - "development/android-emulator-launch-smoke.sh"
   push:
     branches: [main]
     paths:
@@ -17,6 +19,7 @@ on:
       - ".github/workflows/android-native.yml"
       - "development/android-native-package-test.mjs"
       - ".gitignore"
+      - "development/android-emulator-launch-smoke.sh"
   workflow_dispatch:
 
 permissions:
@@ -162,3 +165,35 @@ jobs:
           path: android-artifacts/
           if-no-files-found: error
           retention-days: 90
+
+  emulator-install-launch:
+    # This runs against the EXACT APK exported by the build, not a rebuilt test variant.
+    needs: build-installable-apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Android smoke-test script
+        uses: actions/checkout@v4
+
+      - name: Download the signed, checksummed APK from the build job
+        uses: actions/download-artifact@v4
+        with:
+          name: kings-ai-android-debug-${{ github.sha }}
+          path: android-artifacts
+
+      - name: Permit Android emulator KVM acceleration
+        shell: bash
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+
+      - name: Install and launch APK on a real Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash development/android-emulator-launch-smoke.sh android-artifacts
