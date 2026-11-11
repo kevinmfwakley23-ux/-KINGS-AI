@@ -27,6 +27,9 @@ interface PowerhouseTrainerRunner {
   /** The imported preference optimizer is executable code and must be pinned too. */
   preferenceTrainerArtifactPath?: string;
   preferenceTrainerSha256?: string;
+  /** The sovereign trainer imports this evaluator to score held-out results. */
+  heldoutEvaluatorArtifactPath?: string;
+  heldoutEvaluatorSha256?: string;
   timeoutMs: number;
 }
 
@@ -214,6 +217,22 @@ function validateLaunchManifest(value: unknown): PowerhouseTrainingLaunchManifes
              runner.preferenceTrainerSha256 !== undefined) {
     throw new Error("Unused preference package path and hash are not authorized");
   }
+  // A hash of the main trainer alone does not protect imported Python code.
+  // The sovereign LoRA trainer always imports sovereign_heldout_stage.py,
+  // including during runs without an optional preference package.
+  const sovereignTrainer = typeof runner.trainerArtifactPath === "string" &&
+    runner.trainerArtifactPath.replaceAll("\\", "/").split("/").at(-1) === "sovereign_lora_trainer.py";
+  const evaluatorDeclared = runner.heldoutEvaluatorArtifactPath !== undefined ||
+    runner.heldoutEvaluatorSha256 !== undefined ||
+    manifest.job.hyperparameters?.heldoutEvaluatorSha256 !== undefined;
+  if (sovereignTrainer || evaluatorDeclared) {
+    if (typeof runner.heldoutEvaluatorArtifactPath !== "string" ||
+        !isAbsolute(runner.heldoutEvaluatorArtifactPath) ||
+        !/^[a-f0-9]{64}$/u.test(runner.heldoutEvaluatorSha256 ?? "") ||
+        manifest.job.hyperparameters?.heldoutEvaluatorSha256 !== runner.heldoutEvaluatorSha256) {
+      throw new Error("Owner-locked held-out evaluator path and SHA-256 must match signed job hyperparameters");
+    }
+  }
   return manifest;
 }
 
@@ -235,6 +254,9 @@ class SandboxedTrainerExecution implements PowerhouseTrainingExecutionPort {
       ["benchmark manifest", benchmarkManifestPath],
       ["trainer artifact", trainerArtifactPath],
       ["model artifact", this.modelArtifactPath],
+      ...(runner.heldoutEvaluatorArtifactPath
+        ? [["held-out evaluator", resolve(runner.heldoutEvaluatorArtifactPath)] as const]
+        : []),
       ...(runner.preferencePackagePath
         ? [
             ["preference package", resolve(runner.preferencePackagePath)] as const,
@@ -342,6 +364,21 @@ export async function runPowerhouseTrainingFiles(
       throw new Error("Preference package contents differ from the approved training job");
     }
   }
+  if (launch.runner.heldoutEvaluatorArtifactPath) {
+    const expectedEvaluatorPath = join(
+      dirname(resolve(launch.runner.trainerArtifactPath)), "sovereign_heldout_stage.py",
+    );
+    if (resolve(launch.runner.heldoutEvaluatorArtifactPath) !== expectedEvaluatorPath) {
+      throw new Error("Held-out evaluator must be the pinned Python module beside the supervised trainer");
+    }
+    if (!isWithin(launch.runner.heldoutEvaluatorArtifactPath, launch.runner.workingDirectory)) {
+      throw new Error("Held-out evaluator must stay in the owner-authorized training directory");
+    }
+    if (await fileSha256(launch.runner.heldoutEvaluatorArtifactPath) !==
+        launch.runner.heldoutEvaluatorSha256) {
+      throw new Error("Held-out evaluator code differs from the owner-approved digest");
+    }
+  }
   const release = await acquireLock(options.outputPath);
   try {
     const execution = new SandboxedTrainerExecution(
@@ -354,6 +391,13 @@ export async function runPowerhouseTrainingFiles(
       trainingPackage,
       benchmarkManifest,
     );
+    if (await fileSha256(launch.runner.trainerArtifactPath) !== launch.job.trainer.immutableDigest) {
+      throw new Error("Supervised trainer changed during training; refusing signed model promotion");
+    }
+    if (launch.runner.heldoutEvaluatorArtifactPath &&
+        await fileSha256(launch.runner.heldoutEvaluatorArtifactPath) !== launch.runner.heldoutEvaluatorSha256) {
+      throw new Error("Held-out evaluator changed during training; refusing signed model promotion");
+    }
     if (launch.runner.preferencePackagePath &&
         await fileSha256(launch.runner.preferencePackagePath) !== launch.runner.preferencePackageSha256) {
       throw new Error("Preference data changed during training; refusing signed model promotion");
