@@ -2,9 +2,10 @@ name: K.I.N.G.S. Sovereign Three-Stage End-to-End
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, codex/powerhouse-training-android-20261030]
     paths:
       - "runtimes/powerhouse-training/sovereign_lora_trainer.py"
+      - "runtimes/powerhouse-training/sovereign_base_model_fingerprint.py"
       - "runtimes/powerhouse-training/sovereign_preference_stage.py"
       - "runtimes/powerhouse-training/sovereign_heldout_stage.py"
       - "development/sovereign-end-to-end-training-smoke.py"
