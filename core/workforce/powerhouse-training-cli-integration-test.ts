@@ -191,6 +191,10 @@ async function run(): Promise<void> {
     const preferenceTrainerSource = "# integration fixture: executable owner source must be hash-pinned\n";
     await writeFile(preferenceTrainerPath, preferenceTrainerSource, { mode: 0o600 });
     const preferenceTrainerHash = createHash("sha256").update(preferenceTrainerSource).digest("hex");
+    const evaluatorPath = join(directory, "sovereign_heldout_stage.py");
+    const evaluatorSource = "# verified fixture\n";
+    await writeFile(evaluatorPath, evaluatorSource, { mode: 0o600 });
+    const evaluatorHash = createHash("sha256").update(evaluatorSource).digest("hex");
     const dualOutputPath = join(directory, "second-build-record.json");
     const dualArtifactPath = join(directory, "second-model.bin");
     const dualJob: PowerhouseTrainingJob = {
@@ -202,6 +206,7 @@ async function run(): Promise<void> {
         ...job.hyperparameters,
         preferencePackageSha256: preferenceHash,
         preferenceTrainerSha256: preferenceTrainerHash,
+        heldoutEvaluatorSha256: evaluatorHash,
       },
     };
     const dualRunner = {
@@ -216,6 +221,8 @@ async function run(): Promise<void> {
       preferencePackageSha256: preferenceHash,
       preferenceTrainerArtifactPath: preferenceTrainerPath,
       preferenceTrainerSha256: preferenceTrainerHash,
+      heldoutEvaluatorArtifactPath: evaluatorPath,
+      heldoutEvaluatorSha256: evaluatorHash,
       timeoutMs: 30_000,
     };
     const dualRequest = {
@@ -250,6 +257,84 @@ async function run(): Promise<void> {
     assert.equal(dualArtifact.buildRecord.hyperparameters.preferencePackageSha256, preferenceHash);
     verifyPowerhouseSignedBuildArtifact(dualArtifact, ownerToken);
     assert.ok((await stat(dualArtifactPath)).size > 0);
+
+
+
+    // A signed sovereign training job cannot omit the evaluator digest.
+    await writeFile(launchManifestPath, JSON.stringify({
+      schemaVersion: "1",
+      job: { ...dualJob, hyperparameters: {
+        ...dualJob.hyperparameters, heldoutEvaluatorSha256: undefined,
+      } },
+      runner: { ...dualRunner,
+        trainerArtifactPath: join(directory, "sovereign_lora_trainer.py"),
+        heldoutEvaluatorArtifactPath: undefined, heldoutEvaluatorSha256: undefined,
+      },
+    }));
+    await assert.rejects(
+      runPowerhouseTrainingFiles({
+        ...dualRequest, outputPath: join(directory, "missing-evaluator-build.json"),
+      }, { KINGS_CODING_MACHINE_TOKEN: ownerToken }),
+      /Owner-locked held-out evaluator path and SHA-256 must match/u,
+    );
+
+    await writeFile(launchManifestPath, JSON.stringify({
+      schemaVersion: "1", job: dualJob,
+      runner: { ...dualRunner, heldoutEvaluatorSha256: "0".repeat(64) },
+    }));
+    await assert.rejects(
+      runPowerhouseTrainingFiles({
+        ...dualRequest, outputPath: join(directory, "bad-evaluator-hash-build.json"),
+      }, { KINGS_CODING_MACHINE_TOKEN: ownerToken }),
+      /Owner-locked held-out evaluator path and SHA-256 must match/u,
+    );
+    await writeFile(launchManifestPath, JSON.stringify({
+      schemaVersion: "1", job: dualJob, runner: dualRunner,
+    }));
+    await writeFile(evaluatorPath, evaluatorSource + "# modified\n");
+    await assert.rejects(
+      runPowerhouseTrainingFiles({
+        ...dualRequest, outputPath: join(directory, "tampered-evaluator-build.json"),
+      }, { KINGS_CODING_MACHINE_TOKEN: ownerToken }),
+      /Held-out evaluator code differs from the owner-approved digest/u,
+    );
+    await writeFile(evaluatorPath, evaluatorSource);
+
+
+    // Exercise the post-execution digest check against a real subprocess that
+    // alters imported evaluator source after writing its output model file.
+    const mutatorPath = join(directory, "mutator-trainer.cjs");
+    const mutatorSource = trainerSource +
+      '\nrequire("node:fs").appendFileSync(' +
+      JSON.stringify(evaluatorPath) + ', "# changed while training\\n");\n';
+    await writeFile(mutatorPath, mutatorSource, { mode: 0o700 });
+    const mutatorDigest = createHash("sha256").update(mutatorSource).digest("hex");
+    const mutatedJob: PowerhouseTrainingJob = {
+      ...dualJob,
+      jobId: "training-job-cli-mutate-003",
+      buildId: "model-build-cli-mutate-003",
+      outputModelId: "kings-powerhouse-cli-mutate-003",
+      trainer: { ...dualJob.trainer, immutableDigest: mutatorDigest },
+    };
+    await writeFile(launchManifestPath, JSON.stringify({
+      schemaVersion: "1", job: mutatedJob,
+      runner: {
+        ...dualRunner,
+        trainerArtifactPath: mutatorPath,
+        args: [mutatorPath, ...dualRunner.args.slice(1)],
+        modelArtifactPath: join(directory, "mutated-model.bin"),
+      },
+    }));
+    const mutatedRecordPath = join(directory, "mutated-model-build-record.json");
+    await assert.rejects(
+      runPowerhouseTrainingFiles({
+        ...dualRequest, outputPath: mutatedRecordPath,
+      }, { KINGS_CODING_MACHINE_TOKEN: ownerToken }),
+      /Held-out evaluator changed during training; refusing signed model promotion/u,
+    );
+    await assert.rejects(readFile(mutatedRecordPath), { code: "ENOENT" });
+    await writeFile(evaluatorPath, evaluatorSource);
+    await writeFile(launchManifestPath, JSON.stringify({ schemaVersion: "1", job: dualJob, runner: dualRunner }));
 
     // An altered optimizer module must be rejected before execution.
     await writeFile(preferenceTrainerPath, preferenceTrainerSource + "# modified\n");
