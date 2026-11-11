@@ -74,4 +74,14 @@ assert.match(workflow, /actions\/upload-artifact@v4/);
 assert.match(workflow, /if-no-files-found:\s*error/);
 assert.match(workflow, /development\/android-native-package-test\.mjs/, "the workflow must execute this packaging contract before native build work");
 
+const emulatorSmoke = read("development/android-emulator-launch-smoke.sh");
+assert.match(workflow, /emulator-install-launch:\\s*\\n\\s*needs: build-installable-apk/, "APK must be installed from a dependent emulator job");
+assert.match(workflow, /actions\\/download-artifact@v4/, "emulator must download the actual published APK");
+assert.match(workflow, /reactivecircus\\/android-emulator-runner@v2/, "emulator runtime must execute during GitHub CI");
+assert.match(workflow, /bash development\\/android-emulator-launch-smoke\\.sh android-artifacts/, "emulator job must launch the shared verified APK");
+assert.match(emulatorSmoke, /sha256sum --check SHA256SUMS/, "downloaded APK must be hash-checked again");
+assert.match(emulatorSmoke, /adb install -r/, "APK must be installed through Android Debug Bridge");
+assert.match(emulatorSmoke, /adb shell monkey -p/, "test must start the actual launcher");
+assert.match(emulatorSmoke, /adb shell pidof/, "test must prove K.I.N.G.S. process is alive");
+
 console.log("K.I.N.G.S. Android native packaging + official brand contract: SUCCESS");
