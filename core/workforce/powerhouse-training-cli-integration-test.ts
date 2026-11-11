@@ -259,6 +259,25 @@ async function run(): Promise<void> {
     assert.ok((await stat(dualArtifactPath)).size > 0);
 
 
+
+    // A signed sovereign training job cannot omit the evaluator digest.
+    await writeFile(launchManifestPath, JSON.stringify({
+      schemaVersion: "1",
+      job: { ...dualJob, hyperparameters: {
+        ...dualJob.hyperparameters, heldoutEvaluatorSha256: undefined,
+      } },
+      runner: { ...dualRunner,
+        trainerArtifactPath: join(directory, "sovereign_lora_trainer.py"),
+        heldoutEvaluatorArtifactPath: undefined, heldoutEvaluatorSha256: undefined,
+      },
+    }));
+    await assert.rejects(
+      runPowerhouseTrainingFiles({
+        ...dualRequest, outputPath: join(directory, "missing-evaluator-build.json"),
+      }, { KINGS_CODING_MACHINE_TOKEN: ownerToken }),
+      /Owner-locked held-out evaluator path and SHA-256 must match/u,
+    );
+
     await writeFile(launchManifestPath, JSON.stringify({
       schemaVersion: "1", job: dualJob,
       runner: { ...dualRunner, heldoutEvaluatorSha256: "0".repeat(64) },
