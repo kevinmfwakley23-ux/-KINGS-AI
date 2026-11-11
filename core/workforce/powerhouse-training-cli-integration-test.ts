@@ -191,6 +191,10 @@ async function run(): Promise<void> {
     const preferenceTrainerSource = "# integration fixture: executable owner source must be hash-pinned\n";
     await writeFile(preferenceTrainerPath, preferenceTrainerSource, { mode: 0o600 });
     const preferenceTrainerHash = createHash("sha256").update(preferenceTrainerSource).digest("hex");
+    const evaluatorPath = join(directory, "sovereign_heldout_stage.py");
+    const evaluatorSource = "# verified fixture\n";
+    await writeFile(evaluatorPath, evaluatorSource, { mode: 0o600 });
+    const evaluatorHash = createHash("sha256").update(evaluatorSource).digest("hex");
     const dualOutputPath = join(directory, "second-build-record.json");
     const dualArtifactPath = join(directory, "second-model.bin");
     const dualJob: PowerhouseTrainingJob = {
@@ -202,6 +206,7 @@ async function run(): Promise<void> {
         ...job.hyperparameters,
         preferencePackageSha256: preferenceHash,
         preferenceTrainerSha256: preferenceTrainerHash,
+        heldoutEvaluatorSha256: evaluatorHash,
       },
     };
     const dualRunner = {
@@ -216,6 +221,8 @@ async function run(): Promise<void> {
       preferencePackageSha256: preferenceHash,
       preferenceTrainerArtifactPath: preferenceTrainerPath,
       preferenceTrainerSha256: preferenceTrainerHash,
+      heldoutEvaluatorArtifactPath: evaluatorPath,
+      heldoutEvaluatorSha256: evaluatorHash,
       timeoutMs: 30_000,
     };
     const dualRequest = {
