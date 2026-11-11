@@ -100,13 +100,14 @@ def write_local_random_model(directory: Path, examples: list[dict], pairs: list[
 
 def main():
     parser = argparse.ArgumentParser(description="Run real offline training stages on disposable random test weights")
-    parser.add_argument("--training-profile", choices=("standard", "double"), default="standard")
+    parser.add_argument("--training-profile", choices=("standard", "double", "triple"), default="standard")
     args = parser.parse_args()
-    doubled = args.training_profile == "double"
-    expected_supervised_epochs = 6 if doubled else 3
-    expected_preference_epochs = 6 if doubled else 3
-    expected_retention_epochs = 2 if doubled else 1
-    heldout_per_domain = 20 if doubled else 1
+    intensity = {"standard": 1, "double": 2, "triple": 3}[args.training_profile]
+    full_heldout = intensity > 1
+    expected_supervised_epochs = 3 * intensity
+    expected_preference_epochs = 3 * intensity
+    expected_retention_epochs = intensity
+    heldout_per_domain = 20 if full_heldout else 1
     examples, pairs = create_corpus()
     assert len(examples) == len(pairs) == 7 * 20
     with tempfile.TemporaryDirectory(prefix="kings-three-stage-e2e-") as temp:
@@ -151,9 +152,10 @@ def main():
             "--preference-package", str(preferences),
             "--benchmark-manifest", str(evaluation),
             "--model-artifact", str(artifact),
-            # Standard exercises 3/3/1; guarded double exercises the full
-            # 6/6/2 optimizer schedule with 20 isolated held-out references
-            # per domain. Neither uses real licensed owner model weights.
+            # Standard 3/3/1, double 6/6/2 and triple 9/9/3 all execute
+            # real offline gradients on randomly initialized tiny CI weights;
+            # intensive profiles require 20 isolated held-out references per
+            # domain. None demonstrates production model quality.
             "--training-profile", args.training_profile,
             "--retention-epochs", "1",
             "--batch-size", "16",
@@ -197,14 +199,14 @@ def main():
         assert metadata["heldOutReferenceCount"] == len(DOMAINS) * heldout_per_domain
         heldout_evidence = metadata["heldOutReferenceEvaluation"]
         assert heldout_evidence["independentExpertQualification"] is False
-        assert heldout_evidence["hasAtLeast20ReferencesPerDomain"] is doubled
+        assert heldout_evidence["hasAtLeast20ReferencesPerDomain"] is full_heldout
         proxy_gate = metadata["heldOutProxyReviewGate"]
         assert proxy_gate["status"] in ("blocked", "review-eligible"), proxy_gate
         assert proxy_gate["reviewEligible"] == (proxy_gate["status"] == "review-eligible")
         assert proxy_gate["productionQualified"] is False
         assert proxy_gate["independentExpertQualification"] is False
         assert proxy_gate["minimumHeldOutReferencesPerDomain"] == 20
-        if not doubled:
+        if not full_heldout:
             assert proxy_gate["status"] == "blocked", "seven references cannot qualify proxy review"
         if heldout_evidence["anyDomainRegressedOverFivePercent"]:
             assert proxy_gate["status"] == "blocked", "serious held-out regression must fail the review gate"

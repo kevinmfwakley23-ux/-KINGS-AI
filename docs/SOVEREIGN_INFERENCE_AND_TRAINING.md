@@ -480,3 +480,44 @@ Android/Mac/Windows device acceptance. Benchmarks without reference answers
 remain supported and produce `heldOutReferenceEvaluation: null`; that is
 **unverified**, never a pass. Tests and CI use synthetic reference answers and
 random local weights, not actual owner-licensed production training.
+
+
+## Triple-intensity training profile (9/9/3)
+
+The owner may explicitly select `--training-profile triple` instead of
+`standard` (3 supervised / 3 preference / 1 retention epochs) or `double`
+(6 / 6 / 2). The triple schedule executes **9 supervised LoRA epochs, 9
+preference DPO epochs and 3 anchored-retention epochs** with the existing
+offline, real-gradient optimizers. It is **three times the standard epoch
+schedule, not three new algorithms, three times as many distinct training
+examples, an independently trained foundation model, or proof of better
+performance**. Triple remains opt-in; the default is unchanged.
+
+Triple preflight requires an additional rights-cleared preference package,
+strictly disjoint training and held-out groups, and **at least 20
+evaluation-only rights-attested held-out references in each of the seven
+specialties**, with no conflicting per-stage epoch overrides. The existing
+bounded hyperparameters, real-weight-change checks, per-office rehearsal-loss
+regression guard and held-out proxy measurements remain active. To prohibit
+export when the held-out proxy review is blocked, additionally specify
+`--require-proxy-review-gate`. A proxy loss check cannot replace held-out
+generated-answer review by independent experts, model competition or real
+Android hardware testing. Overtraining remains possible.
+
+For preflight:
+```bash
+python3 runtimes/powerhouse-training/sovereign_lora_trainer.py \
+  --base-model /private/models/licensed-base \
+  --training-package /private/kings/train-package.json \
+  --preference-package /private/kings/preferences.json \
+  --benchmark-manifest /private/kings/benchmark-manifest.json \
+  --model-artifact /private/kings/output/kings-triple-adapter.zip \
+  --training-profile triple --require-proxy-review-gate --validate-only
+```
+
+The dedicated CI exercises all three existing optimizer stages on disposable
+tiny **randomly initialized** local model weights for each profile, checks
+actual output safetensors and per-stage epoch counts, and never publishes
+those test weights as an intelligent product. A production training run
+requires separately authorized base weights, data, hardware and owner-reviewed
+held-out evaluations.

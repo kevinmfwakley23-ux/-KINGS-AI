@@ -123,6 +123,9 @@ try {
   const noEvidenceDouble = run([...dualArgs, "--training-profile", "double"]);
   assert.notEqual(noEvidenceDouble.status, 0);
   assert.match(noEvidenceDouble.stderr, /at least 20 evaluation-only held-out references/);
+  const noEvidenceTriple = run([...dualArgs, "--training-profile", "triple"]);
+  assert.notEqual(noEvidenceTriple.status, 0);
+  assert.match(noEvidenceTriple.stderr, /at least 20 evaluation-only held-out references/);
   const conflictingDouble = run([...dualArgs, "--training-profile", "double", "--epochs", "4"]);
   assert.notEqual(conflictingDouble.status, 0);
   assert.match(conflictingDouble.stderr, /cannot combine with stage-specific epoch overrides/);
@@ -154,6 +157,29 @@ try {
   assert.equal(doublePlan.heldOutReferenceCount, 140);
   assert.equal(doublePlan.trained, false);
   assert.equal(existsSync(artifact), false, "double preflight must not invent trained weights");
+
+  // Triple-intensity (9/9/3) must be an explicit authorized choice. It
+  // reuses the same real optimizers and cannot claim new data or competence.
+  const noDpoTriple = run([...args, "--training-profile", "triple"]);
+  assert.notEqual(noDpoTriple.status, 0);
+  assert.match(noDpoTriple.stderr, /separately authorized preference package/);
+  const conflictingTriple = run([...dualArgs, "--training-profile", "triple", "--retention-epochs", "2"]);
+  assert.notEqual(conflictingTriple.status, 0);
+  assert.match(conflictingTriple.stderr, /cannot combine with stage-specific epoch overrides/);
+  const tripled = run([...dualArgs, "--training-profile", "triple"]);
+  assert.equal(tripled.status, 0, tripled.stderr);
+  const triplePlan = JSON.parse(tripled.stdout);
+  assert.equal(triplePlan.trainingProfile, "triple");
+  assert.equal(triplePlan.supervisedEpochs, 9);
+  assert.equal(triplePlan.preferenceEpochs, 9);
+  assert.equal(triplePlan.retentionEpochs, 3);
+  assert.equal(triplePlan.heldOutReferenceCount, 140);
+  assert.equal(triplePlan.validatedExamples, 140);
+  assert.equal(triplePlan.validatedPreferencePairs, 140);
+  assert.deepEqual(triplePlan.trainingStages,
+    ["supervised-lora", "preference-dpo", "anchored-retention-rehearsal"]);
+  assert.equal(triplePlan.trained, false);
+  assert.equal(existsSync(artifact), false, "triple preflight must not invent trained weights");
   writeFileSync(benchmark, JSON.stringify({
     items: [{ id: "held-out", split: "held-out", sourceGroupId: "held-out-source",
       prompt: "Unseen private benchmark content" }],
