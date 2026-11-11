@@ -36,6 +36,8 @@ try {
   const base = join(home, "licensed-base");
   mkdirSync(base);
   writeFileSync(join(base, "config.json"), '{"model_type":"test"}\n');
+  // This is only a synthetic preflight fixture; it is never loaded or trained.
+  writeFileSync(join(base, "model.safetensors"), "synthetic-fixture-weights");
   const training = join(home, "training.json");
   const benchmark = join(home, "benchmark.json");
   const artifact = join(home, "adapter.zip");
@@ -73,6 +75,14 @@ try {
   const accepted = run(args);
   assert.equal(accepted.status, 0, accepted.stderr);
   assert.equal(JSON.parse(accepted.stdout).validatedExamples, 140);
+  const firstBaseFingerprint = JSON.parse(accepted.stdout).baseModelFingerprintSha256;
+  assert.match(firstBaseFingerprint, /^[a-f0-9]{64}$/);
+  assert.equal(JSON.parse(accepted.stdout).baseModelWeightFileCount, 1);
+  writeFileSync(join(base, "model.safetensors"), "mutated-synthetic-fixture-weights");
+  const changedBase = run(args);
+  assert.equal(changedBase.status, 0, changedBase.stderr);
+  assert.notEqual(JSON.parse(changedBase.stdout).baseModelFingerprintSha256, firstBaseFingerprint);
+  writeFileSync(join(base, "model.safetensors"), "synthetic-fixture-weights");
   assert.equal(JSON.parse(accepted.stdout).supervisedEpochs, 3);
   assert.equal(JSON.parse(accepted.stdout).preferenceEpochs, 0);
   assert.equal(JSON.parse(accepted.stdout).retentionEpochs, 0);

@@ -195,6 +195,11 @@ def main():
         assert metadata["exampleCount"] == 140, "source-example count must not be inflated by segmentation"
         assert metadata["supervisedSegmentCount"] >= 140
         assert metadata["trainingProfile"] == args.training_profile
+        # The archive must attest the actual bytes of the approved local base.
+        assert len(metadata["baseModelFingerprintSha256"]) == 64
+        assert metadata["baseModelWeightFileCount"] >= 1
+        assert metadata["baseModelFileCount"] >= metadata["baseModelWeightFileCount"]
+        assert metadata["baseModelTotalBytes"] > 0
         assert metadata["epochs"] == expected_supervised_epochs, "incorrect number of real supervised epochs"
         assert metadata["heldOutReferenceCount"] == len(DOMAINS) * heldout_per_domain
         heldout_evidence = metadata["heldOutReferenceEvaluation"]

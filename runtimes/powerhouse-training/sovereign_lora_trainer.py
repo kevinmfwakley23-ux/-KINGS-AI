@@ -22,6 +22,8 @@ import re
 import tempfile
 import zipfile
 
+from sovereign_base_model_fingerprint import fingerprint_base_model
+
 DOMAINS = frozenset({
     "chat", "coding", "collectibles", "sports-cards",
     "book-editing", "publishing", "storytelling",
@@ -266,6 +268,8 @@ def main() -> None:
             )
     if args.model_artifact.exists():
         raise FileExistsError("Refusing to overwrite an existing trained model artifact")
+    # Attest the actual local model bytes, not only the config.json identity.
+    base_fingerprint = fingerprint_base_model(args.base_model)
     if args.validate_only:
         print(json.dumps({"ok": True, "validatedExamples": len(examples),
                           "validatedPreferencePairs": len(preferences) if preferences is not None else 0,
@@ -280,7 +284,10 @@ def main() -> None:
                                   ["anchored-retention-rehearsal"] if args.retention_epochs else []
                               ) if preferences is not None else []
                           ),
-                          "baseModel": args.base_model.name, "trained": False}))
+                          "baseModel": args.base_model.name,
+                          "baseModelFingerprintSha256": base_fingerprint["sha256"],
+                          "baseModelWeightFileCount": base_fingerprint["weightFileCount"],
+                          "trained": False}))
         return
 
     # Prevent Hugging Face libraries from fetching model weights, code or data.
@@ -470,6 +477,10 @@ def main() -> None:
         proxy_review_gate = assess_heldout_proxy_review_gate(heldout_evidence)
         if args.require_proxy_review_gate:
             require_heldout_proxy_review_gate(proxy_review_gate)
+        # Fail closed if a shared/mutable base directory changed mid-training.
+        # Never export an adapter whose starting model cannot be identified.
+        if fingerprint_base_model(args.base_model) != base_fingerprint:
+            raise RuntimeError("Base-model files changed during training; refusing model artifact export")
         adapter = root / "adapter"
         model.save_pretrained(str(adapter), safe_serialization=True)
         tokenizer.save_pretrained(str(adapter))
@@ -480,6 +491,10 @@ def main() -> None:
             "format": "kings-sovereign-lora-adapter-v1",
             "baseModel": args.base_model.name,
             "baseConfigSha256": sha256(args.base_model / "config.json"),
+            "baseModelFingerprintSha256": base_fingerprint["sha256"],
+            "baseModelWeightFileCount": base_fingerprint["weightFileCount"],
+            "baseModelFileCount": base_fingerprint["fileCount"],
+            "baseModelTotalBytes": base_fingerprint["totalBytes"],
             "trainingPackageSha256": sha256(args.training_package),
             "benchmarkManifestSha256": sha256(args.benchmark_manifest),
             # Licensed examples and derived context segments are different counts.
