@@ -75,7 +75,7 @@ assert.match(workflow, /if-no-files-found:\s*error/);
 assert.match(workflow, /development\/android-native-package-test\.mjs/, "the workflow must execute this packaging contract before native build work");
 
 const emulatorSmoke = read("development/android-emulator-launch-smoke.sh");
-assert.match(workflow, /emulator-install-launch:\s*\n\s*needs: build-installable-apk/, "APK must be installed from a dependent emulator job");
+assert.match(workflow, /emulator-install-launch:[\s\S]*?\n\s*needs: build-installable-apk/, "APK must be installed from a dependent emulator job");
 assert.match(workflow, /actions\/download-artifact@v4/, "emulator must download the actual published APK");
 assert.match(workflow, /reactivecircus\/android-emulator-runner@v2/, "emulator runtime must execute during GitHub CI");
 assert.match(workflow, /bash development\/android-emulator-launch-smoke\.sh android-artifacts/, "emulator job must launch the shared verified APK");
