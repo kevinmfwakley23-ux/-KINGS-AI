@@ -521,3 +521,30 @@ actual output safetensors and per-stage epoch counts, and never publishes
 those test weights as an intelligent product. A production training run
 requires separately authorized base weights, data, hardware and owner-reviewed
 held-out evaluations.
+
+## Immutable base-model byte provenance (owner-controlled snapshots)
+
+Training preflight now fingerprints the **actual local base-model files**, not
+just `config.json`. Every regular file (including tokenizer assets and the
+nonempty `.safetensors` or PyTorch model weights) contributes its relative path,
+byte count, and SHA-256 content hash to a deterministic aggregate digest.
+The trainer rejects missing weights, zero-length files, symlinks and more than
+8192 model files. Point it to an immutable, privately controlled snapshot
+rather than a mutable Hugging Face cache containing symlinked assets.
+
+`--validate-only` outputs `baseModelFingerprintSha256` and
+`baseModelWeightFileCount`. Real gradient training recomputes the fingerprint
+before exporting its LoRA adapter. If the underlying base-model files changed
+during training, artifact export is refused. Successful artifacts record
+`baseModelFingerprintSha256`, `baseModelWeightFileCount`,
+`baseModelFileCount`, and `baseModelTotalBytes` along with the existing
+training/evaluation provenance.
+
+This is reproducibility evidence for **the same starting bytes**, not proof
+of training rights, model quality, release eligibility or physical Android
+readiness. The owner must still verify the actual base-model license and
+authorize every dataset and benchmark. For a dependency-free local regression:
+
+```bash
+python3 development/sovereign-base-model-fingerprint-test.py
+```
