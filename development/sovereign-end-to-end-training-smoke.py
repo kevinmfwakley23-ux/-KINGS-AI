@@ -198,6 +198,16 @@ def main():
         heldout_evidence = metadata["heldOutReferenceEvaluation"]
         assert heldout_evidence["independentExpertQualification"] is False
         assert heldout_evidence["hasAtLeast20ReferencesPerDomain"] is doubled
+        proxy_gate = metadata["heldOutProxyReviewGate"]
+        assert proxy_gate["status"] in ("blocked", "review-eligible"), proxy_gate
+        assert proxy_gate["reviewEligible"] == (proxy_gate["status"] == "review-eligible")
+        assert proxy_gate["productionQualified"] is False
+        assert proxy_gate["independentExpertQualification"] is False
+        assert proxy_gate["minimumHeldOutReferencesPerDomain"] == 20
+        if not doubled:
+            assert proxy_gate["status"] == "blocked", "seven references cannot qualify proxy review"
+        if heldout_evidence["anyDomainRegressedOverFivePercent"]:
+            assert proxy_gate["status"] == "blocked", "serious held-out regression must fail the review gate"
         assert set(heldout_evidence["baseline"]["evaluatedExamplesByDomain"]) == set(DOMAINS)
         assert set(heldout_evidence["final"]["evaluatedTokensByDomain"]) == set(DOMAINS)
         assert all(count == heldout_per_domain for count in heldout_evidence["final"]["evaluatedExamplesByDomain"].values())
