@@ -365,7 +365,7 @@ def main() -> None:
     # Evaluate the same fixed unseen subset before any gradient update.
     from sovereign_heldout_stage import (
         measure_heldout_reference_loss, compare_heldout_reference_loss,
-        assess_heldout_proxy_review_gate,
+        assess_heldout_proxy_review_gate, require_heldout_proxy_review_gate,
     )
     baseline_heldout = measure_heldout_reference_loss(
         model, tokenizer, heldout_references, max_length=args.max_length
@@ -463,11 +463,8 @@ def main() -> None:
             baseline_heldout, final_heldout
         ) if final_heldout is not None else None
         proxy_review_gate = assess_heldout_proxy_review_gate(heldout_evidence)
-        if args.require_proxy_review_gate and not proxy_review_gate["reviewEligible"]:
-            raise RuntimeError(
-                "Refusing model artifact export: held-out candidate review gate blocked: "
-                + "; ".join(proxy_review_gate["blockers"])
-            )
+        if args.require_proxy_review_gate:
+            require_heldout_proxy_review_gate(proxy_review_gate)
         adapter = root / "adapter"
         model.save_pretrained(str(adapter), safe_serialization=True)
         tokenizer.save_pretrained(str(adapter))
