@@ -258,6 +258,29 @@ async function run(): Promise<void> {
     verifyPowerhouseSignedBuildArtifact(dualArtifact, ownerToken);
     assert.ok((await stat(dualArtifactPath)).size > 0);
 
+
+    await writeFile(launchManifestPath, JSON.stringify({
+      schemaVersion: "1", job: dualJob,
+      runner: { ...dualRunner, heldoutEvaluatorSha256: "0".repeat(64) },
+    }));
+    await assert.rejects(
+      runPowerhouseTrainingFiles({
+        ...dualRequest, outputPath: join(directory, "bad-evaluator-hash-build.json"),
+      }, { KINGS_CODING_MACHINE_TOKEN: ownerToken }),
+      /Owner-locked held-out evaluator path and SHA-256 must match/u,
+    );
+    await writeFile(launchManifestPath, JSON.stringify({
+      schemaVersion: "1", job: dualJob, runner: dualRunner,
+    }));
+    await writeFile(evaluatorPath, evaluatorSource + "# modified\n");
+    await assert.rejects(
+      runPowerhouseTrainingFiles({
+        ...dualRequest, outputPath: join(directory, "tampered-evaluator-build.json"),
+      }, { KINGS_CODING_MACHINE_TOKEN: ownerToken }),
+      /Held-out evaluator code differs from the owner-approved digest/u,
+    );
+    await writeFile(evaluatorPath, evaluatorSource);
+
     // An altered optimizer module must be rejected before execution.
     await writeFile(preferenceTrainerPath, preferenceTrainerSource + "# modified\n");
     await assert.rejects(
