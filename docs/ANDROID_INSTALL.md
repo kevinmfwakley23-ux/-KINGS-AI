@@ -51,3 +51,17 @@ that key must live in an approved secret manager and must never be committed.
   package does not independently prove specialist model quality or offline use.
 - Run `npm run verify` before deployment and verify `/health` plus authenticated
   owner status after deployment.
+
+## Automated Android installation and launch check
+
+The Android native workflow now has a separate **emulator-install-launch**
+verification job after the APK build. It downloads the **same exported signed
+APK** (rather than rebuilding a special test app), rechecks SHA-256, installs
+it onto an Android 15 x86_64 emulator, launches the K.I.N.G.S. app and checks
+that its process remains alive. Failure causes the workflow to fail.
+
+This is a *new CI requirement*; it is verified only after the new branch's
+workflow completes successfully. Emulator launch is not proof of a functional
+owner login, live AI inference, physical Android hardware, or production
+security. Physical phone installation and owner-operated HTTPS/backend
+validation remain mandatory before general release.
