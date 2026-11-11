@@ -207,6 +207,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lora-rank", type=int, default=16)
     parser.add_argument("--learning-rate", type=float, default=0.0001)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--require-proxy-review-gate", action="store_true",
+                        help="Fail training artifact export when held-out evidence is missing or review gate is blocked")
     parser.add_argument("--validate-only", action="store_true",
                         help="Preflight source permissions and model directory without training")
     return parser.parse_args()
@@ -361,7 +363,10 @@ def main() -> None:
     ))
     # Never put held-out references in the optimizer's train_dataset.
     # Evaluate the same fixed unseen subset before any gradient update.
-    from sovereign_heldout_stage import measure_heldout_reference_loss, compare_heldout_reference_loss
+    from sovereign_heldout_stage import (
+        measure_heldout_reference_loss, compare_heldout_reference_loss,
+        assess_heldout_proxy_review_gate,
+    )
     baseline_heldout = measure_heldout_reference_loss(
         model, tokenizer, heldout_references, max_length=args.max_length
     ) if heldout_references else None
@@ -457,6 +462,12 @@ def main() -> None:
         heldout_evidence = compare_heldout_reference_loss(
             baseline_heldout, final_heldout
         ) if final_heldout is not None else None
+        proxy_review_gate = assess_heldout_proxy_review_gate(heldout_evidence)
+        if args.require_proxy_review_gate and not proxy_review_gate["reviewEligible"]:
+            raise RuntimeError(
+                "Refusing model artifact export: held-out candidate review gate blocked: "
+                + "; ".join(proxy_review_gate["blockers"])
+            )
         adapter = root / "adapter"
         model.save_pretrained(str(adapter), safe_serialization=True)
         tokenizer.save_pretrained(str(adapter))
@@ -500,6 +511,7 @@ def main() -> None:
             "preferenceStage": preference_evidence,
             "retentionStage": retention_evidence,
             "heldOutReferenceEvaluation": heldout_evidence,
+            "heldOutProxyReviewGate": proxy_review_gate,
             "heldOutReferenceCount": len(heldout_references),
             "independentSpecialistQualification": False,
             "notes": "Real fine-tuned adapter, not a claim of top-tier capability or a merged deployable model.",
