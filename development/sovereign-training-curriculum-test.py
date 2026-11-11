@@ -8,11 +8,15 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import sys
 from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "runtimes" / "powerhouse-training" / "sovereign_lora_trainer.py"
+# Direct importlib loading does not automatically add the sibling training
+# modules directory to sys.path (unlike invoking the trainer as a script).
+sys.path.insert(0, str(SCRIPT.parent))
 spec = importlib.util.spec_from_file_location("kings_sovereign_trainer_test", SCRIPT)
 assert spec is not None and spec.loader is not None
 trainer = importlib.util.module_from_spec(spec)
