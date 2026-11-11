@@ -450,6 +450,24 @@ losses, reductions by specialty, which domains improved, and whether each
 specialty had 20 evaluated references. The complete benchmark file is hashed;
 the metadata does not contain private reference answers.
 
+**Offline candidate-review gate (November 10, 2026):** The trainer now records
+\`heldOutProxyReviewGate\` in every generated adapter's metadata. Its status
+is \`blocked\` unless the *same* isolated held-out references include at least
+20 examples in each of all seven specialties, overall reference-token loss
+improves, at least one specialty improves, and **no specialty's reference loss
+increases more than 5%**. This specifically prevents a favorable aggregate
+metric from hiding serious deterioration in coding, cards, books, or any other
+specialty. Add \`--require-proxy-review-gate\` to the direct offline Python
+trainer invocation when the owner wants fail-closed export: after all training
+and scoring, a blocked gate raises an error **before writing the adapter ZIP**.
+Without that flag the trainer still saves the adapter and the blocked evidence
+for diagnosis; it must not be treated as release-qualified. This is a proxy
+review gate, not an independent specialist evaluation or production-deployment
+authorization; even status \`review-eligible\` never sets
+\`independentExpertQualification\` or \`productionQualified\` to true.
+Tests use synthetic data and random local weights; they do not measure the
+quality of an actual production model.
+
 **Interpretation:** lower unseen reference loss can be useful independent
 evidence for one *surrogate metric*, but it cannot verify reliable generated
 code, collectible grading, sports facts, books, narrative quality, refusal
