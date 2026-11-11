@@ -247,3 +247,13 @@ def assess_heldout_proxy_review_gate(comparison: dict | None) -> dict:
         "productionQualified": False,
         "scope": "teacher-forced-held-out-proxy-gate-only-independent-expert-evaluations-still-required",
     }
+
+
+def require_heldout_proxy_review_gate(gate: dict) -> None:
+    """Refuse artifact export on insufficient or regressing unseen evidence."""
+    if not isinstance(gate, dict) or gate.get("status") != "review-eligible" or gate.get("reviewEligible") is not True:
+        blockers = gate.get("blockers") if isinstance(gate, dict) else None
+        reason = "; ".join(blockers) if isinstance(blockers, list) and all(
+            isinstance(item, str) for item in blockers
+        ) and blockers else "Missing or invalid held-out review evidence"
+        raise RuntimeError("Refusing model artifact export: held-out candidate review gate blocked: " + reason)
