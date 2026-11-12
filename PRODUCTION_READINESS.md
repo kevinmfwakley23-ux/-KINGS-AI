@@ -18,14 +18,26 @@ For phone/tablet or other remote access, place the owner console behind a truste
 HTTPS reverse proxy/tunnel, set `KINGS_CODING_MACHINE_BIND=0.0.0.0`, and provide
 the owner token through your secret manager.
 
-Browser/mobile clients bootstrap once at
-`https://<owner-host>/?access=<KINGS_CODING_MACHINE_TOKEN>`. K.I.N.G.S. validates
-that token only on the root GET, responds with a redirect to `/`, and replaces
-the URL credential with a `Secure`, `HttpOnly`, `SameSite=Strict` host cookie
-containing a digest-derived session value rather than the reusable owner token.
-The owner API also accepts the original token as a Bearer credential for
-non-browser clients. `/health` remains a minimal unauthenticated infrastructure
-probe; owner UI and `/api/status` require authentication in remote mode.
+**Remote browser access is not production-ready on the default branch.**
+Do not place `KINGS_CODING_MACHINE_TOKEN` in a URL, query string, browser
+history, screenshot, chat message, or client-side bundle. In particular, do not
+use the legacy `/?access=...` bootstrap route: a subsequent redirect and
+cookie do not undo credential exposure in the initial request.
+
+The default-branch implementation may still accept this legacy URL-token route;
+this documentation change does **not** disable it. Keep the owner console
+loopback-only or behind an owner-controlled private network until the URL-token
+rejection and short-lived signed-session changes in review PRs #54 and #55 are
+integrated, tested together, and deployed over HTTPS. Do not treat either draft
+PR's isolated CI as production authorization.
+
+For non-browser administrative clients, the owner API supports Bearer credentials
+over an authenticated HTTPS connection. Never embed the owner master token in
+distributed Android, desktop, or tablet clients or share it with family members.
+Use separately issued, revocable, least-privilege family credentials when that
+flow is verified and deployed. `/health` is a minimal unauthenticated
+infrastructure probe; owner UI and `/api/status` require authentication in
+remote mode.
 
 Do not expose the owner console through plain public HTTP. A firewall is useful
 defense in depth but is not a substitute for K.I.N.G.S.' application-layer owner
