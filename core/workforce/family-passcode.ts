@@ -34,6 +34,7 @@ export function validateFamilyInvitations(rows: readonly FamilyInvitation[]): vo
       typeof row.expiresAt !== "string" ||
       !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(row.expiresAt) ||
       !Number.isFinite(Date.parse(row.expiresAt)) ||
+      new Date(row.expiresAt).toISOString() !== (row.expiresAt.includes(".") ? row.expiresAt : row.expiresAt.replace("Z", ".000Z")) ||
       ids.has(row.id) || digests.has(row.digest)) {
       throw new Error("Invalid or duplicate family invitation");
     }
