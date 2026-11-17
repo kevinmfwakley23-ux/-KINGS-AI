@@ -25,3 +25,17 @@ test("manifest rejects duplicate credentials and malformed rows", () => {
   assert.throws(() => validateFamilyInvitations([invitation, invitation]));
   assert.throws(() => validateFamilyInvitations([{ ...invitation, digest: "bad" }]));
 });
+
+test("manifest rejects impossible and noncanonical UTC expiration dates", () => {
+  const invitation = { id: "family_one", digest: digestFamilyPasscode(issueFamilyPasscode()), status: "active" as const, expiresAt: "2030-01-01T00:00:00Z" };
+  validateFamilyInvitations([invitation]);
+  validateFamilyInvitations([{ ...invitation, expiresAt: "2030-01-01T00:00:00.123Z" }]);
+  for (const expiresAt of [
+    "2030-02-30T00:00:00Z",
+    "2030-13-01T00:00:00Z",
+    "2030-01-01T24:00:00Z",
+    "2030-01-01T00:00:60Z",
+  ]) {
+    assert.throws(() => validateFamilyInvitations([{ ...invitation, expiresAt }]), expiresAt);
+  }
+});
