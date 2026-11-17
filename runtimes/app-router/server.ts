@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
+import { readFileSync } from "node:fs";
 
 import { AppAiRouter, AppAiRouterError, type AppAiRouteRequest } from "../../core/workforce/app-ai-router";
 import {
@@ -23,6 +24,7 @@ import {
 import { ProviderAdapterRegistry } from "../../core/workforce/provider-adapters";
 import { WebAccessAdapter } from "../../core/workforce/web-access";
 import { MonthlyUsageAuthority, UsageAccessError } from "../../core/workforce/monthly-usage-authority";
+import { redeemFamilyPasscode, validateFamilyInvitations, type FamilyInvitation } from "../../core/workforce/family-passcode";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const DEFAULT_PORT = 8790;
@@ -44,6 +46,7 @@ export interface RouterRuntimeConfig {
   researchAllowedHosts?: string[];
   usageAccountsFile?: string;
   usageLedgerFile?: string;
+  familyInvitationsFile?: string;
 }
 
 type ResponsesRole = "system" | "user" | "assistant" | "tool";
@@ -89,6 +92,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RouterRuntimeC
   if (!["127.0.0.1", "::1", "localhost"].includes(host) && !accessToken) {
     throw new Error("KINGS_APP_ROUTER_TOKEN is required when the app router binds beyond loopback");
   }
+  const familyInvitationsFile = env.KINGS_APP_FAMILY_INVITATIONS_FILE?.trim() || undefined;
+  if (familyInvitationsFile && (!accessToken || accessToken.length < 24)) {
+    throw new Error("Family access requires a private owner router token of at least 24 characters");
+  }
   const usageAccountsFile = env.KINGS_APP_USAGE_ACCOUNTS_FILE?.trim() || undefined;
   const usageLedgerFile = env.KINGS_APP_USAGE_LEDGER_FILE?.trim() || undefined;
   if (Boolean(usageAccountsFile) !== Boolean(usageLedgerFile)) {
@@ -107,6 +114,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RouterRuntimeC
     port: parsePort(env.KINGS_APP_ROUTER_PORT),
     accessToken,
     ...(usageAccountsFile ? { usageAccountsFile, usageLedgerFile } : {}),
+    ...(familyInvitationsFile ? { familyInvitationsFile } : {}),
     providerOrder,
     researchMaxSources: parsePositiveInteger(
       env.KINGS_APP_RESEARCH_MAX_SOURCES,
@@ -290,9 +298,32 @@ export function createAppRouterRuntime(
   if (config.usageAccountsFile && (!config.accessToken || config.accessToken.length < 24)) {
     throw new Error("K.I.N.G.S. Usage: a private owner router token of at least 24 characters is required");
   }
+  if (config.familyInvitationsFile && (!config.accessToken || config.accessToken.length < 24)) {
+    throw new Error("K.I.N.G.S. Family: private owner token of at least 24 characters required");
+  }
   const usageAuthority = config.usageAccountsFile && config.usageLedgerFile
     ? new MonthlyUsageAuthority(config.usageAccountsFile, config.usageLedgerFile)
     : undefined;
+
+  const readFamilyInvitations = (): FamilyInvitation[] => {
+    if (!config.familyInvitationsFile) return [];
+    const data: unknown = JSON.parse(readFileSync(config.familyInvitationsFile, "utf8"));
+    if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid family manifest");
+    const manifest = data as { version?: unknown; invitations?: unknown };
+    if (manifest.version !== 1 || !Array.isArray(manifest.invitations)) throw new Error("Invalid family manifest");
+    validateFamilyInvitations(manifest.invitations as FamilyInvitation[]);
+    return manifest.invitations as FamilyInvitation[];
+  };
+  // Fail closed at startup, then reload per request for immediate owner revocation.
+  readFamilyInvitations();
+  // Bound concurrent family model executions independently of subscription quotas.
+  // In-process only: distributed deployments require a shared admission controller.
+  const familyInFlight = new Map<string, number>();
+  const familyConcurrencyCap = 2;
+  // Bound aggregate family work as well as per-credential work. Without this,
+  // each additional invitation adds two unbounded provider execution slots.
+  const familyGlobalConcurrencyCap = 16;
+  let familyGlobalInFlight = 0;
 
   const server = http.createServer(async (request, response) => {
     const startedAt = Date.now();
@@ -310,17 +341,52 @@ export function createAppRouterRuntime(
       const bearer = typeof request.headers.authorization === "string" &&
         request.headers.authorization.startsWith("Bearer ")
         ? request.headers.authorization.slice("Bearer ".length) : "";
-      const subscriber = isOwner || bearer.length < 24 ? undefined : usageAuthority?.accountForToken(bearer);
-      if (!isOwner && !subscriber) {
+      const familyId = !isOwner && config.familyInvitationsFile && bearer.startsWith("kings_family_")
+        ? redeemFamilyPasscode(bearer, readFamilyInvitations()) : undefined;
+      const subscriber = isOwner || familyId || bearer.length < 24 ? undefined : usageAuthority?.accountForToken(bearer);
+      if (!isOwner && !subscriber && !familyId) {
         return sendJson(response, 401, { ok: false, error: "unauthorized" });
       }
-      if (subscriber && ![
+      if (!isOwner && (subscriber || familyId) && ![
         "/v1/models", "/v1/powerhouse/domains", "/v1/usage",
         "/responses", "/v1/responses", "/v1/route",
       ].includes(url.pathname)) {
         return sendJson(response, 403, { ok: false, error: "owner_only_operation" });
       }
       const routeWithUsage = async (input: AppAiRouteRequest) => {
+        // Family access is free of monthly subscription quotas, not exempt from
+        // per-request resource safety limits. Enforce the cap before invoking a provider.
+        if (familyId) {
+          const familyOutputCap = 4096;
+          // The direct /v1/route endpoint accepts raw messages, unlike the
+          // normalized Responses endpoint. Bound total input before any provider call.
+          const familyInputCap = 120_000;
+          if (!Array.isArray(input.messages) || input.messages.length > 100 ||
+            input.messages.some(message => !message || typeof message.content !== "string") ||
+            input.messages.reduce((total, message) => total + message.content.length, 0) > familyInputCap) {
+            throw new UsageAccessError("FAMILY_INPUT_CAP", 413, "Family request exceeds input resource limit");
+          }
+          if (input.maxOutputTokens !== undefined && (!Number.isSafeInteger(input.maxOutputTokens) || input.maxOutputTokens < 1 || input.maxOutputTokens > familyOutputCap)) {
+            throw new UsageAccessError("FAMILY_OUTPUT_CAP", 403, "Family request exceeds per-request output limit");
+          }
+          const inFlight = familyInFlight.get(familyId) ?? 0;
+          if (inFlight >= familyConcurrencyCap) {
+            throw new UsageAccessError("FAMILY_CONCURRENCY_CAP", 429, "Family concurrent request limit reached");
+          }
+          if (familyGlobalInFlight >= familyGlobalConcurrencyCap) {
+            throw new UsageAccessError("FAMILY_GLOBAL_CONCURRENCY_CAP", 429, "Family router capacity reached");
+          }
+          familyInFlight.set(familyId, inFlight + 1);
+          familyGlobalInFlight += 1;
+          try {
+            return await router.route({ ...input, maxOutputTokens: input.maxOutputTokens ?? familyOutputCap });
+          } finally {
+            familyGlobalInFlight -= 1;
+            const remaining = (familyInFlight.get(familyId) ?? 1) - 1;
+            if (remaining <= 0) familyInFlight.delete(familyId);
+            else familyInFlight.set(familyId, remaining);
+          }
+        }
         if (!subscriber || !usageAuthority) return router.route(input);
         // Apply a real provider-side output cap even if a subscriber omits it.
         const bounded = { ...input,
@@ -335,6 +401,7 @@ export function createAppRouterRuntime(
 
       if (request.method === "GET" && url.pathname === "/v1/usage") {
         if (isOwner) return sendJson(response, 200, { ok: true, role: "owner", unlimitedSubscription: true });
+        if (familyId) return sendJson(response, 200, { ok: true, role: "family", unlimitedSubscription: true });
         return sendJson(response, 200, { ok: true, role: "subscriber",
           usage: usageAuthority!.snapshot(subscriber!) });
       }

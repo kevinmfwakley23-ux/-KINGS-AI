@@ -76,8 +76,8 @@ try {
     writePlan({ paidThrough: "2099-12-31T23:59:59Z", planId: "premium",
       monthlyTokens: 5000, monthlyRequests: 10, maxOutputTokens: 400 });
     assert.equal(authority.snapshot(authority.accountForToken(token)!).usedTokens, 300);
-    const recentMonth = new Date("2026-10-30T00:00:00Z");
-    const nextMonth = new Date("2026-11-01T00:00:00Z");
+    const recentMonth = new Date("2098-10-30T00:00:00Z");
+    const nextMonth = new Date("2098-11-01T00:00:00Z");
     const u = authority.accountForToken(token)!;
     const october = authority.reserve(u, request, recentMonth);
     october.finish(10);
@@ -91,7 +91,7 @@ try {
   }
   authority = new MonthlyUsageAuthority(manifest, ledger);
   try {
-    assert.equal(authority.snapshot(authority.accountForToken(token)!, new Date("2026-11-01")).usedRequests, 1,
+    assert.equal(authority.snapshot(authority.accountForToken(token)!, new Date("2098-11-01")).usedRequests, 1,
       "crashed or unresolved reservations remain consumed after process restart");
     const saved = JSON.parse(readFileSync(ledger, "utf8"));
     assert.equal(saved.version, 1);

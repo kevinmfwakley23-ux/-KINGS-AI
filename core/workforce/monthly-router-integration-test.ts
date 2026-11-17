@@ -7,12 +7,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ModelIdentity } from "./model-interface";
 import { MonthlyUsageAuthority } from "./monthly-usage-authority";
+import { digestFamilyPasscode, issueFamilyPasscode } from "./family-passcode";
 import { ProviderAdapterRegistry } from "./provider-adapters";
 import { createAppRouterRuntime, type RouterRuntimeConfig } from "../../runtimes/app-router/server";
 
 const root = mkdtempSync(join(tmpdir(), "kings-paid-http-"));
 const accounts = join(root, "accounts.json");
 const ledger = join(root, "ledger.json");
+const familyManifest = join(root, "family.json");
+const familyPasscode = issueFamilyPasscode();
+const familyAccount = { id: "family_alpha", digest: digestFamilyPasscode(familyPasscode), status: "active", expiresAt: "2099-12-31T23:59:59Z" };
 const ownerToken = randomBytes(32).toString("hex");
 const paidToken = randomBytes(32).toString("hex");
 const identity: ModelIdentity = {
@@ -24,6 +28,8 @@ const identity: ModelIdentity = {
 };
 let modelRequests = 0;
 let lastOutputCap: number | undefined;
+let familyConcurrencyGate: Promise<void> | undefined;
+let gatedModelStarts = 0;
 const providers = new ProviderAdapterRegistry();
 providers.register({
   descriptor: { id: "test-provider", name: "Test", kind: "internal-self-hosted", available: true },
@@ -32,6 +38,10 @@ providers.register({
   execute: async (_modelId, request) => {
     modelRequests += 1;
     lastOutputCap = request.maxOutputTokens;
+    if (familyConcurrencyGate) {
+      gatedModelStarts += 1;
+      await familyConcurrencyGate;
+    }
     const now = new Date().toISOString();
     return { success: true, response: {
       requestId: request.id, model: identity, content: "Model transport executed.",
@@ -53,6 +63,7 @@ const config: RouterRuntimeConfig = {
   providerOrder: ["test-provider"], researchMaxSources: 3,
   researchMaxResponseBytes: 1024, researchTimeoutMs: 1000,
   usageAccountsFile: accounts, usageLedgerFile: ledger,
+  familyInvitationsFile: familyManifest,
 };
 const responseBody = { model: "auto", input: "Identify the collectible accurately.", service_domain: "chat" };
 const headers = (token: string) => ({ authorization: "Bearer " + token, "content-type": "application/json" });
@@ -60,6 +71,7 @@ const sleep = (ms: number) => new Promise<void>(done => setTimeout(done, ms));
 
 async function main(): Promise<void> {
   writeFileSync(accounts, JSON.stringify({ version: 1, accounts: [account] }));
+  writeFileSync(familyManifest, JSON.stringify({ version: 1, invitations: [familyAccount] }));
   const server = createAppRouterRuntime(config, providers);
   try {
     await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -77,6 +89,44 @@ async function main(): Promise<void> {
     const ownerStatus = await fetch(url + "/v1/usage", { headers: headers(ownerToken) });
     assert.equal((await ownerStatus.json()).unlimitedSubscription, true);
 
+    const familyUsage = await fetch(url + "/v1/usage", { headers: headers(familyPasscode) });
+    assert.equal(familyUsage.status, 200);
+    assert.deepEqual(await familyUsage.json(), { ok: true, role: "family", unlimitedSubscription: true });
+    assert.equal((await fetch(url + "/v1/brain/research/retrieve", {
+      method: "POST", headers: headers(familyPasscode), body: "{}",
+    })).status, 403, "family credential cannot perform owner-only research");
+    assert.equal((await send(familyPasscode)).status, 200);
+    assert.equal(lastOutputCap, 4096, "family receives bounded per-request output without monthly subscription quotas");
+    const beforeFamilyOversize = modelRequests;
+    assert.equal((await send(familyPasscode, { ...responseBody, max_output_tokens: 4097 })).status, 403,
+      "family cannot bypass per-request resource cap");
+    assert.equal(modelRequests, beforeFamilyOversize, "rejected family request must never invoke a provider");
+    // Raw route bypasses the Responses parser; malformed output limits must
+    // fail before model execution rather than reaching a provider.
+    for (const invalidCap of [0, -1, 4097, 1.5, "4096", null]) {
+      const rejected = await fetch(url + "/v1/route", {
+        method: "POST", headers: headers(familyPasscode),
+        body: JSON.stringify({ appId: "authors.forge", messages: [
+          { role: "user", content: "Check collectible" },
+        ], maxOutputTokens: invalidCap }),
+      });
+      assert.equal(rejected.status, 403, "invalid family output limit must be rejected: " + String(invalidCap));
+      assert.equal(modelRequests, beforeFamilyOversize, "invalid limit must not invoke provider");
+    }
+    const largeFamilyInput = await fetch(url + "/v1/route", {
+      method: "POST", headers: headers(familyPasscode),
+      body: JSON.stringify({ appId: "authors.forge", messages: [
+        { role: "user", content: "a".repeat(70_000) },
+        { role: "user", content: "b".repeat(70_000) },
+      ] }),
+    });
+    assert.equal(largeFamilyInput.status, 413, "aggregate family input is capped even on raw route endpoint");
+    assert.equal(modelRequests, beforeFamilyOversize, "oversized family input must never invoke a provider");
+    assert.equal((await send(familyPasscode, { ...responseBody, max_output_tokens: 1024 })).status, 200);
+    assert.equal(lastOutputCap, 1024, "family can request a smaller output cap");
+    writeFileSync(familyManifest, JSON.stringify({ version: 1, invitations: [{ ...familyAccount, status: "revoked" }] }));
+    assert.equal((await send(familyPasscode)).status, 401, "owner revocation must take effect on next request");
+    writeFileSync(familyManifest, JSON.stringify({ version: 1, invitations: [familyAccount] }));
     const first = await send(paidToken);
     assert.equal(first.status, 200);
     const payload = await first.json() as { usage: { total_tokens: number } };
@@ -89,25 +139,73 @@ async function main(): Promise<void> {
     assert.equal((await send(paidToken)).status, 200);
     const denied = await send(paidToken);
     assert.equal(denied.status, 429, "exhausted monthly request allowance must block model invocation");
-    assert.equal(modelRequests, 2);
+    assert.equal(modelRequests, 4);
 
     assert.equal((await send(ownerToken)).status, 200, "owner token bypasses subscriber quota only");
-    assert.equal(modelRequests, 3);
+    assert.equal(modelRequests, 5);
 
     const oversized = await send(paidToken, { ...responseBody, max_output_tokens: 1000 });
     assert.equal(oversized.status, 403, "subscriber cannot raise model output cap through a request");
-    assert.equal(modelRequests, 3);
+    assert.equal(modelRequests, 5);
 
     writeFileSync(accounts, JSON.stringify({ version: 1, accounts: [{
       ...account, planId: "pro", monthlyRequests: 4, maxOutputTokens: 300,
     }] }));
     await sleep(5);
     assert.equal((await send(paidToken)).status, 200, "owner-approved plan increase takes effect");
-    assert.equal(modelRequests, 4);
+    assert.equal(modelRequests, 6);
 
     writeFileSync(accounts, JSON.stringify({ version: 1, accounts: [{ ...account, status: "suspended" }] }));
     assert.equal((await send(paidToken)).status, 403, "subscription revocation takes effect immediately");
-    assert.equal(modelRequests, 4);
+    assert.equal(modelRequests, 6);
+
+    // Two simultaneous family calls may run, but a third must be rejected
+    // before reaching the model transport. Released slots must be reusable.
+    let releaseGate!: () => void;
+    familyConcurrencyGate = new Promise<void>(resolve => { releaseGate = resolve; });
+    const firstFamily = send(familyPasscode);
+    const secondFamily = send(familyPasscode);
+    for (let attempt = 0; attempt < 100 && gatedModelStarts < 2; attempt++) await sleep(10);
+    assert.equal(gatedModelStarts, 2, "two family model requests must reach transport");
+    const rejectedFamily = await send(familyPasscode);
+    assert.equal(rejectedFamily.status, 429, "third simultaneous family request is rejected");
+    assert.equal(gatedModelStarts, 2, "rejected request never reaches provider");
+    releaseGate();
+    assert.equal((await firstFamily).status, 200);
+    assert.equal((await secondFamily).status, 200);
+    familyConcurrencyGate = undefined;
+    assert.equal((await send(familyPasscode)).status, 200, "family slot released after completion");
+
+    // Multiple family invitations must not multiply total provider concurrency
+    // without bound. Exercise 8 distinct credentials with 2 slots each.
+    const familyTokens = Array.from({ length: 9 }, () => issueFamilyPasscode());
+    writeFileSync(familyManifest, JSON.stringify({ version: 1, invitations: [
+      familyAccount,
+      ...familyTokens.map((token, index) => ({
+        id: "family_extra_" + index, digest: digestFamilyPasscode(token),
+        status: "active", expiresAt: "2099-12-31T23:59:59Z",
+      })),
+    ] }));
+    gatedModelStarts = 0;
+    let releaseGlobalGate!: () => void;
+    familyConcurrencyGate = new Promise<void>(resolve => { releaseGlobalGate = resolve; });
+    const activeFamilyCalls = familyTokens.slice(0, 8).flatMap(token => [
+      send(token), send(token),
+    ]);
+    try {
+      for (let attempt = 0; attempt < 200 && gatedModelStarts < 16; attempt++) await sleep(10);
+      assert.equal(gatedModelStarts, 16, "aggregate cap allows 16 in-flight family calls");
+      assert.equal((await send(familyTokens[8])).status, 429,
+        "seventeenth call from another family account must be rejected");
+      assert.equal(gatedModelStarts, 16, "global rejection must not invoke provider");
+    } finally {
+      releaseGlobalGate();
+      await Promise.all(activeFamilyCalls);
+      familyConcurrencyGate = undefined;
+    }
+    assert.equal((await send(familyTokens[8])).status, 200,
+      "global family slot is reusable after completed requests");
+
   } finally {
     await new Promise<void>(done => server.close(() => done()));
     rmSync(root, { recursive: true, force: true });
