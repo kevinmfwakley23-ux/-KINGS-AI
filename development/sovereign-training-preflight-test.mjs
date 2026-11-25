@@ -180,6 +180,67 @@ try {
     ["supervised-lora", "preference-dpo", "anchored-retention-rehearsal"]);
   assert.equal(triplePlan.trained, false);
   assert.equal(existsSync(artifact), false, "triple preflight must not invent trained weights");
+  const quadArgs = [...dualArgs, "--training-profile", "quadruple"];
+  const insufficient = run(quadArgs);
+  assert.notEqual(insufficient.status, 0);
+  assert.match(insufficient.stderr, /recognized coding criterion/);
+  const grading = ["photo-sufficiency", "defect-evidence", "grade-calibration", "abstain-when-uncertain"];
+  const criteria = {
+    coding: ["scoped-change", "diagnose-from-evidence", "repair-and-retest", "truthful-handoff"],
+    collectibles: grading, "sports-cards": grading,
+  };
+  function expand(rows) {
+    return domains.flatMap((domain) => {
+      const group = rows.filter((row) => row.domain === domain);
+      return Array.from({ length: 24 }, (_, i) => {
+        const row = group[i % group.length];
+        const variant = i >= group.length ? {
+          id: row.id + "-additional", sourceGroupId: row.sourceGroupId + "-additional",
+          prompt: row.prompt + " (new independent synthetic case)",
+        } : {};
+        const labels = criteria[domain];
+        return { ...row, ...variant, ...(labels ? { criterion: labels[i % labels.length] } : {}) };
+      });
+    });
+  }
+  const expandedExamples = expand(examples);
+  const expandedPairs = expand(pairs);
+  const expandedHeldout = expand(extendedHeldout);
+  writeFileSync(training, JSON.stringify({ ...valid, examples: expandedExamples }));
+  writeFileSync(preferencePath, JSON.stringify({ schemaVersion: "1", pairs: expandedPairs }));
+  writeFileSync(benchmark, JSON.stringify({ items: expandedHeldout }));
+  const quadrupled = run(quadArgs);
+  assert.equal(quadrupled.status, 0, quadrupled.stderr);
+  const quadPlan = JSON.parse(quadrupled.stdout);
+  assert.deepEqual([quadPlan.supervisedEpochs, quadPlan.preferenceEpochs, quadPlan.retentionEpochs], [12, 12, 4]);
+  assert.deepEqual([quadPlan.validatedExamples, quadPlan.validatedPreferencePairs, quadPlan.heldOutReferenceCount], [168, 168, 168]);
+  assert.equal(quadPlan.expandedCurriculumCoverage.scope, "declared-source-coverage-only-not-quality");
+  assert.equal(quadPlan.expandedCurriculumCoverage.bySplit.supervised.coding["repair-and-retest"], 6);
+  assert.equal(quadPlan.expandedCurriculumCoverage.bySplit.heldOut.collectibles["abstain-when-uncertain"], 6);
+  assert.equal(quadPlan.trained, false);
+  const duplicateGroup = expandedPairs.map((row, i) => i === 0 ? {
+    ...row, sourceGroupId: " " + expandedExamples[0].sourceGroupId + " ",
+  } : row);
+  writeFileSync(preferencePath, JSON.stringify({ schemaVersion: "1", pairs: duplicateGroup }));
+  const overlap = run(quadArgs);
+  assert.notEqual(overlap.status, 0);
+  assert.match(overlap.stderr, /distinct source groups across the entire curriculum/);
+  writeFileSync(preferencePath, JSON.stringify({ schemaVersion: "1", pairs: expandedPairs }));
+  const unbalanced = expandedHeldout.map((row) =>
+    row.domain === "collectibles" && row.criterion === "grade-calibration"
+      ? { ...row, criterion: "photo-sufficiency" } : row);
+  writeFileSync(benchmark, JSON.stringify({ items: unbalanced }));
+  const insufficientCriteria = run(quadArgs);
+  assert.notEqual(insufficientCriteria.status, 0);
+  assert.match(insufficientCriteria.stderr, /distinct collectibles sources for grade-calibration/);
+  writeFileSync(benchmark, JSON.stringify({ items: expandedHeldout.filter((_, i) => i !== 0) }));
+  const insufficientSources = run(quadArgs);
+  assert.notEqual(insufficientSources.status, 0);
+  assert.match(insufficientSources.stderr, /at least 24 distinct source groups/);
+  assert.equal(existsSync(artifact), false, "preflight must not invent trained weights");
+  writeFileSync(training, JSON.stringify(valid));
+  writeFileSync(preferencePath, JSON.stringify({ schemaVersion: "1", pairs }));
+
   writeFileSync(benchmark, JSON.stringify({
     items: [{ id: "held-out", split: "held-out", sourceGroupId: "held-out-source",
       prompt: "Unseen private benchmark content" }],

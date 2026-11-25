@@ -33,7 +33,17 @@ DOMAINS = (
 )
 
 
-def create_corpus():
+TRAINER_DIR = Path(__file__).resolve().parents[1] / "runtimes/powerhouse-training"
+sys.path.insert(0, str(TRAINER_DIR))
+from sovereign_lora_trainer import EXPANDED_CRITERIA, EXPANDED_MINIMUM_PER_DOMAIN, PROFILE_INTENSITY
+
+
+def add_criterion(domain, index, expanded):
+    labels = EXPANDED_CRITERIA.get(domain)
+    return {"criterion": labels[index % len(labels)]} if expanded and labels else {}
+
+
+def create_corpus(per_domain, expanded):
     rights = {
         "licenseId": "synthetic-ci-local-author-only",
         "sourceReference": "generated-in-test-no-external-dataset",
@@ -47,7 +57,7 @@ def create_corpus():
     }
     examples, pairs = [], []
     for domain in DOMAINS:
-        for index in range(20):
+        for index in range(per_domain):
             examples.append({
                 "id": f"sft-{domain}-{index}",
                 "domain": domain,
@@ -55,6 +65,7 @@ def create_corpus():
                 "prompt": f"Analyze {domain} example {index} using the given details.",
                 "targetResponse": f"Here is a careful {domain} training reply for example {index}.",
                 "rights": rights,
+                **add_criterion(domain, index, expanded),
             })
             pairs.append({
                 "id": f"dpo-{domain}-{index}",
@@ -64,6 +75,7 @@ def create_corpus():
                 "chosenResponse": f"Verify details before answering {domain} question {index}.",
                 "rejectedResponse": f"Invent details without evidence about {domain} case {index}.",
                 "rights": rights,
+                **add_criterion(domain, index, expanded),
             })
     return examples, pairs
 
@@ -100,16 +112,18 @@ def write_local_random_model(directory: Path, examples: list[dict], pairs: list[
 
 def main():
     parser = argparse.ArgumentParser(description="Run real offline training stages on disposable random test weights")
-    parser.add_argument("--training-profile", choices=("standard", "double", "triple"), default="standard")
+    parser.add_argument("--training-profile", choices=tuple(PROFILE_INTENSITY), default="standard")
     args = parser.parse_args()
-    intensity = {"standard": 1, "double": 2, "triple": 3}[args.training_profile]
+    intensity = PROFILE_INTENSITY[args.training_profile]
+    expanded = args.training_profile == "quadruple"
     full_heldout = intensity > 1
     expected_supervised_epochs = 3 * intensity
     expected_preference_epochs = 3 * intensity
     expected_retention_epochs = intensity
-    heldout_per_domain = 20 if full_heldout else 1
-    examples, pairs = create_corpus()
-    assert len(examples) == len(pairs) == 7 * 20
+    heldout_per_domain = EXPANDED_MINIMUM_PER_DOMAIN if expanded else (20 if full_heldout else 1)
+    examples, pairs = create_corpus(EXPANDED_MINIMUM_PER_DOMAIN if expanded else 20, expanded)
+    expected_count = len(examples)
+    assert expected_count == len(pairs) == len(DOMAINS) * (24 if expanded else 20)
     with tempfile.TemporaryDirectory(prefix="kings-three-stage-e2e-") as temp:
         root = Path(temp)
         model_dir = root / "random-weights"
@@ -140,6 +154,7 @@ def main():
             "prompt": f"Unique unseen evaluation prompt about {domain} case {index}, never used for training.",
             "targetResponse": f"Carefully check evidence and cite uncertainty in {domain} case {index} answers.",
             "rights": dict(heldout_rights),
+            **add_criterion(domain, index, expanded),
         } for domain in DOMAINS for index in range(heldout_per_domain)]
         evaluation.write_text(json.dumps({"items": heldout}), encoding="utf8")
         script = Path(__file__).resolve().parents[1] / (
@@ -152,10 +167,7 @@ def main():
             "--preference-package", str(preferences),
             "--benchmark-manifest", str(evaluation),
             "--model-artifact", str(artifact),
-            # Standard 3/3/1, double 6/6/2 and triple 9/9/3 all execute
-            # real offline gradients on randomly initialized tiny CI weights;
-            # intensive profiles require 20 isolated held-out references per
-            # domain. None demonstrates production model quality.
+            # All profiles run real gradients on disposable random test weights.
             "--training-profile", args.training_profile,
             "--retention-epochs", "1",
             "--batch-size", "16",
@@ -192,9 +204,15 @@ def main():
             assert weights and all(bundle.getinfo(name).file_size > 0 for name in weights)
             metadata = json.loads(bundle.read("kings-training-metadata.json"))
         assert metadata["trainingStages"] == expected_stages, metadata
-        assert metadata["exampleCount"] == 140, "source-example count must not be inflated by segmentation"
-        assert metadata["supervisedSegmentCount"] >= 140
+        assert metadata["exampleCount"] == expected_count, "source-example count must not be inflated by segmentation"
+        assert metadata["supervisedSegmentCount"] >= expected_count
         assert metadata["trainingProfile"] == args.training_profile
+        coverage = metadata["expandedCurriculumCoverage"]
+        if expanded:
+            assert coverage["scope"] == "declared-source-coverage-only-not-quality"
+            assert coverage["bySplit"]["heldOut"]["coding"]["repair-and-retest"] == 6
+        else:
+            assert coverage is None
         assert metadata["epochs"] == expected_supervised_epochs, "incorrect number of real supervised epochs"
         assert metadata["heldOutReferenceCount"] == len(DOMAINS) * heldout_per_domain
         heldout_evidence = metadata["heldOutReferenceEvaluation"]
@@ -216,12 +234,12 @@ def main():
         assert heldout_evidence["scope"] == "held-out-reference-loss-proxy-only-separate-specialist-evaluations-required"
         assert metadata["optimizationSteps"] >= 1
         assert metadata["trainableParametersChanged"] is True
-        assert metadata["preferenceStage"]["pairCount"] == 140
+        assert metadata["preferenceStage"]["pairCount"] == expected_count
         assert metadata["preferenceStage"]["epochs"] == expected_preference_epochs
-        assert metadata["preferenceStage"]["optimizationSteps"] == 140 * expected_preference_epochs
-        assert metadata["retentionStage"]["exampleCount"] == 140
+        assert metadata["preferenceStage"]["optimizationSteps"] == expected_count * expected_preference_epochs
+        assert metadata["retentionStage"]["exampleCount"] == expected_count
         assert metadata["retentionStage"]["epochs"] == expected_retention_epochs
-        assert metadata["retentionStage"]["optimizationSteps"] >= 140 * expected_retention_epochs
+        assert metadata["retentionStage"]["optimizationSteps"] >= expected_count * expected_retention_epochs
         assert metadata["retentionStage"]["domainLossRegressionGuard"]["status"] == "passed"
         drift = metadata["retentionStage"]["preferenceDrift"]
         assert set(drift["deltaByDomain"]) == set(DOMAINS), drift

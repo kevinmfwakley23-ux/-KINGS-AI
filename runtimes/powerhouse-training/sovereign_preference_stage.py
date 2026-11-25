@@ -22,11 +22,11 @@ def validate_preference_inputs(path: Path, benchmark_path: Path, supervised: lis
     groups = {x["sourceGroupId"] for x in protected}
     prompts = {" ".join(x["prompt"].lower().split()) for x in protected}
     counts = {domain: 0 for domain in DOMAINS}
+    required_fields = {
+        "id", "domain", "sourceGroupId", "prompt", "chosenResponse", "rejectedResponse", "rights",
+    }
     for pair in package["pairs"]:
-        if not isinstance(pair, dict) or set(pair) != {
-            "id", "domain", "sourceGroupId", "prompt",
-            "chosenResponse", "rejectedResponse", "rights",
-        }:
+        if not isinstance(pair, dict) or set(pair) - {"criterion"} != required_fields:
             raise ValueError("Preference pair has unsupported or missing fields")
         domain = pair["domain"]
         if domain not in DOMAINS:
@@ -109,7 +109,7 @@ def train_preference_stage(
     import torch.nn.functional as functional
     from sovereign_lora_trainer import supervised_answer_segments
 
-    if epochs < 1 or epochs > 10 or not (0.01 <= beta <= 1.0) or not (0 < learning_rate <= 0.001):
+    if epochs < 1 or epochs > 12 or not (0.01 <= beta <= 1.0) or not (0 < learning_rate <= 0.001):
         raise ValueError("Preference hyperparameters are outside bounded limits")
 
     def encode(prompt: str, response: str):

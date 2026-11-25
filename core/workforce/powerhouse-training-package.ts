@@ -4,6 +4,7 @@ import {
   type PowerhouseBenchmarkManifest,
   type PowerhouseDataRights,
   validatePowerhouseBenchmarkManifest,
+  validatePowerhouseCurriculumCriterion,
 } from "./powerhouse-benchmark-runner";
 import {
   listPowerhouseServiceDomains,
@@ -19,6 +20,7 @@ export interface PowerhouseTrainingExample {
   sourceGroupId: string;
   prompt: string;
   targetResponse: string;
+  criterion?: string;
   rights: PowerhouseDataRights;
 }
 
@@ -39,7 +41,7 @@ export interface ValidatedPowerhouseTrainingPackage {
 
 const PLACEHOLDER_PATTERN = /(?:^|\b)(?:todo|tbd|placeholder|unknown)(?:\b|$)/iu;
 const PACKAGE_KEYS = new Set(["schemaVersion", "packageId", "packageVersion", "createdAt", "examples"]);
-const EXAMPLE_KEYS = new Set(["id", "domain", "sourceGroupId", "prompt", "targetResponse", "rights"]);
+const EXAMPLE_KEYS = new Set(["id", "domain", "sourceGroupId", "prompt", "targetResponse", "rights", "criterion"]);
 const RIGHTS_KEYS = new Set([
   "licenseId",
   "sourceReference",
@@ -166,6 +168,7 @@ export function validatePowerhouseTrainingPackage(
     if (!knownDomains.has(example.domain)) {
       throw new Error(`K.I.N.G.S. Powerhouse Training: unsupported domain "${example.domain}"`);
     }
+    validatePowerhouseCurriculumCriterion(example.domain, example.criterion);
     const prompt = requiredText(example.prompt, `prompt for "${id}"`);
     requiredText(example.targetResponse, `target response for "${id}"`);
     const promptHash = normalizedPromptHash(prompt);
