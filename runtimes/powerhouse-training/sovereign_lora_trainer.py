@@ -29,6 +29,54 @@ DOMAINS = frozenset({
 HEX_SHA256 = re.compile(r"^[a-f0-9]{64}$")
 
 
+PROFILE_INTENSITY = {"standard": 1, "double": 2, "triple": 3, "quadruple": 4}
+EXPANDED_MINIMUM_PER_DOMAIN = 24
+CRITERIA_MINIMUM_SOURCE_GROUPS = 5
+CARD_CRITERIA = ("photo-sufficiency", "defect-evidence", "grade-calibration", "abstain-when-uncertain")
+EXPANDED_CRITERIA = {
+    "coding": ("scoped-change", "diagnose-from-evidence", "repair-and-retest", "truthful-handoff"),
+    "collectibles": CARD_CRITERIA,
+    "sports-cards": CARD_CRITERIA,
+}
+
+
+def validate_expanded_curriculum(examples, preferences, heldout) -> dict:
+    """Require breadth across independent sources; labels do not prove quality."""
+    coverage, seen_groups = {}, set()
+    for split, rows in (("supervised", examples), ("preference", preferences), ("heldOut", heldout)):
+        domain_groups = defaultdict(set)
+        criterion_groups = defaultdict(set)
+        for row in rows:
+            domain, group = row["domain"], row["sourceGroupId"].strip()
+            if group in seen_groups:
+                raise ValueError(f"Expanded {split} requires distinct source groups across the entire curriculum")
+            seen_groups.add(group)
+            domain_groups[domain].add(group)
+            criteria = EXPANDED_CRITERIA.get(domain)
+            if criteria is None:
+                continue
+            criterion = row.get("criterion")
+            if not isinstance(criterion, str) or criterion not in criteria:
+                raise ValueError(f"Expanded {split} requires one recognized {domain} criterion per record")
+            criterion_groups[domain, criterion].add(group)
+        for domain in sorted(DOMAINS):
+            if len(domain_groups[domain]) < EXPANDED_MINIMUM_PER_DOMAIN:
+                raise ValueError(
+                    f"Expanded {split} requires at least {EXPANDED_MINIMUM_PER_DOMAIN} distinct source groups in {domain}"
+                )
+        coverage[split] = {}
+        for domain, criteria in EXPANDED_CRITERIA.items():
+            counts = {label: len(criterion_groups[domain, label]) for label in criteria}
+            for label, count in counts.items():
+                if count < CRITERIA_MINIMUM_SOURCE_GROUPS:
+                    raise ValueError(
+                        f"Expanded {split} requires at least {CRITERIA_MINIMUM_SOURCE_GROUPS} "
+                        f"distinct {domain} sources for {label}"
+                    )
+            coverage[split][domain] = counts
+    return {"scope": "declared-source-coverage-only-not-quality", "bySplit": coverage}
+
+
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -191,8 +239,8 @@ def parse_args() -> argparse.Namespace:
                         help="Absolute local directory of approved, licensed model weights")
     parser.add_argument("--preference-package", type=Path,
                         help="Optional second-stage, independent rights-cleared preference pairs")
-    parser.add_argument("--training-profile", choices=("standard", "double", "triple"), default="standard",
-                        help="Owner-approved double (6/6/2) or triple (9/9/3) intensity; requires 20 held-out references per specialty")
+    parser.add_argument("--training-profile", choices=tuple(PROFILE_INTENSITY), default="standard",
+                        help="Owner-approved intensity profiles: double (6/6/2), triple (9/9/3), quadruple (12/12/4) with expanded curriculum")
     parser.add_argument("--preference-epochs", type=int, default=3)
     parser.add_argument("--preference-beta", type=float, default=0.1)
     parser.add_argument("--preference-learning-rate", type=float, default=0.00002)
@@ -216,7 +264,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    if args.training_profile in ("double", "triple"):
+    if args.training_profile != "standard":
         # Repeat the *existing* licensed stages, never manufacture examples or
         # infer capability improvements from epoch counts. This is opt-in.
         profile_label = args.training_profile.capitalize()
@@ -224,7 +272,7 @@ def main() -> None:
             raise ValueError(f"{profile_label} training requires a separately authorized preference package")
         if (args.epochs, args.preference_epochs, args.retention_epochs) != (3, 3, 1):
             raise ValueError(f"{profile_label} training profile cannot combine with stage-specific epoch overrides")
-        intensity = 2 if args.training_profile == "double" else 3
+        intensity = PROFILE_INTENSITY[args.training_profile]
         args.epochs, args.preference_epochs, args.retention_epochs = 3 * intensity, 3 * intensity, intensity
     if not args.base_model.is_absolute() or not args.base_model.is_dir():
         raise ValueError("Base model must be an existing absolute local directory")
@@ -235,7 +283,7 @@ def main() -> None:
         args.max_length < 128 or args.max_length > 32768 or
         args.lora_rank not in (4, 8, 16, 32, 64, 128) or
         not (0 < args.learning_rate <= 0.01) or args.seed < 0 or
-        args.preference_epochs < 1 or args.preference_epochs > 10 or
+        args.preference_epochs < 1 or args.preference_epochs > (12 if args.training_profile == "quadruple" else 10) or
         args.retention_epochs < 0 or args.retention_epochs > 5 or
         not (0.01 <= args.preference_beta <= 1) or
         not (0 < args.preference_learning_rate <= 0.001) or
@@ -254,7 +302,7 @@ def main() -> None:
     # continue to work, but cannot claim any held-out quality evidence.
     from sovereign_heldout_stage import validate_heldout_references
     heldout_references = validate_heldout_references(args.benchmark_manifest)
-    if args.training_profile in ("double", "triple"):
+    if args.training_profile != "standard":
         # Increasing epochs requires disjoint evaluation-only references in
         # all seven specialties before any model weights are loaded.
         from collections import Counter
@@ -264,6 +312,10 @@ def main() -> None:
                 f"{args.training_profile.capitalize()} training requires at least 20 "
                 "evaluation-only held-out references per specialty"
             )
+    curriculum_coverage = (
+        validate_expanded_curriculum(examples, preferences, heldout_references)
+        if args.training_profile == "quadruple" else None
+    )
     if args.model_artifact.exists():
         raise FileExistsError("Refusing to overwrite an existing trained model artifact")
     if args.validate_only:
@@ -271,6 +323,7 @@ def main() -> None:
                           "validatedPreferencePairs": len(preferences) if preferences is not None else 0,
                           "heldOutReferenceCount": len(heldout_references),
                           "trainingProfile": args.training_profile,
+                          "expandedCurriculumCoverage": curriculum_coverage,
                           "supervisedEpochs": args.epochs,
                           "preferenceEpochs": args.preference_epochs if preferences is not None else 0,
                           "retentionEpochs": args.retention_epochs if preferences is not None else 0,
@@ -488,6 +541,7 @@ def main() -> None:
             "exampleCount": len(examples),
             "domainSampling": "seeded-round-robin-without-replacement",
             "trainingProfile": args.training_profile,
+            "expandedCurriculumCoverage": curriculum_coverage,
             "trainingPasses": args.epochs,
             "optimizerSampler": "sequential-interleaved",
             "supervisedExamplesByDomain": {

@@ -521,3 +521,34 @@ actual output safetensors and per-stage epoch counts, and never publishes
 those test weights as an intelligent product. A production training run
 requires separately authorized base weights, data, hardware and owner-reviewed
 held-out evaluations.
+
+### Expanded curriculum (opt-in quadruple profile)
+
+The signed training launcher can opt into `--training-profile quadruple` (12 supervised LoRA,
+12 preference DPO, 4 anchored retention epochs). Standard remains the default. This
+profile rejects explicit stage epoch overrides and requires 24 distinct source groups
+per specialty in **each** of supervised examples, preference pairs, and
+evaluation-only held-out references. Source groups cannot be reused across records
+or splits, and existing rights/isolation checks remain active.
+
+Give each coding, collectibles, and sports-card record one primary `criterion`.
+Each label needs at least five independent sources per split:
+
+- Coding: `scoped-change` (respect the requested scope and constraints),
+  `diagnose-from-evidence` (use observed failures, not guesses),
+  `repair-and-retest` (rerun the actual build/test after the change),
+  `truthful-handoff` (clearly separate completed, failed and unverified work).
+- Collectibles and sports cards: `photo-sufficiency` (request essential views or
+  improved lighting), `defect-evidence` (tie condition observations to a specific
+  image), `grade-calibration` (use expert-labeled card grades or category-appropriate
+  condition judgments), `abstain-when-uncertain` (avoid unsupported grades or
+  authenticity claims).
+
+Preflight and adapter metadata report declared coverage. Labels do not validate the
+answers, and additional epochs do not establish improvement. Use unseen executable
+coding tasks with fresh build/test evidence and an independent, blinded grading
+comparison on real photographs against expert labels before promotion. Compare
+base and adapted models on the same tasks, including abstention/coverage. The
+text-only trainer can teach condition reasoning from grounded observations; it
+does not train or qualify an image encoder, so run the grading evaluation through
+the actual owner-operated vision route.

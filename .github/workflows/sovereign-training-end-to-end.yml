@@ -2,7 +2,7 @@ name: K.I.N.G.S. Sovereign Three-Stage End-to-End
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, codex/powerhouse-training-android-20261030]
     paths:
       - "runtimes/powerhouse-training/sovereign_lora_trainer.py"
       - "runtimes/powerhouse-training/sovereign_preference_stage.py"
@@ -69,6 +69,15 @@ jobs:
           TOKENIZERS_PARALLELISM: "false"
         run: |
           python development/sovereign-end-to-end-training-smoke.py --training-profile triple
+
+      - name: Verify quadruple 12/12/4 curriculum with real synthetic gradients
+        env:
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+          HF_DATASETS_OFFLINE: "1"
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          TOKENIZERS_PARALLELISM: "false"
+        run: python development/sovereign-end-to-end-training-smoke.py --training-profile quadruple
 
 # Test-only randomly initialized tiny weights and synthetic data are generated
 # in an ephemeral runner and destroyed; never publish the test model as a

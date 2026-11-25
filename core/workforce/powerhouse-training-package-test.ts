@@ -88,6 +88,23 @@ for (const count of Object.values(result.domainCounts)) {
   assert.equal(count, POWERHOUSE_MINIMUM_TRAINING_EXAMPLES_PER_DOMAIN);
 }
 
+const tagged = structuredClone(valid);
+const taggedManifest = structuredClone(manifest);
+const codingExample = tagged.examples.find((item) => item.domain === "coding")!;
+const codingReference = taggedManifest.items.find((item) => item.domain === "coding" && item.split === "held-out")!;
+codingExample.criterion = "repair-and-retest";
+codingReference.criterion = "repair-and-retest";
+codingReference.targetResponse = "Retest with the repository's own build and test commands.";
+codingReference.rights.trainingAllowed = false;
+const taggedResult = validatePowerhouseTrainingPackage(tagged, taggedManifest);
+assert.notEqual(taggedResult.packageSha256, result.packageSha256);
+assert.notEqual(taggedResult.benchmarkManifestSha256, result.benchmarkManifestSha256);
+codingExample.criterion = "grade-calibration";
+assert.throws(() => validatePowerhouseTrainingPackage(tagged, taggedManifest), /unsupported curriculum criterion/u);
+codingExample.criterion = "repair-and-retest";
+codingReference.rights.trainingAllowed = true;
+assert.throws(() => validatePowerhouseTrainingPackage(tagged, taggedManifest), /evaluation-only held-out data/u);
+
 const promptLeak = structuredClone(valid);
 promptLeak.examples[0].prompt = manifest.items.find((item) => item.split === "held-out")!.prompt;
 assert.throws(

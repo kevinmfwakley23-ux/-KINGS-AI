@@ -41,6 +41,23 @@ export type PowerhouseTaskScoring =
   | PowerhouseDeterministicScoring
   | PowerhouseRubricScoring;
 
+const CARD_CURRICULUM = ["photo-sufficiency", "defect-evidence", "grade-calibration", "abstain-when-uncertain"];
+const EXPANDED_CURRICULUM: Partial<Record<PowerhouseServiceDomain, readonly string[]>> = {
+  coding: ["scoped-change", "diagnose-from-evidence", "repair-and-retest", "truthful-handoff"],
+  collectibles: CARD_CURRICULUM,
+  "sports-cards": CARD_CURRICULUM,
+};
+
+export function validatePowerhouseCurriculumCriterion(
+  domain: PowerhouseServiceDomain,
+  criterion: unknown,
+): void {
+  if (criterion !== undefined &&
+      (typeof criterion !== "string" || !EXPANDED_CURRICULUM[domain]?.includes(criterion))) {
+    throw new Error(`K.I.N.G.S. Powerhouse: unsupported curriculum criterion for "${domain}"`);
+  }
+}
+
 export interface PowerhouseCorpusItem {
   id: string;
   domain: PowerhouseServiceDomain;
@@ -50,6 +67,8 @@ export interface PowerhouseCorpusItem {
   critical: boolean;
   rights: PowerhouseDataRights;
   scoring?: PowerhouseTaskScoring;
+  criterion?: string;
+  targetResponse?: string;
 }
 
 export interface PowerhouseBenchmarkManifest {
@@ -317,6 +336,13 @@ export function validatePowerhouseBenchmarkManifest(manifest: PowerhouseBenchmar
     }
     if (item.split !== "train" && !item.rights.evaluationAllowed) {
       throw new Error(`K.I.N.G.S. Powerhouse Benchmark: evaluation rights are denied for "${id}"`);
+    }
+    validatePowerhouseCurriculumCriterion(item.domain, item.criterion);
+    if (item.targetResponse !== undefined) {
+      requiredText(item.targetResponse, `held-out reference for "${id}"`);
+      if (item.split !== "held-out" || item.rights.trainingAllowed) {
+        throw new Error(`K.I.N.G.S. Powerhouse Benchmark: reference answer for "${id}" must be evaluation-only held-out data`);
+      }
     }
     validateScoring(item);
 
